@@ -101,6 +101,20 @@ async def test_request_response_id_correlation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_request_response_id_correlation_with_string_id() -> None:
+    """Verify pending request futures resolve when server returns string numeric ids."""
+    client = LSPClientHarness()
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[JSONDict] = loop.create_future()
+    client.add_pending_future(23, future)
+
+    await client.route_message({"jsonrpc": "2.0", "id": "23", "result": {"ok": True}})
+    result = await future
+    assert result["result"] == {"ok": True}
+
+
+@pytest.mark.asyncio
 async def test_notification_routing() -> None:
     """Verify notifications are dispatched to registered handlers."""
     client = LSPClientHarness()

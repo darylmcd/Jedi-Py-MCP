@@ -40,5 +40,6 @@ Purpose: fastest canonical startup path for AI sessions.
 - `python -m pyright .`
 - `python -m mypy .`
 - `python -m pytest tests/unit/ -v`
+- `./scripts/build.ps1`
 
 Keep this file short and route detail updates to owning docs.

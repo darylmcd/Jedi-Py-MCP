@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+collect_ignore_glob = ["integration/fixtures/**"]
+
 
 @pytest.fixture
 def tmp_workspace(tmp_path: Path) -> Path:

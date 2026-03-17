@@ -12,9 +12,9 @@ Goal: get an agent productive in this repo in under two minutes.
 
 ## Current Repo State
 
-- Stage status: Stage 3 complete.
-- Implemented: Pyright LSP, Jedi backend, rope backend, diff utilities, unit tests.
-- Next major milestone: Stage 4 tool orchestration.
+- Stage status: Stage 6 complete.
+- Implemented: Pyright LSP, Jedi backend, rope backend, all 15 MCP tools, packaging script, unit coverage, and integration test scaffolding.
+- Packaging note: the executable build requires the `pyright` package at runtime so `pyright-langserver` is available.
 
 ## Where Things Are
 

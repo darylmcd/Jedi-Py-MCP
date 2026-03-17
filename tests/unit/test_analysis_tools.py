@@ -54,6 +54,42 @@ async def test_find_references_merges_and_deduplicates_results() -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_references_keeps_pyright_results_when_jedi_fails() -> None:
+    """Ensure Jedi errors do not fail a successful Pyright reference lookup."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+
+    pyright.get_references.return_value = [_location("/repo/a.py", 1, 2)]
+    jedi.get_references.side_effect = RuntimeError("jedi failed")
+
+    result = await analysis.find_references(pyright, jedi, "/repo/a.py", 1, 2)
+
+    assert result.source == "pyright"
+    assert result.total_count == 1
+    assert result.references[0].file_path == "/repo/a.py"
+
+
+@pytest.mark.asyncio
+async def test_get_type_info_keeps_pyright_result_when_jedi_fails() -> None:
+    """Ensure Jedi infer errors do not hide usable Pyright hover info."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+
+    pyright.get_hover.return_value = TypeInfo(
+        expression="/repo/a.py:0:0",
+        type_string="builtins.int",
+        documentation=None,
+        source="pyright",
+    )
+    jedi.infer_type.side_effect = RuntimeError("jedi failed")
+
+    result = await analysis.get_type_info(pyright, jedi, "/repo/a.py", 0, 0)
+
+    assert result.type_string == "builtins.int"
+    assert result.source == "pyright"
+
+
+@pytest.mark.asyncio
 async def test_get_type_info_uses_jedi_when_pyright_is_unknown() -> None:
     """Ensure unknown Pyright hover falls back to Jedi inference."""
     pyright = AsyncMock()

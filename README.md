@@ -1,35 +1,79 @@
 # Jedi-Py-MCP
 
-`Jedi-Py-MCP` is a Python MCP server for code analysis and refactoring that combines:
+Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactoring. It combines three backends behind one MCP tool surface:
 
-- Pyright for type-aware semantic analysis
-- Jedi for dynamic-analysis fallback
-- rope for mutation-safe refactoring edits
+- Pyright for semantic analysis, references, diagnostics, definitions, and call hierarchy.
+- Jedi for fallback analysis in dynamic or weakly typed code.
+- rope for edit generation and refactoring-safe file mutations.
 
-Current implementation status: Stage 3 complete (backend layer implemented and unit-tested).
+Current implementation status: Stage 6 complete.
+
+## Requirements
+
+- Python 3.13+
+- Windows-first workflow with PowerShell examples
+- A Python environment that has the `pyright` package installed so `pyright-langserver` is available on PATH
 
 ## Installation
 
-Requirements:
-- Python 3.13+
+Install the server from source:
 
-Install in editable mode with development dependencies:
+```powershell
+python -m pip install .
+```
+
+Install with development tools:
 
 ```powershell
 python -m pip install -e ".[dev]"
 ```
 
-## Run the Server
+Install with build tooling:
 
-Start the MCP server over stdio and pass a workspace root:
+```powershell
+python -m pip install -e ".[build]"
+```
+
+Install from requirements:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+The `pyright` requirement installs the `pyright-langserver` executable used by the server.
+
+## Executable Build
+
+Build a Windows executable with PyInstaller:
+
+```powershell
+.\scripts\build.ps1
+```
+
+Optional flags:
+
+- `-OneFile` builds a single executable instead of a directory bundle.
+- `-Clean` removes previous `build/`, `dist/`, and spec outputs before packaging.
+
+The packaged executable contains the Python MCP server only. It does not bundle Node.js or a separate Pyright runtime. Users still need the `pyright` Python package installed so `pyright-langserver` can be resolved at runtime.
+
+## Running The Server
+
+Start the stdio server against a workspace:
 
 ```powershell
 python -m python_refactor_mcp C:\path\to\python\project
 ```
 
-## MCP Client Configuration Example
+Check the CLI version:
 
-Example JSON snippet for an MCP client configuration:
+```powershell
+python -m python_refactor_mcp --version
+```
+
+## MCP Client Configuration
+
+### VS Code Copilot
 
 ```json
 {
@@ -42,34 +86,133 @@ Example JSON snippet for an MCP client configuration:
 }
 ```
 
-## Development Commands
+### Claude Desktop
+
+```json
+{
+	"mcpServers": {
+		"python-refactor": {
+			"command": "python",
+			"args": ["-m", "python_refactor_mcp", "C:/path/to/python/project"]
+		}
+	}
+}
+```
+
+### Packaged Executable
+
+```json
+{
+	"mcpServers": {
+		"python-refactor": {
+			"command": "C:/path/to/dist/python-refactor-mcp/python-refactor-mcp.exe",
+			"args": ["C:/path/to/python/project"]
+		}
+	}
+}
+```
+
+## Configuration
+
+Workspace discovery is automatic and happens from the workspace root argument.
+
+Python interpreter discovery order:
+
+1. `.venv`
+2. `venv`
+3. Poetry virtualenv path from `pyproject.toml`
+4. `VIRTUAL_ENV`
+5. System `python3`
+6. System `python`
+
+Other runtime discovery:
+
+- `pyrightconfig.json` is detected from the workspace root.
+- `PYRIGHT_LANGSERVER` can override the default `pyright-langserver` executable.
+- Rope preferences are initialized from server defaults in `config.py`.
+
+## Tool Reference
+
+| Tool | Purpose | Returns |
+|---|---|---|
+| `find_references` | Find references for a symbol at a source location. | `ReferenceResult` |
+| `get_type_info` | Resolve type information for an expression or symbol. | `TypeInfo` |
+| `get_diagnostics` | Return Pyright diagnostics for a file or workspace. | `list[Diagnostic]` |
+| `goto_definition` | Navigate to symbol definitions. | `list[Location]` |
+| `call_hierarchy` | Return callers and callees for a symbol. | `CallHierarchyResult` |
+| `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
+| `smart_rename` | Run Pyright reference discovery plus rope rename and validation. | `RefactorResult` |
+| `extract_method` | Extract a selected block into a method. | `RefactorResult` |
+| `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
+| `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |
+| `move_symbol` | Move a symbol between files. | `RefactorResult` |
+| `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |
+| `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
+| `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |
+| `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
+
+Refactoring tools default to returning `TextEdit` data. Set `apply=True` to write changes to disk and return post-change diagnostics.
+
+## Architecture
+
+```text
+MCP Client
+		|
+		v
+FastMCP Server (stdio)
+		|
+		+--> Analysis tools ----------> Pyright LSP client ----------> pyright-langserver
+		|
+		+--> Fallback analysis -------> Jedi backend
+		|
+		+--> Refactoring tools -------> rope backend
+		|
+		+--> Composite workflows -----> Pyright + rope validation loop
+```
+
+## Troubleshooting
+
+### `pyright-langserver` not found
+
+- Install the `pyright` package in the same environment as the server.
+- Verify `python -m pyright --version` succeeds.
+- Set `PYRIGHT_LANGSERVER` if the executable is in a non-standard location.
+
+### Virtual environment not detected
+
+- Pass the intended workspace root, not a nested source directory.
+- Confirm the venv is named `.venv` or `venv`, or expose it via `VIRTUAL_ENV`.
+- If using Poetry, ensure the configured virtualenv path is present in `pyproject.toml`.
+
+### Build script fails
+
+- Install build dependencies with `python -m pip install -e ".[build]"` or `python -m pip install -r requirements.txt`.
+- Run the script from PowerShell.
+- Use `-Clean` to remove stale PyInstaller artifacts.
+
+### Refactoring applies edits but diagnostics remain
+
+- Inspect the returned `diagnostics_after` field in the refactor result.
+- Validate the target project with Pyright directly to confirm whether the issue is pre-existing.
+
+## Development And Validation
 
 ```powershell
 python -m ruff check .
 python -m pyright .
 python -m mypy .
 python -m pytest tests/unit/ -v
+python -m pytest tests/integration/ -v
 ```
 
 ## Repository Map
 
-- `src/python_refactor_mcp/server.py`: FastMCP app lifecycle and tool registration
+- `src/python_refactor_mcp/server.py`: MCP lifecycle and tool registration
 - `src/python_refactor_mcp/config.py`: workspace and runtime discovery
-- `src/python_refactor_mcp/models.py`: shared output models
-- `src/python_refactor_mcp/backends/`: Pyright, Jedi, and rope backend implementations
-- `src/python_refactor_mcp/tools/`: tool-level orchestrators (placeholder implementations pending Stage 4)
-- `src/python_refactor_mcp/util/`: LSP and diff helper utilities
+- `src/python_refactor_mcp/models.py`: shared structured response models
+- `src/python_refactor_mcp/backends/`: Pyright, Jedi, and rope integrations
+- `src/python_refactor_mcp/tools/`: tool orchestration layer
+- `src/python_refactor_mcp/util/`: LSP, path, and diff helpers
 - `tests/unit/`: unit test suite
-- `ai_docs/`: canonical AI workflow and policy docs
-
-## AI Session Flow
-
-For AI-assisted sessions, start with `AGENTS.md` and follow the canonical docs chain in order:
-
-1. `.github/copilot-instructions.md`
-2. `ai_docs/quickstart.md`
-3. `ai_docs/README.md`
-4. `ai_docs/runtime.md`
-5. `ai_docs/workflow.md`
-6. `CI_POLICY.md`
-7. `ai_docs/backlog.md`
+- `tests/integration/`: end-to-end MCP and backend coverage
+- `ai_docs/`: canonical repo workflow and policy docs

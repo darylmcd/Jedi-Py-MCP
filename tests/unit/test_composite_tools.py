@@ -1,0 +1,72 @@
+"""Unit tests for composite tool orchestration."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.tools import composite
+
+
+def _edit(path: str) -> TextEdit:
+    return TextEdit(
+        file_path=path,
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+        new_text="x",
+    )
+
+
+def _diag(path: str, line: int) -> Diagnostic:
+    return Diagnostic(
+        file_path=path,
+        range=Range(start=Position(line=line, character=0), end=Position(line=line, character=1)),
+        severity="error",
+        message=f"e{line}",
+        code=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_smart_rename_calls_reference_scan_before_rename() -> None:
+    """Ensure smart_rename gathers references then delegates to rope."""
+    pyright = AsyncMock()
+    rope = AsyncMock()
+
+    pyright.get_references.return_value = []
+    rope.rename.return_value = RefactorResult(
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="rename",
+        applied=False,
+    )
+
+    result = await composite.smart_rename(pyright, rope, "/repo/a.py", 1, 2, "new_name", apply=False)
+
+    assert result.applied is False
+    pyright.get_references.assert_awaited_once_with("/repo/a.py", 1, 2, True)
+    rope.rename.assert_awaited_once_with("/repo/a.py", 1, 2, "new_name", False)
+
+
+@pytest.mark.asyncio
+async def test_smart_rename_apply_refreshes_diagnostics() -> None:
+    """Ensure apply mode notifies changed files and includes diagnostics."""
+    pyright = AsyncMock()
+    rope = AsyncMock()
+
+    pyright.get_references.return_value = []
+    rope.rename.return_value = RefactorResult(
+        edits=[_edit("/repo/a.py"), _edit("/repo/b.py")],
+        files_affected=["/repo/a.py", "/repo/b.py"],
+        description="rename",
+        applied=True,
+    )
+    pyright.get_diagnostics.side_effect = [[_diag("/repo/a.py", 1)], [_diag("/repo/b.py", 2)]]
+
+    result = await composite.smart_rename(pyright, rope, "/repo/a.py", 1, 2, "new_name", apply=True)
+
+    assert result.diagnostics_after is not None
+    assert len(result.diagnostics_after) == 2
+    pyright.notify_file_changed.assert_any_await("/repo/a.py")
+    pyright.notify_file_changed.assert_any_await("/repo/b.py")

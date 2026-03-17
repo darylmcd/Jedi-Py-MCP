@@ -15,10 +15,14 @@ from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
 from python_refactor_mcp.models import (
 	CallHierarchyResult,
+	ConstructorSite,
+	DeadCodeItem,
 	Diagnostic,
+	ImportSuggestion,
 	Location,
 	RefactorResult,
 	ReferenceResult,
+	StructuralMatch,
 	TypeInfo,
 )
 from python_refactor_mcp.tools.analysis import (
@@ -294,10 +298,16 @@ async def move_symbol(
 
 
 @mcp.tool()
-async def find_constructors(ctx: MCPContext, class_name: str, file_path: str | None = None) -> str:
+async def find_constructors(
+	ctx: MCPContext,
+	class_name: str,
+	file_path: str | None = None,
+) -> list[ConstructorSite]:
 	"""Find constructor call sites for a class."""
-	_ = _get_app_context(ctx)
-	return await search_find_constructors(class_name, file_path)
+	app = _get_app_context(ctx)
+	result = await search_find_constructors(app.pyright, app.config, class_name, file_path)
+	await ctx.debug(f"find_constructors class={class_name} count={len(result)}")
+	return result
 
 
 @mcp.tool()
@@ -306,24 +316,37 @@ async def structural_search(
 	pattern: str,
 	file_path: str | None = None,
 	language: str = "python",
-) -> str:
+) -> list[StructuralMatch]:
 	"""Search code structurally using a pattern expression."""
-	_ = _get_app_context(ctx)
-	return await search_structural_search(pattern, file_path, language)
+	app = _get_app_context(ctx)
+	result = await search_structural_search(app.config, pattern, file_path, language)
+	await ctx.debug(f"structural_search language={language} count={len(result)}")
+	return result
 
 
 @mcp.tool()
-async def dead_code_detection(ctx: MCPContext, file_path: str | None = None) -> str:
+async def dead_code_detection(
+	ctx: MCPContext,
+	file_path: str | None = None,
+) -> list[DeadCodeItem]:
 	"""Detect dead code candidates in a file or workspace."""
-	_ = _get_app_context(ctx)
-	return await search_dead_code_detection(file_path)
+	app = _get_app_context(ctx)
+	result = await search_dead_code_detection(app.pyright, app.config, file_path)
+	await ctx.debug(f"dead_code_detection count={len(result)}")
+	return result
 
 
 @mcp.tool()
-async def suggest_imports(ctx: MCPContext, symbol: str, file_path: str) -> str:
+async def suggest_imports(
+	ctx: MCPContext,
+	symbol: str,
+	file_path: str,
+) -> list[ImportSuggestion]:
 	"""Suggest import statements for an unresolved symbol."""
-	_ = _get_app_context(ctx)
-	return await search_suggest_imports(symbol, file_path)
+	app = _get_app_context(ctx)
+	result = await search_suggest_imports(app.pyright, app.jedi, symbol, file_path)
+	await ctx.debug(f"suggest_imports symbol={symbol} count={len(result)}")
+	return result
 
 
 @mcp.tool()
@@ -334,10 +357,20 @@ async def smart_rename(
 	character: int,
 	new_name: str,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Perform a coordinated rename workflow across backends."""
-	_ = _get_app_context(ctx)
-	return await composite_smart_rename(file_path, line, character, new_name, apply)
+	app = _get_app_context(ctx)
+	result = await composite_smart_rename(
+		app.pyright,
+		app.rope,
+		file_path,
+		line,
+		character,
+		new_name,
+		apply,
+	)
+	await ctx.debug(f"smart_rename edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 def run_server(workspace_root: str) -> None:
