@@ -1,0 +1,17 @@
+{
+  "typeCheckingMode": "strict",
+  "include": ["src/"],
+  "exclude": ["tests/", "build/", "dist/", ".venv/", "venv/", ".git/"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["src"],
+  "pythonVersion": "3.13",
+  "reportMissingTypeStubs": false,
+  "reportMissingImports": false,
+  "reportUntypedFunctionDecorator": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownArgumentType": false,
+  "reportUntypedBaseClass": false
+}

@@ -1,0 +1,136 @@
+"""Shared Pydantic models for MCP tool inputs and outputs."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+
+class Position(BaseModel):
+    """0-based line and character offset."""
+
+    line: int
+    character: int
+
+
+class Range(BaseModel):
+    """Text range in a file using 0-based positions."""
+
+    start: Position
+    end: Position
+
+
+class Location(BaseModel):
+    """A file location for symbols and references."""
+
+    file_path: str
+    range: Range
+
+
+class TextEdit(BaseModel):
+    """A textual replacement for a file range."""
+
+    file_path: str
+    range: Range
+    new_text: str
+
+
+class SymbolInfo(BaseModel):
+    """Metadata for a discovered symbol."""
+
+    name: str
+    kind: str
+    file_path: str
+    range: Range
+    container: str | None = None
+
+
+class Diagnostic(BaseModel):
+    """A diagnostic issue reported by analysis backends."""
+
+    file_path: str
+    range: Range
+    severity: str
+    message: str
+    code: str | None = None
+
+
+class ReferenceResult(BaseModel):
+    """Reference search result for a symbol."""
+
+    symbol: str
+    definition: Location | None = None
+    references: list[Location]
+    total_count: int
+    source: str
+
+
+class TypeInfo(BaseModel):
+    """Type information returned for an expression or symbol."""
+
+    expression: str
+    type_string: str
+    documentation: str | None = None
+    source: str
+
+
+class CallHierarchyItem(BaseModel):
+    """One node in a call hierarchy graph."""
+
+    name: str
+    kind: str
+    file_path: str
+    range: Range
+    detail: str | None = None
+
+
+class CallHierarchyResult(BaseModel):
+    """Call hierarchy data for callers and callees."""
+
+    item: CallHierarchyItem
+    callers: list[CallHierarchyItem]
+    callees: list[CallHierarchyItem]
+
+
+class RefactorResult(BaseModel):
+    """Refactoring edit payload and optional diagnostics."""
+
+    edits: list[TextEdit]
+    files_affected: list[str]
+    description: str
+    applied: bool = False
+    diagnostics_after: list[Diagnostic] | None = None
+
+
+class ConstructorSite(BaseModel):
+    """A class constructor invocation site."""
+
+    class_name: str
+    file_path: str
+    range: Range
+    arguments: list[str]
+
+
+class StructuralMatch(BaseModel):
+    """A structural pattern match found in code."""
+
+    file_path: str
+    range: Range
+    matched_text: str
+
+
+class DeadCodeItem(BaseModel):
+    """Detected dead or unreachable code candidate."""
+
+    name: str
+    kind: str
+    file_path: str
+    range: Range
+    reason: str
+
+
+class ImportSuggestion(BaseModel):
+    """Suggested import for an unresolved symbol."""
+
+    symbol: str
+    module: str
+    import_statement: str

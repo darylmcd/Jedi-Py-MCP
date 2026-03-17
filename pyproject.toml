@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "python-refactor-mcp"
+version = "0.1.0"
+description = "MCP server for Python code analysis and refactoring"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Jedi-Py-MCP Contributors" }]
+dependencies = [
+  "mcp>=1.20",
+  "pydantic>=2.0",
+  "jedi>=0.19",
+  "rope>=1.13",
+  "pyright>=1.1.380",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+  "mypy>=1.13",
+]
+
+[project.scripts]
+python-refactor-mcp = "python_refactor_mcp.__main__:main"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["python_refactor_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+packages = ["python_refactor_mcp"]
+
+[[tool.mypy.overrides]]
+module = ["python_refactor_mcp.server"]
+disable_error_code = ["type-arg", "unused-ignore"]
