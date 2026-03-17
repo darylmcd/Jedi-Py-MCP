@@ -19,6 +19,15 @@ _CONTENT_LENGTH = "content-length"
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_response_id(value: JSONValue) -> int | None:
+	"""Normalize JSON-RPC response ids to integer keys when possible."""
+	if isinstance(value, int):
+		return value
+	if isinstance(value, str) and value.isdigit():
+		return int(value)
+	return None
+
+
 def encode_lsp_message(payload: JSONDict) -> bytes:
 	"""Encode a JSON-RPC payload into an LSP-framed byte sequence."""
 	body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -126,8 +135,11 @@ class LSPClient:
 			process.stdin.write(encode_lsp_message(payload))
 			await process.stdin.drain()
 
-		response = await future
-		return response
+		try:
+			response = await future
+			return response
+		finally:
+			self._pending.pop(request_id, None)
 
 	async def send_notification(self, method: str, params: dict[str, JSONValue]) -> None:
 		"""Send a JSON-RPC notification without waiting for a response."""
@@ -217,9 +229,10 @@ class LSPClient:
 		"""Dispatch a received message to a pending request or notification handler."""
 		method_value = message.get("method")
 		id_value = message.get("id")
+		request_id = _normalize_response_id(id_value)
 
-		if id_value is not None and isinstance(id_value, int):
-			future = self._pending.pop(id_value, None)
+		if request_id is not None:
+			future = self._pending.pop(request_id, None)
 			if future is not None and not future.done():
 				future.set_result(message)
 			return

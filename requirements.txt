@@ -1,0 +1,19 @@
+# Core dependencies
+mcp>=1.20
+pydantic>=2.0
+jedi>=0.19
+rope>=1.13
+pyright>=1.1.380  # Installs the pyright-langserver executable.
+libcst>=1.1
+
+# Dev / test dependencies
+pytest>=8.0
+pytest-asyncio>=0.24
+ruff>=0.8
+mypy>=1.13
+
+# Build backend
+hatchling>=1.25
+
+# Packaging
+pyinstaller>=6.0

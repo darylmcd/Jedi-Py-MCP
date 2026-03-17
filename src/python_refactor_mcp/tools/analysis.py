@@ -96,7 +96,16 @@ async def find_references(
     )
 
     if not pyright_references:
-        jedi_references = await jedi.get_references(file_path, line, character)
+        try:
+            jedi_references = await jedi.get_references(file_path, line, character)
+        except Exception:
+            return ReferenceResult(
+                symbol=f"{file_path}:{line}:{character}",
+                definition=None,
+                references=[],
+                total_count=0,
+                source="pyright",
+            )
         deduped_jedi = sorted(
             {
                 _location_key(location): location
@@ -118,12 +127,16 @@ async def find_references(
     }
     source = "pyright"
 
-    jedi_references = await jedi.get_references(file_path, line, character)
-    for location in jedi_references:
-        key = _location_key(location)
-        if key not in merged:
-            source = "combined"
-            merged[key] = location
+    try:
+        jedi_references = await jedi.get_references(file_path, line, character)
+        for location in jedi_references:
+            key = _location_key(location)
+            if key not in merged:
+                source = "combined"
+                merged[key] = location
+    except Exception:
+        # Keep the Pyright result if Jedi enrichment fails.
+        pass
 
     deduped = sorted(merged.values(), key=_location_key)
     return ReferenceResult(
@@ -154,7 +167,10 @@ async def get_type_info(
             )
         return pyright_type
 
-    jedi_type = await jedi.infer_type(file_path, line, character)
+    try:
+        jedi_type = await jedi.infer_type(file_path, line, character)
+    except Exception:
+        jedi_type = None
     if jedi_type is not None:
         return jedi_type
 

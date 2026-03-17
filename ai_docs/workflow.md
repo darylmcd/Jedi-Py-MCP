@@ -12,7 +12,7 @@ Scope: session workflow, task scoping, branching, worktrees, PR handling, and de
 
 ## Repo Checkpoints
 
-1. Stage awareness: current implementation is Stage 3 complete.
+1. Stage awareness: current implementation is Stage 6 complete.
 2. Runtime change: update tests in `tests/unit/` in same change.
 3. Command change: update `ai_docs/runtime.md`.
 4. Process/policy change: update `ai_docs/workflow.md` or `CI_POLICY.md`.

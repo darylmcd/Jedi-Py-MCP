@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -111,20 +112,64 @@ class PyrightLSPClient:
     def __init__(self, config: ServerConfig) -> None:
         """Initialize the Pyright backend with server config."""
         self._config = config
-        self._client = LSPClient()
+        self._client = self._make_client()
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
-        self._client.register_notification_handler(
+
+    def _make_client(self) -> LSPClient:
+        """Create and configure a fresh LSP transport client."""
+        client = LSPClient()
+        client.register_notification_handler(
             "textDocument/publishDiagnostics",
             self._handle_publish_diagnostics,
         )
+        return client
+
+    def _candidate_commands(self) -> list[list[str]]:
+        """Build candidate commands to launch pyright-langserver robustly."""
+        candidates: list[list[str]] = []
+
+        configured = self._config.pyright_executable.strip()
+        module_python_candidates: list[str] = [str(self._config.python_executable)]
+
+        configured_path = Path(configured)
+        if configured and configured_path.is_absolute():
+            launcher_dir = configured_path.parent
+            inferred_python = launcher_dir / ("python.exe" if os.name == "nt" else "python")
+            if inferred_python.exists():
+                module_python_candidates.insert(0, str(inferred_python))
+
+        for python_command in module_python_candidates:
+            candidates.append([python_command, "-m", "pyright.langserver", "--stdio"])
+
+        if configured:
+            configured_lower = configured.lower()
+            if os.name == "nt" and configured_lower.endswith(".cmd"):
+                candidates.append(["cmd", "/c", configured, "--stdio"])
+            else:
+                candidates.append([configured, "--stdio"])
+
+        if self._config.venv_path is not None:
+            scripts_dir = self._config.venv_path / ("Scripts" if os.name == "nt" else "bin")
+            exe_suffix = ".exe" if os.name == "nt" else ""
+            candidates.append([str(scripts_dir / f"pyright-langserver{exe_suffix}"), "--stdio"])
+            if os.name == "nt":
+                candidates.append(["cmd", "/c", str(scripts_dir / "pyright-langserver.cmd"), "--stdio"])
+
+        # Deduplicate while preserving order.
+        deduped: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for command in candidates:
+            command_key = tuple(command)
+            if command_key in seen:
+                continue
+            seen.add(command_key)
+            deduped.append(command)
+        return deduped
 
     async def start(self) -> None:
         """Start the Pyright language server and initialize the LSP session."""
-        command = [self._config.pyright_executable, "--stdio"]
-        await self._client.start(command)
-
         root_uri = path_to_uri(str(self._config.workspace_root))
         initialize_params: dict[str, JSONValue] = {
             "processId": None,
@@ -144,11 +189,39 @@ class PyrightLSPClient:
             "clientInfo": {"name": "python-refactor-mcp"},
         }
 
-        response = await self._client.send_request("initialize", initialize_params)
-        if "error" in response:
-            raise PyrightError(f"Pyright initialize failed: {response['error']}")
+        startup_errors: list[str] = []
+        for command in self._candidate_commands():
+            self._client = self._make_client()
+            try:
+                await self._client.start(command)
+                response = await asyncio.wait_for(
+                    self._client.send_request("initialize", initialize_params),
+                    timeout=15,
+                )
+                if "error" in response:
+                    raise PyrightError(f"Pyright initialize failed: {response['error']}")
+                await self._client.send_notification("initialized", {})
+                settings: dict[str, JSONValue] = {
+                    "python": {
+                        "pythonPath": str(self._config.python_executable),
+                        "analysis": {
+                            "diagnosticMode": "openFilesOnly",
+                            "autoSearchPaths": True,
+                            "useLibraryCodeForTypes": True,
+                        },
+                    }
+                }
+                await self._client.send_notification(
+                    "workspace/didChangeConfiguration",
+                    {"settings": settings},
+                )
+                return
+            except Exception as exc:
+                startup_errors.append(f"{' '.join(command)} -> {exc}")
+                await self._client.shutdown()
 
-        await self._client.send_notification("initialized", {})
+        joined_errors = " | ".join(startup_errors)
+        raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
 
     async def ensure_file_open(self, file_path: str) -> None:
         """Ensure a file is opened and tracked in the language server session."""
