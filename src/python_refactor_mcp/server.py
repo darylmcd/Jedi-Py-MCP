@@ -13,6 +13,14 @@ from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
+from python_refactor_mcp.models import (
+	CallHierarchyResult,
+	Diagnostic,
+	Location,
+	RefactorResult,
+	ReferenceResult,
+	TypeInfo,
+)
 from python_refactor_mcp.tools.analysis import (
 	find_references as analysis_find_references,
 )
@@ -103,17 +111,28 @@ async def find_references(
 	line: int,
 	character: int,
 	include_declaration: bool = True,
-) -> str:
+) -> ReferenceResult:
 	"""Find symbol references for the provided source location."""
-	_ = _get_app_context(ctx)
-	return await analysis_find_references(file_path, line, character, include_declaration)
+	app = _get_app_context(ctx)
+	result = await analysis_find_references(
+		app.pyright,
+		app.jedi,
+		file_path,
+		line,
+		character,
+		include_declaration,
+	)
+	await ctx.debug(f"find_references source={result.source} count={result.total_count}")
+	return result
 
 
 @mcp.tool()
-async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> str:
+async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
 	"""Get type information for the provided source location."""
-	_ = _get_app_context(ctx)
-	return await analysis_get_type_info(file_path, line, character)
+	app = _get_app_context(ctx)
+	result = await analysis_get_type_info(app.pyright, app.jedi, file_path, line, character)
+	await ctx.debug(f"get_type_info source={result.source} type={result.type_string}")
+	return result
 
 
 @mcp.tool()
@@ -121,10 +140,12 @@ async def get_diagnostics(
 	ctx: MCPContext,
 	file_path: str | None = None,
 	severity_filter: str | None = None,
-) -> str:
+) -> list[Diagnostic]:
 	"""Get diagnostics for a file or for the full workspace."""
-	_ = _get_app_context(ctx)
-	return await analysis_get_diagnostics(file_path, severity_filter)
+	app = _get_app_context(ctx)
+	result = await analysis_get_diagnostics(app.pyright, file_path, severity_filter)
+	await ctx.debug(f"get_diagnostics count={len(result)} severity_filter={severity_filter}")
+	return result
 
 
 @mcp.tool()
@@ -135,17 +156,24 @@ async def call_hierarchy(
 	character: int,
 	direction: str = "both",
 	depth: int = 1,
-) -> str:
+) -> CallHierarchyResult:
 	"""Get call hierarchy data for callers and/or callees."""
-	_ = _get_app_context(ctx)
-	return await navigation_call_hierarchy(file_path, line, character, direction, depth)
+	app = _get_app_context(ctx)
+	result = await navigation_call_hierarchy(app.pyright, file_path, line, character, direction, depth)
+	await ctx.debug(
+		"call_hierarchy callers="
+		f"{len(result.callers)} callees={len(result.callees)} depth={depth} direction={direction}"
+	)
+	return result
 
 
 @mcp.tool()
-async def goto_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> str:
+async def goto_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
 	"""Navigate to symbol definitions for the provided source location."""
-	_ = _get_app_context(ctx)
-	return await navigation_goto_definition(file_path, line, character)
+	app = _get_app_context(ctx)
+	result = await navigation_goto_definition(app.pyright, app.jedi, file_path, line, character)
+	await ctx.debug(f"goto_definition count={len(result)}")
+	return result
 
 
 @mcp.tool()
@@ -156,10 +184,20 @@ async def rename_symbol(
 	character: int,
 	new_name: str,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Rename a symbol and optionally apply edits to disk."""
-	_ = _get_app_context(ctx)
-	return await refactoring_rename_symbol(file_path, line, character, new_name, apply)
+	app = _get_app_context(ctx)
+	result = await refactoring_rename_symbol(
+		app.pyright,
+		app.rope,
+		file_path,
+		line,
+		character,
+		new_name,
+		apply,
+	)
+	await ctx.debug(f"rename_symbol edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 @mcp.tool()
@@ -172,10 +210,12 @@ async def extract_method(
 	end_character: int,
 	method_name: str,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Extract selected code into a new method."""
-	_ = _get_app_context(ctx)
-	return await refactoring_extract_method(
+	app = _get_app_context(ctx)
+	result = await refactoring_extract_method(
+		app.pyright,
+		app.rope,
 		file_path,
 		start_line,
 		start_character,
@@ -184,6 +224,8 @@ async def extract_method(
 		method_name,
 		apply,
 	)
+	await ctx.debug(f"extract_method edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 @mcp.tool()
@@ -196,10 +238,12 @@ async def extract_variable(
 	end_character: int,
 	variable_name: str,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Extract selected expression into a variable."""
-	_ = _get_app_context(ctx)
-	return await refactoring_extract_variable(
+	app = _get_app_context(ctx)
+	result = await refactoring_extract_variable(
+		app.pyright,
+		app.rope,
 		file_path,
 		start_line,
 		start_character,
@@ -208,6 +252,8 @@ async def extract_variable(
 		variable_name,
 		apply,
 	)
+	await ctx.debug(f"extract_variable edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 @mcp.tool()
@@ -217,10 +263,12 @@ async def inline_variable(
 	line: int,
 	character: int,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Inline variable usage at a source position."""
-	_ = _get_app_context(ctx)
-	return await refactoring_inline_variable(file_path, line, character, apply)
+	app = _get_app_context(ctx)
+	result = await refactoring_inline_variable(app.pyright, app.rope, file_path, line, character, apply)
+	await ctx.debug(f"inline_variable edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 @mcp.tool()
@@ -230,10 +278,19 @@ async def move_symbol(
 	symbol_name: str,
 	destination_file: str,
 	apply: bool = False,
-) -> str:
+) -> RefactorResult:
 	"""Move a symbol from one file to another."""
-	_ = _get_app_context(ctx)
-	return await refactoring_move_symbol(source_file, symbol_name, destination_file, apply)
+	app = _get_app_context(ctx)
+	result = await refactoring_move_symbol(
+		app.pyright,
+		app.rope,
+		source_file,
+		symbol_name,
+		destination_file,
+		apply,
+	)
+	await ctx.debug(f"move_symbol edits={len(result.edits)} applied={result.applied}")
+	return result
 
 
 @mcp.tool()
