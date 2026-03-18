@@ -14,3 +14,4 @@ Do not treat archive contents as current policy unless an active canonical doc e
 Current notable archive items:
 
 - `python-refactor-mcp-prompt.md`: historical staged implementation prompt used as execution reference.
+- `quickstart.md`: superseded bootstrap summary retained for historical context.

@@ -33,6 +33,11 @@ Scope: verified environment, shell, tool, editor, and integration facts for this
 - The `pyright` Python package provides the `pyright-langserver` executable required by the server and packaged build.
 - If a future change introduces required tooling, record the verified command surface here.
 
+## Policy Boundaries
+
+- Validation and merge-gating policy is owned by `../CI_POLICY.md`.
+- Branch, worktree, and PR execution policy is owned by `workflow.md`.
+
 ## Update Checklist
 
 - Shells available

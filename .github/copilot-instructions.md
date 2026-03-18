@@ -1,11 +1,11 @@
 # Copilot Instructions
 
-Scope: implementation quality, engineering behavior, safety, and definition of done.
+Scope: behavior and quality guardrails for AI contributors.
 
 Session bootstrap:
 
-- Start with `AGENTS.md` to locate canonical docs and required read order.
-- Use `ai_docs/README.md` as the routing map for project structure and doc ownership.
+- Start with `AGENTS.md` for canonical read order.
+- Use `ai_docs/README.md` as the AI-doc routing index.
 
 Implementation guardrails:
 
@@ -19,9 +19,9 @@ Implementation guardrails:
 
 Validation expectations:
 
-- Validate the files you changed using the commands or checks defined in `CI_POLICY.md` when those checks exist.
-- If no automated checks exist for the change, perform a consistency review of the affected docs or code paths and say what was not validated.
-- Treat warnings, failing diagnostics, and broken links introduced by your change as work to resolve before handoff.
+- Validation and merge-gating policy is owned by `CI_POLICY.md`.
+- Runtime command facts are owned by `ai_docs/runtime.md`.
+- Branch/worktree/PR process is owned by `ai_docs/workflow.md`.
 
 Definition of done:
 
