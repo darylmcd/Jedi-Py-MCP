@@ -1,25 +1,27 @@
 # AI Docs Index
 
-Purpose: route agents to the right source fast, with minimal re-reading.
+Purpose: canonical routing map for AI-facing documentation.
 
-## Fast Route
+## Active Canonical Set
 
-- `quickstart.md`: one-page bootstrap and current state
-- `runtime.md`: verified commands and environment facts
-- `workflow.md`: execution flow and handoff checklist
-- `../CI_POLICY.md`: validation standard
+- `../AGENTS.md`: bootstrap order and canonical ownership map
+- `../CLAUDE.md`: bootstrap alignment for Claude-style sessions
+- `../.github/copilot-instructions.md`: behavior guardrails and policy pointers
+- `../CI_POLICY.md`: validation and merge-gating policy
+- `workflow.md`: branch/worktree/PR execution flow
+- `runtime.md`: verified environment and command facts
 - `backlog.md`: open follow-up work only
+- `../.cursor/rules/operational-essentials.md`: compact reminder layer aligned with workflow
 
 Read order is defined by `../AGENTS.md`.
 
-## Canonical Ownership
+## Preferred Active References
 
-- `../.github/copilot-instructions.md`: implementation behavior, safety, and definition of done
-- `quickstart.md`: session bootstrap shortcut
-- `runtime.md`: environment and command facts
-- `workflow.md`: execution flow
-- `../CI_POLICY.md`: required validation and merge gate policy
-- `backlog.md`: open follow-up work only
+- `architecture.md`: compact system architecture reference
+- `domains/python-refactor/reference.md`: domain-specific entry point
+- `references/testing.md`: stable test strategy and command reference
+- `references/tooling/python.md`: Python/runtime tooling reference
+- `procedures/release-handoff.md`: repeatable handoff sequence
 
 ## Project Map
 
@@ -31,13 +33,15 @@ Read order is defined by `../AGENTS.md`.
 - `../src/python_refactor_mcp/backends/rope_backend.py`: rope refactoring backend
 - `../src/python_refactor_mcp/util/lsp_client.py`: LSP transport client
 - `../src/python_refactor_mcp/util/diff.py`: text edit and atomic write helpers
-- `../src/python_refactor_mcp/tools/`: tool modules (Stage 4+ implementation target)
+- `../src/python_refactor_mcp/tools/`: tool modules
 - `../tests/unit/`: current automated coverage
-- `archive/python-refactor-mcp-prompt.md`: stage-by-stage historical implementation plan
+- `../tests/integration/`: transport and end-to-end coverage
+- `archive/python-refactor-mcp-prompt.md`: stage-by-stage historical implementation prompt
 
-## Doc Rules
+## Organization Rules
 
-- Update canonical docs for current-state facts.
-- Keep historical prompts and one-off deep dives in `archive/`.
-- Avoid duplicating policy across multiple files.
-- When adding a new doc, assign one clear ownership scope and reference it from `AGENTS.md` only if it becomes required bootstrap reading.
+- Keep active docs current-state only.
+- Keep unfinished work in `backlog.md` only.
+- Keep deep history, audits, and point-in-time analyses in `archive/`.
+- Keep scratch/session artifacts outside `ai_docs` (for example `.ai-scratch/`).
+- Use one canonical owner per concern and link instead of duplicating policy.

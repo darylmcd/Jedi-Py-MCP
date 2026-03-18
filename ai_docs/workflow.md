@@ -44,6 +44,12 @@ Scope: session workflow, task scoping, branching, worktrees, PR handling, and de
 - For GitHub-hosted repositories, the fallback pattern is `https://github.com/<owner>/<repo>/compare/<base>...<head>?expand=1`.
 - Keep the PR scope aligned with one task or one logical change set.
 
+## Merge-Ready Handoff
+
+- Before handoff, confirm the branch is synchronized with base branch requirements when protection rules require it.
+- Re-run required checks after resolving base-branch drift.
+- Do not claim merge-readiness when required checks, required reviews, or branch protection conditions remain unmet.
+
 ## Branch Cleanup
 
 - After merge, clean up merged task branches unless repository policy or an active follow-up requires keeping them.
