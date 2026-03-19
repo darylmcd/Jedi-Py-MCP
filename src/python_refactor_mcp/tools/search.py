@@ -23,6 +23,7 @@ from python_refactor_mcp.models import (
     Position,
     Range,
     StructuralMatch,
+    SymbolInfo,
 )
 
 
@@ -52,12 +53,20 @@ class _PyrightSearchBackend(Protocol):
         """Return code action candidates for a range."""
         ...
 
+    async def workspace_symbol(self, query: str) -> list[SymbolInfo]:
+        """Search workspace symbols by query string."""
+        ...
+
 
 class _JediSearchBackend(Protocol):
     """Protocol describing Jedi search methods used by this module."""
 
     async def search_names(self, symbol: str) -> list[ImportSuggestion]:
         """Search names and convert them into import suggestions."""
+        ...
+
+    async def search_symbols(self, query: str) -> list[SymbolInfo]:
+        """Search project symbols by query string."""
         ...
 
 
@@ -81,6 +90,17 @@ def _range_sort_key(range_value: Range) -> tuple[int, int, int, int]:
         range_value.start.character,
         range_value.end.line,
         range_value.end.character,
+    )
+
+
+def _symbol_sort_key(symbol: SymbolInfo) -> tuple[str, str, int, int, str]:
+    """Build stable sort key for symbol search results."""
+    return (
+        symbol.file_path,
+        symbol.name,
+        symbol.range.start.line,
+        symbol.range.start.character,
+        symbol.kind,
     )
 
 
@@ -345,6 +365,31 @@ async def find_constructors(
                 results[key] = site
 
     return sorted(results.values(), key=lambda item: (item.file_path, *_range_sort_key(item.range)))
+
+
+async def search_symbols(
+    pyright: _PyrightSearchBackend,
+    jedi: _JediSearchBackend,
+    query: str,
+) -> list[SymbolInfo]:
+    """Search workspace symbols by name across both semantic backends."""
+    merged: dict[tuple[str, str, int, int, str], SymbolInfo] = {}
+
+    try:
+        pyright_symbols = await pyright.workspace_symbol(query)
+    except Exception:
+        pyright_symbols = []
+    for symbol in pyright_symbols:
+        merged[_symbol_sort_key(symbol)] = symbol
+
+    try:
+        jedi_symbols = await jedi.search_symbols(query)
+    except Exception:
+        jedi_symbols = []
+    for symbol in jedi_symbols:
+        merged.setdefault(_symbol_sort_key(symbol), symbol)
+
+    return sorted(merged.values(), key=_symbol_sort_key)
 
 
 async def structural_search(

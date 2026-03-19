@@ -17,7 +17,7 @@ if (-not (Test-Path $pythonExe)) {
 	$pythonExe = $pythonCommand.Source
 }
 
-$pyInstallerCheck = & $pythonExe -m PyInstaller --version 2>$null
+$null = & $pythonExe -m PyInstaller --version 2>$null
 if ($LASTEXITCODE -ne 0) {
 	throw "PyInstaller is not installed. Run: pip install -e .[build] or pip install -r requirements.txt"
 }
@@ -43,6 +43,8 @@ $arguments = @(
 	"--noconfirm",
 	"--clean",
 	$modeFlag,
+	"--exclude-module",
+	"tzdata",
 	"--name",
 	"python-refactor-mcp",
 	"--paths",
@@ -53,19 +55,18 @@ $arguments = @(
 	"jedi",
 	"--collect-submodules",
 	"rope",
-	"--collect-submodules",
-	"libcst",
-	"--collect-submodules",
-	"pydantic",
 	$entryPoint
 )
 
 Write-Host "Building python-refactor-mcp executable..."
 Push-Location $repoRoot
+$previousPythonWarnings = $env:PYTHONWARNINGS
+$env:PYTHONWARNINGS = "ignore:Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.:UserWarning"
 try {
 	& $pythonExe @arguments
 }
 finally {
+	$env:PYTHONWARNINGS = $previousPythonWarnings
 	Pop-Location
 }
 

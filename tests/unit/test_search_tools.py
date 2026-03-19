@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range
+from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
 
 
@@ -137,3 +137,29 @@ async def test_suggest_imports_uses_jedi_fallback(tmp_path: Path) -> None:
 
     assert len(suggestions) == 1
     assert suggestions[0].module == "collections"
+
+
+@pytest.mark.asyncio
+async def test_search_symbols_merges_pyright_and_jedi_results() -> None:
+    """Ensure symbol search merges and de-duplicates results across backends."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+    shared = SymbolInfo(
+        name="Widget",
+        kind="class",
+        file_path="/repo/a.py",
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=6)),
+        container=None,
+    )
+    pyright.workspace_symbol.return_value = [shared]
+    jedi.search_symbols.return_value = [shared, SymbolInfo(
+        name="WidgetFactory",
+        kind="function",
+        file_path="/repo/b.py",
+        range=Range(start=Position(line=3, character=0), end=Position(line=3, character=13)),
+        container=None,
+    )]
+
+    results = await search.search_symbols(pyright, jedi, "Widget")
+
+    assert [item.name for item in results] == ["Widget", "WidgetFactory"]

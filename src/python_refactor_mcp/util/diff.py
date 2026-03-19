@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import os
 import tempfile
 from contextlib import suppress
@@ -68,6 +69,20 @@ def apply_text_edits(file_path: str, edits: list[TextEdit]) -> str:
 		previous_start = start
 
 	return content
+
+
+def build_unified_diff(file_path: str, edits: list[TextEdit]) -> str:
+	"""Build a unified diff preview for the provided edits against current disk content."""
+	path = Path(file_path).resolve()
+	original = path.read_text(encoding="utf-8")
+	updated = apply_text_edits(str(path), edits)
+	diff_lines = difflib.unified_diff(
+		original.splitlines(keepends=True),
+		updated.splitlines(keepends=True),
+		fromfile=str(path),
+		tofile=str(path),
+	)
+	return "".join(diff_lines)
 
 
 def write_atomic(file_path: str, content: str) -> None:

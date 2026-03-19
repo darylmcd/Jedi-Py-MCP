@@ -7,7 +7,7 @@ name = "python-refactor-mcp"
 version = "0.1.0"
 description = "MCP server for Python code analysis and refactoring"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Jedi-Py-MCP Contributors" }]
 dependencies = [
@@ -34,7 +34,7 @@ build = [
 python-refactor-mcp = "python_refactor_mcp.__main__:main"
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]
@@ -48,7 +48,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 packages = ["python_refactor_mcp"]
 exclude = ["tests/integration/fixtures/sample_project/.*", "build/.*", "dist/.*"]

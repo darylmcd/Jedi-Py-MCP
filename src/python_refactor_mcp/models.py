@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Position(BaseModel):
@@ -44,6 +44,19 @@ class SymbolInfo(BaseModel):
     container: str | None = None
 
 
+class SymbolOutlineItem(BaseModel):
+    """Hierarchical symbol outline item for a document or workspace."""
+
+    name: str
+    kind: str
+    file_path: str
+    range: Range
+    selection_range: Range
+    detail: str | None = None
+    container: str | None = None
+    children: list[SymbolOutlineItem] = Field(default_factory=list)
+
+
 class Diagnostic(BaseModel):
     """A diagnostic issue reported by analysis backends."""
 
@@ -71,6 +84,33 @@ class TypeInfo(BaseModel):
     type_string: str
     documentation: str | None = None
     source: str
+
+
+class CompletionItem(BaseModel):
+    """One code completion candidate at a source position."""
+
+    label: str
+    kind: str
+    detail: str | None = None
+    insert_text: str | None = None
+    documentation: str | None = None
+
+
+class ParameterInfo(BaseModel):
+    """One function signature parameter."""
+
+    label: str
+    documentation: str | None = None
+
+
+class SignatureInfo(BaseModel):
+    """Signature help for a call site."""
+
+    label: str
+    parameters: list[ParameterInfo]
+    active_parameter: int | None = None
+    active_signature: int | None = None
+    documentation: str | None = None
 
 
 class CallHierarchyItem(BaseModel):
@@ -134,3 +174,21 @@ class ImportSuggestion(BaseModel):
     symbol: str
     module: str
     import_statement: str
+
+
+class DiagnosticSummary(BaseModel):
+    """Aggregated diagnostic counts for a file."""
+
+    file_path: str
+    error_count: int
+    warning_count: int
+    information_count: int
+    hint_count: int
+    total_count: int
+
+
+class DiffPreview(BaseModel):
+    """Unified diff preview for one file."""
+
+    file_path: str
+    unified_diff: str

@@ -9,7 +9,19 @@ from urllib.parse import unquote, urlparse
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import PyrightError
-from python_refactor_mcp.models import CallHierarchyItem, Diagnostic, Location, Position, Range, TypeInfo
+from python_refactor_mcp.models import (
+    CallHierarchyItem,
+    CompletionItem,
+    Diagnostic,
+    Location,
+    ParameterInfo,
+    Position,
+    Range,
+    SignatureInfo,
+    SymbolInfo,
+    SymbolOutlineItem,
+    TypeInfo,
+)
 from python_refactor_mcp.util.lsp_client import JSONDict, JSONValue, LSPClient
 
 _SYMBOL_KIND: dict[int, str] = {
@@ -294,6 +306,127 @@ class PyrightLSPClient:
             source="pyright",
         )
 
+    async def get_document_symbols(self, file_path: str) -> list[SymbolOutlineItem]:
+        """Return hierarchical document symbols for a file."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._client.send_request(
+            "textDocument/documentSymbol",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+            },
+        )
+        if "error" in response:
+            raise PyrightError(f"documentSymbol request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
+            name = _as_str(entry.get("name"), "")
+            if not name:
+                return None
+
+            kind_value = _as_int(entry.get("kind", 13), 13)
+            range_value = entry.get("range")
+            selection_value = entry.get("selectionRange")
+
+            if not isinstance(range_value, dict):
+                location_value = entry.get("location")
+                if isinstance(location_value, dict):
+                    range_value = location_value.get("range")
+                    uri_value = location_value.get("uri")
+                    if isinstance(uri_value, str):
+                        fallback_path = uri_to_path(uri_value)
+
+            if not isinstance(range_value, dict):
+                return None
+            if not isinstance(selection_value, dict):
+                selection_value = range_value
+
+            file_uri = entry.get("uri")
+            resolved_path = uri_to_path(file_uri) if isinstance(file_uri, str) else fallback_path
+
+            children: list[SymbolOutlineItem] = []
+            raw_children = entry.get("children")
+            if isinstance(raw_children, list):
+                for child in raw_children:
+                    if not isinstance(child, dict):
+                        continue
+                    converted_child = _convert_document_symbol(child, resolved_path)
+                    if converted_child is not None:
+                        children.append(converted_child)
+
+            container = entry.get("containerName")
+            return SymbolOutlineItem(
+                name=name,
+                kind=_SYMBOL_KIND.get(kind_value, "symbol"),
+                file_path=resolved_path,
+                range=_model_range(range_value),
+                selection_range=_model_range(selection_value),
+                detail=_as_str(entry.get("detail"), "") or None,
+                container=container if isinstance(container, str) else None,
+                children=children,
+            )
+
+        symbols: list[SymbolOutlineItem] = []
+        for entry in result:
+            if not isinstance(entry, dict):
+                continue
+            converted = _convert_document_symbol(entry, absolute_path)
+            if converted is not None:
+                symbols.append(converted)
+        return symbols
+
+    async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:
+        """Return completion candidates for a source position."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._client.send_request(
+            "textDocument/completion",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            raise PyrightError(f"completion request failed: {response['error']}")
+
+        result = response.get("result")
+        items_value = result.get("items") if isinstance(result, dict) else result
+        if not isinstance(items_value, list):
+            return []
+
+        completions: list[CompletionItem] = []
+        seen: set[tuple[str, str, str]] = set()
+        for entry in items_value:
+            if not isinstance(entry, dict):
+                continue
+            label = _as_str(entry.get("label"), "")
+            if not label:
+                continue
+            kind_value = _as_int(entry.get("kind", 1), 1)
+            detail = _as_str(entry.get("detail"), "") or None
+            insert_text = _as_str(entry.get("insertText"), "") or label
+            documentation = self._extract_hover_text(entry.get("documentation")) or None
+            key = (label, detail or "", insert_text)
+            if key in seen:
+                continue
+            seen.add(key)
+            completions.append(
+                CompletionItem(
+                    label=label,
+                    kind=_SYMBOL_KIND.get(kind_value, "text"),
+                    detail=detail,
+                    insert_text=insert_text,
+                    documentation=documentation,
+                )
+            )
+        return completions
+
     async def get_references(
         self,
         file_path: str,
@@ -361,6 +494,158 @@ class PyrightLSPClient:
                     resolved.extend(self._definition_entry_to_locations(entry))
             return resolved
         return []
+
+    async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Get symbol implementation locations from Pyright."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._client.send_request(
+            "textDocument/implementation",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            raise PyrightError(f"Implementation request failed: {response['error']}")
+
+        result = response.get("result")
+        if isinstance(result, dict):
+            return self._definition_entry_to_locations(result)
+        if isinstance(result, list):
+            resolved: list[Location] = []
+            for entry in result:
+                if isinstance(entry, dict):
+                    resolved.extend(self._definition_entry_to_locations(entry))
+            return resolved
+        return []
+
+    async def get_signature_help(self, file_path: str, line: int, char: int) -> SignatureInfo | None:
+        """Return signature help for a call position."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._client.send_request(
+            "textDocument/signatureHelp",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            raise PyrightError(f"signatureHelp request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, dict):
+            return None
+
+        signatures = result.get("signatures")
+        if not isinstance(signatures, list) or not signatures:
+            return None
+
+        active_signature = _as_int(result.get("activeSignature", 0), 0)
+        if active_signature < 0 or active_signature >= len(signatures):
+            active_signature = 0
+
+        selected = signatures[active_signature]
+        if not isinstance(selected, dict):
+            return None
+
+        label = _as_str(selected.get("label"), "")
+        if not label:
+            return None
+
+        raw_parameters = selected.get("parameters")
+        parameters: list[ParameterInfo] = []
+        if isinstance(raw_parameters, list):
+            for parameter in raw_parameters:
+                if not isinstance(parameter, dict):
+                    continue
+                raw_label = parameter.get("label")
+                parameter_label = ""
+                if isinstance(raw_label, str):
+                    parameter_label = raw_label
+                elif isinstance(raw_label, list) and len(raw_label) == 2:
+                    start = _as_int(raw_label[0], 0)
+                    end = _as_int(raw_label[1], 0)
+                    if 0 <= start <= end <= len(label):
+                        parameter_label = label[start:end]
+                if not parameter_label:
+                    continue
+                parameters.append(
+                    ParameterInfo(
+                        label=parameter_label,
+                        documentation=self._extract_hover_text(parameter.get("documentation")) or None,
+                    )
+                )
+
+        active_parameter = result.get("activeParameter")
+        active_parameter_value = _as_int(active_parameter, 0) if isinstance(active_parameter, int) else None
+        return SignatureInfo(
+            label=label,
+            parameters=parameters,
+            active_parameter=active_parameter_value,
+            active_signature=active_signature,
+            documentation=self._extract_hover_text(selected.get("documentation")) or None,
+        )
+
+    async def workspace_symbol(self, query: str) -> list[SymbolInfo]:
+        """Search workspace symbols by query string."""
+        response = await self._client.send_request(
+            "workspace/symbol",
+            {"query": query},
+        )
+        if "error" in response:
+            raise PyrightError(f"workspace/symbol request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        symbols: list[SymbolInfo] = []
+        seen: set[tuple[str, str, int, int, str]] = set()
+        for entry in result:
+            if not isinstance(entry, dict):
+                continue
+
+            name = _as_str(entry.get("name"), "")
+            if not name:
+                continue
+
+            location_value = entry.get("location")
+            file_path = ""
+            range_value: JSONValue | None = None
+            if isinstance(location_value, dict):
+                uri_value = location_value.get("uri")
+                range_value = location_value.get("range")
+                if isinstance(uri_value, str):
+                    file_path = uri_to_path(uri_value)
+            else:
+                uri_value = entry.get("uri")
+                range_value = entry.get("range")
+                if isinstance(uri_value, str):
+                    file_path = uri_to_path(uri_value)
+
+            if not file_path or not isinstance(range_value, dict):
+                continue
+
+            model_range = _model_range(range_value)
+            container_name = entry.get("containerName")
+            key = (name, file_path, model_range.start.line, model_range.start.character, _as_str(container_name, ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            symbols.append(
+                SymbolInfo(
+                    name=name,
+                    kind=_SYMBOL_KIND.get(_as_int(entry.get("kind", 13), 13), "symbol"),
+                    file_path=file_path,
+                    range=model_range,
+                    container=container_name if isinstance(container_name, str) else None,
+                )
+            )
+        return symbols
 
     async def prepare_call_hierarchy(
         self,
@@ -493,6 +778,12 @@ class PyrightLSPClient:
         """Return diagnostics for one file or the whole project."""
         if file_path is not None:
             normalized = _normalize_path(file_path)
+            await self.ensure_file_open(normalized)
+            if normalized not in self._diagnostics:
+                for _ in range(10):
+                    await asyncio.sleep(0.05)
+                    if normalized in self._diagnostics:
+                        break
             diagnostics = self._diagnostics.get(normalized, [])
         else:
             diagnostics = [item for items in self._diagnostics.values() for item in items]

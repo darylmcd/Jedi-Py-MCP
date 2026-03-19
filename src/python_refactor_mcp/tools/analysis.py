@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, Location, ReferenceResult, TypeInfo
+from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.models import (
+    CompletionItem,
+    Diagnostic,
+    DiagnosticSummary,
+    Location,
+    ReferenceResult,
+    SignatureInfo,
+    TypeInfo,
+)
 
 _VALID_SEVERITIES = {"error", "warning", "information", "hint"}
 
@@ -28,6 +38,14 @@ class _PyrightAnalysisBackend(Protocol):
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
         """Return diagnostics for one file or the full workspace."""
+        ...
+
+    async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:
+        """Return completion candidates for a source position."""
+        ...
+
+    async def get_signature_help(self, file_path: str, line: int, char: int) -> SignatureInfo | None:
+        """Return signature help for a source position."""
         ...
 
 
@@ -185,6 +203,38 @@ async def get_type_info(
     )
 
 
+async def get_hover_info(
+    pyright: _PyrightAnalysisBackend,
+    jedi: _JediAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> TypeInfo:
+    """Get hover-style symbol information with Jedi fallback for unknown results."""
+    return await get_type_info(pyright, jedi, file_path, line, character)
+
+
+async def get_completions(
+    pyright: _PyrightAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> list[CompletionItem]:
+    """Get code completion candidates from the primary analysis backend."""
+    completions = await pyright.get_completions(file_path, line, character)
+    return sorted(completions, key=lambda item: (item.label, item.kind, item.detail or ""))
+
+
+async def get_signature_help(
+    pyright: _PyrightAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> SignatureInfo | None:
+    """Get function signature help for a call-site position."""
+    return await pyright.get_signature_help(file_path, line, character)
+
+
 async def get_diagnostics(
     pyright: _PyrightAnalysisBackend,
     file_path: str | None = None,
@@ -207,3 +257,44 @@ async def get_diagnostics(
         ]
 
     return _sort_diagnostics(diagnostics)
+
+
+async def get_workspace_diagnostics(
+    pyright: _PyrightAnalysisBackend,
+    config: ServerConfig,
+) -> list[DiagnosticSummary]:
+    """Aggregate workspace diagnostics into one summary per file."""
+    diagnostics: list[Diagnostic] = []
+    for path in sorted(config.workspace_root.rglob("*.py")):
+        if not path.is_file():
+            continue
+        diagnostics.extend(await pyright.get_diagnostics(str(Path(path).resolve())))
+    by_file: dict[str, dict[str, int]] = {}
+
+    for diagnostic in diagnostics:
+        counts = by_file.setdefault(
+            diagnostic.file_path,
+            {
+                "error": 0,
+                "warning": 0,
+                "information": 0,
+                "hint": 0,
+            },
+        )
+        severity = diagnostic.severity.strip().lower()
+        if severity not in counts:
+            severity = "information"
+        counts[severity] += 1
+
+    summaries = [
+        DiagnosticSummary(
+            file_path=file_path,
+            error_count=counts["error"],
+            warning_count=counts["warning"],
+            information_count=counts["information"],
+            hint_count=counts["hint"],
+            total_count=sum(counts.values()),
+        )
+        for file_path, counts in by_file.items()
+    ]
+    return sorted(summaries, key=lambda item: item.file_path)

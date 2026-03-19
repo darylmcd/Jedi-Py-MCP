@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import CallHierarchyItem, Location, Position, Range
+from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.models import CallHierarchyItem, Location, Position, Range, SymbolOutlineItem
 from python_refactor_mcp.tools import navigation
 
 
@@ -91,3 +93,57 @@ async def test_goto_definition_falls_back_to_jedi() -> None:
     assert len(result) == 1
     assert result[0].file_path == "/repo/a.py"
     jedi.goto_definition.assert_awaited_once()
+
+
+def _config(tmp_path: Path) -> ServerConfig:
+    return ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_symbol_outline_collects_workspace_items(tmp_path: Path) -> None:
+    """Ensure outline collection walks the workspace and returns sorted items."""
+    first = tmp_path / "a.py"
+    second = tmp_path / "nested" / "b.py"
+    second.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text("def a():\n    pass\n", encoding="utf-8")
+    second.write_text("def b():\n    pass\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    first_item = SymbolOutlineItem(
+        name="a",
+        kind="function",
+        file_path=str(first),
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+        selection_range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+    )
+    second_item = SymbolOutlineItem(
+        name="b",
+        kind="function",
+        file_path=str(second),
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+        selection_range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+    )
+    pyright.get_document_symbols.side_effect = [[first_item], [second_item]]
+
+    result = await navigation.get_symbol_outline(pyright, _config(tmp_path))
+
+    assert [item.name for item in result] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_find_implementations_deduplicates_results() -> None:
+    """Ensure implementation results are de-duplicated and sorted."""
+    pyright = AsyncMock()
+    shared = _location("/repo/a.py", 1, 2)
+    pyright.get_implementation.return_value = [shared, shared, _location("/repo/b.py", 0, 0)]
+
+    result = await navigation.find_implementations(pyright, "/repo/a.py", 1, 2)
+
+    assert [item.file_path for item in result] == ["/repo/a.py", "/repo/b.py"]

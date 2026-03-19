@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import Diagnostic, Location, Position, Range, TypeInfo
+from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.models import (
+    CompletionItem,
+    Diagnostic,
+    Location,
+    ParameterInfo,
+    Position,
+    Range,
+    SignatureInfo,
+    TypeInfo,
+)
 from python_refactor_mcp.tools import analysis
 
 
@@ -158,3 +169,112 @@ async def test_get_diagnostics_rejects_invalid_severity() -> None:
 
     with pytest.raises(ValueError, match="Invalid severity_filter"):
         await analysis.get_diagnostics(pyright, severity_filter="critical")
+
+
+@pytest.mark.asyncio
+async def test_get_hover_info_reuses_type_resolution_flow() -> None:
+    """Ensure hover info returns the same resolved TypeInfo shape as type lookup."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+
+    pyright.get_hover.return_value = TypeInfo(
+        expression="/repo/a.py:1:1",
+        type_string="pkg.Type",
+        documentation="doc",
+        source="pyright",
+    )
+
+    result = await analysis.get_hover_info(pyright, jedi, "/repo/a.py", 1, 1)
+
+    assert result.type_string == "pkg.Type"
+    assert result.documentation == "doc"
+
+
+@pytest.mark.asyncio
+async def test_get_completions_sorts_results() -> None:
+    """Ensure completions are returned in stable sorted order."""
+    pyright = AsyncMock()
+    pyright.get_completions.return_value = [
+        CompletionItem(label="zeta", kind="function", detail=None, insert_text="zeta", documentation=None),
+        CompletionItem(label="alpha", kind="function", detail=None, insert_text="alpha", documentation=None),
+    ]
+
+    result = await analysis.get_completions(pyright, "/repo/a.py", 0, 0)
+
+    assert [item.label for item in result] == ["alpha", "zeta"]
+
+
+@pytest.mark.asyncio
+async def test_get_signature_help_passthrough() -> None:
+    """Ensure signature help is returned unchanged from the analysis backend."""
+    pyright = AsyncMock()
+    signature = SignatureInfo(
+        label="f(a: int, b: str)",
+        parameters=[ParameterInfo(label="a: int"), ParameterInfo(label="b: str")],
+        active_parameter=1,
+        active_signature=0,
+        documentation="doc",
+    )
+    pyright.get_signature_help.return_value = signature
+
+    result = await analysis.get_signature_help(pyright, "/repo/a.py", 1, 5)
+
+    assert result is signature
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_diagnostics_aggregates_by_file(tmp_path: Path) -> None:
+    """Ensure workspace diagnostics are aggregated into per-file counts."""
+    file_a = tmp_path / "a.py"
+    file_b = tmp_path / "b.py"
+    file_a.write_text("x = 1\n", encoding="utf-8")
+    file_b.write_text("y = 2\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+
+    async def _diagnostics_for(file_path: str | None) -> list[Diagnostic]:
+        if file_path == str(file_a.resolve()):
+            return [
+                Diagnostic(
+                    file_path=str(file_a.resolve()),
+                    range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+                    severity="error",
+                    message="err",
+                    code=None,
+                ),
+                Diagnostic(
+                    file_path=str(file_a.resolve()),
+                    range=Range(start=Position(line=0, character=2), end=Position(line=0, character=3)),
+                    severity="warning",
+                    message="warn",
+                    code=None,
+                ),
+            ]
+        if file_path == str(file_b.resolve()):
+            return [
+                Diagnostic(
+                    file_path=str(file_b.resolve()),
+                    range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+                    severity="hint",
+                    message="hint",
+                    code=None,
+                )
+            ]
+        return []
+
+    pyright.get_diagnostics.side_effect = _diagnostics_for
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+
+    result = await analysis.get_workspace_diagnostics(pyright, config)
+
+    assert [(item.file_path, item.total_count) for item in result] == [
+        (str(file_a.resolve()), 2),
+        (str(file_b.resolve()), 1),
+    ]

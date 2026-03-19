@@ -242,6 +242,209 @@ async def test_call_hierarchy_mapping_uses_incoming_and_outgoing_payloads(tmp_pa
     assert outgoing and outgoing[0].name == "callee"
 
 
+@pytest.mark.asyncio
+async def test_document_symbol_mapping_returns_outline_items(tmp_path: Path) -> None:
+    """Verify documentSymbol payloads map into hierarchical outline items."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f():\n    pass\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/documentSymbol": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "name": "f",
+                        "kind": 12,
+                        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+                        "selectionRange": {"start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 5}},
+                    }
+                ],
+            }
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    result = await backend.get_document_symbols(str(sample))
+
+    assert len(result) == 1
+    assert result[0].name == "f"
+
+
+@pytest.mark.asyncio
+async def test_completion_mapping_returns_items(tmp_path: Path) -> None:
+    """Verify completion responses are mapped to completion models."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("value.\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/completion": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "items": [
+                        {
+                            "label": "append",
+                            "kind": 6,
+                            "detail": "(value: object) -> None",
+                            "insertText": "append",
+                            "documentation": {"value": "Append an item."},
+                        }
+                    ]
+                },
+            }
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    result = await backend.get_completions(str(sample), 0, 6)
+
+    assert len(result) == 1
+    assert result[0].label == "append"
+
+
+@pytest.mark.asyncio
+async def test_signature_help_mapping_returns_active_signature(tmp_path: Path) -> None:
+    """Verify signature help responses map to project models."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("func(\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/signatureHelp": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "activeSignature": 0,
+                    "activeParameter": 1,
+                    "signatures": [
+                        {
+                            "label": "func(a: int, b: str)",
+                            "documentation": {"value": "doc"},
+                            "parameters": [
+                                {"label": "a: int"},
+                                {"label": "b: str"},
+                            ],
+                        }
+                    ],
+                },
+            }
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    result = await backend.get_signature_help(str(sample), 0, 5)
+
+    assert result is not None
+    assert result.active_parameter == 1
+    assert result.parameters[1].label == "b: str"
+
+
+@pytest.mark.asyncio
+async def test_workspace_symbol_mapping_returns_symbol_info(tmp_path: Path) -> None:
+    """Verify workspace symbols are converted into SymbolInfo models."""
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "workspace/symbol": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "name": "Widget",
+                        "kind": 5,
+                        "containerName": "module",
+                        "location": {
+                            "uri": path_to_uri(str(tmp_path / "sample.py")),
+                            "range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 6}},
+                        },
+                    }
+                ],
+            }
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    result = await backend.workspace_symbol("Widget")
+
+    assert len(result) == 1
+    assert result[0].name == "Widget"
+
+
+@pytest.mark.asyncio
+async def test_implementation_mapping_returns_locations(tmp_path: Path) -> None:
+    """Verify implementation responses reuse location mapping correctly."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("pass\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/implementation": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "uri": path_to_uri(str(sample)),
+                        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}},
+                    }
+                ],
+            }
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    result = await backend.get_implementation(str(sample), 0, 0)
+
+    assert len(result) == 1
+    assert result[0].file_path == str(sample.resolve())
+
+
 def test_encode_message_has_valid_content_length() -> None:
     """Verify encoded messages include correct content length header."""
     payload: JSONDict = {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}

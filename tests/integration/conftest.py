@@ -26,7 +26,10 @@ def sample_workspace(tmp_path: Path) -> Path:
 async def mcp_session(sample_workspace: Path) -> AsyncIterator[ClientSession]:
     """Start the MCP server over stdio and yield an initialized client session."""
     if os.environ.get("RUN_MCP_INTEGRATION") != "1":
-        pytest.skip("Set RUN_MCP_INTEGRATION=1 to run MCP stdio integration tests.")
+        pytest.skip(
+            "Run ./scripts/test-integration.ps1 or set RUN_MCP_INTEGRATION=1 "
+            "to run MCP stdio integration tests."
+        )
 
     repo_root = Path(__file__).resolve().parents[2]
     python_executable = repo_root / ".venv" / "Scripts" / "python.exe"
@@ -64,5 +67,8 @@ async def mcp_session(sample_workspace: Path) -> AsyncIterator[ClientSession]:
         ) as session:
             await session.initialize()
             yield session
-    except Exception as exc:
-        pytest.skip(f"MCP integration environment unavailable: {exc}")
+    except RuntimeError as exc:
+        # Python 3.14 + pytest-asyncio may finalize this async-generator fixture in a
+        # different task, which can surface as an anyio cancel-scope teardown mismatch.
+        if "Attempted to exit cancel scope in a different task" not in str(exc):
+            raise
