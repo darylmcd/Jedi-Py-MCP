@@ -183,3 +183,57 @@ async def test_organize_imports_selects_source_action(tmp_path: Path) -> None:
 
     assert result.applied is True
     assert target.read_text(encoding="utf-8") == "import os\nimport sys\n"
+
+
+@pytest.mark.asyncio
+async def test_prepare_rename_passthrough() -> None:
+    """Ensure rename preflight delegates directly to Pyright backend."""
+    pyright = AsyncMock()
+    pyright.prepare_rename.return_value = {
+        "range": {
+            "start": {"line": 0, "character": 0},
+            "end": {"line": 0, "character": 5},
+        },
+        "placeholder": "value",
+    }
+
+    result = await refactoring.prepare_rename(pyright, "/repo/a.py", 0, 0)
+
+    assert result == pyright.prepare_rename.return_value
+
+
+@pytest.mark.asyncio
+async def test_introduce_parameter_and_encapsulate_field_delegate() -> None:
+    """Ensure new rope-backed operations delegate and attach diagnostics when applied."""
+    pyright = AsyncMock()
+    rope = AsyncMock()
+
+    rope.introduce_parameter.return_value = RefactorResult(
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="introduce",
+        applied=False,
+    )
+    rope.encapsulate_field.return_value = RefactorResult(
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="encapsulate",
+        applied=False,
+    )
+
+    intro = await refactoring.introduce_parameter(
+        pyright,
+        rope,
+        "/repo/a.py",
+        0,
+        0,
+        "new_param",
+        "1",
+        apply=False,
+    )
+    encapsulated = await refactoring.encapsulate_field(pyright, rope, "/repo/a.py", 0, 0, apply=False)
+
+    assert intro.applied is False
+    assert encapsulated.applied is False
+    rope.introduce_parameter.assert_awaited_once_with("/repo/a.py", 0, 0, "new_param", "1", False)
+    rope.encapsulate_field.assert_awaited_once_with("/repo/a.py", 0, 0, False)

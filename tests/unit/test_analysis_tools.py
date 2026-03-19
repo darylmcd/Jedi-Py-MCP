@@ -11,10 +11,13 @@ from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
+    DocumentHighlight,
+    InlayHint,
     Location,
     ParameterInfo,
     Position,
     Range,
+    SemanticToken,
     SignatureInfo,
     TypeInfo,
 )
@@ -220,6 +223,80 @@ async def test_get_signature_help_passthrough() -> None:
     result = await analysis.get_signature_help(pyright, "/repo/a.py", 1, 5)
 
     assert result is signature
+
+
+@pytest.mark.asyncio
+async def test_get_call_signatures_fallback_passthrough() -> None:
+    """Ensure Jedi signature fallback is returned unchanged."""
+    jedi = AsyncMock()
+    signature = SignatureInfo(
+        label="f(a)",
+        parameters=[ParameterInfo(label="a")],
+        active_parameter=0,
+        active_signature=0,
+        documentation=None,
+    )
+    jedi.get_signatures.return_value = signature
+
+    result = await analysis.get_call_signatures_fallback(jedi, "/repo/a.py", 0, 0)
+
+    assert result is signature
+
+
+@pytest.mark.asyncio
+async def test_get_document_highlights_sorted() -> None:
+    """Ensure highlight output is sorted deterministically."""
+    pyright = AsyncMock()
+    pyright.get_document_highlights.return_value = [
+        DocumentHighlight(
+            range=Range(start=Position(line=2, character=1), end=Position(line=2, character=3)),
+            kind="read",
+        ),
+        DocumentHighlight(
+            range=Range(start=Position(line=1, character=1), end=Position(line=1, character=3)),
+            kind="write",
+        ),
+    ]
+
+    result = await analysis.get_document_highlights(pyright, "/repo/a.py", 0, 0)
+
+    assert [item.range.start.line for item in result] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_get_inlay_hints_sorted() -> None:
+    """Ensure inlay hints are sorted by position and label."""
+    pyright = AsyncMock()
+    pyright.get_inlay_hints.return_value = [
+        InlayHint(position=Position(line=2, character=1), label=": int"),
+        InlayHint(position=Position(line=1, character=1), label=": str"),
+    ]
+
+    result = await analysis.get_inlay_hints(pyright, "/repo/a.py", 0, 0, 3, 0)
+
+    assert [item.position.line for item in result] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_get_semantic_tokens_sorted() -> None:
+    """Ensure semantic tokens are sorted by source position."""
+    pyright = AsyncMock()
+    pyright.get_semantic_tokens.return_value = [
+        SemanticToken(
+            range=Range(start=Position(line=3, character=1), end=Position(line=3, character=2)),
+            token_type="variable",
+            modifiers=[],
+        ),
+        SemanticToken(
+            range=Range(start=Position(line=1, character=1), end=Position(line=1, character=2)),
+            token_type="function",
+            modifiers=[],
+        ),
+    ]
+
+    result = await analysis.get_semantic_tokens(pyright, "/repo/a.py")
+
+    assert [item.range.start.line for item in result] == [1, 3]
 
 
 @pytest.mark.asyncio

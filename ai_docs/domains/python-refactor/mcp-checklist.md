@@ -60,7 +60,7 @@ Use this for each existing or proposed tool.
 
 ## C. Current Surface Coverage (Snapshot)
 
-Current server exposes 25 tools across analysis/navigation/refactoring/search/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
+Current server exposes 35 tools across analysis/navigation/refactoring/search/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
 
 Minimum per-release checks for current tools:
 - [ ] Tool table in `README.md` matches actual server registration.
@@ -105,6 +105,45 @@ Add a short prompt bank for every tool you expose.
   - "Attempt `prepare_rename` on a string literal and explain why rename is invalid."
 - Chaining:
   - "Use `prepare_rename` first; only if valid, call `smart_rename` with `apply=false` and summarize impact."
+
+### New Tool Prompt Bank (Implemented)
+
+- `get_declaration`:
+  - Goal: "Run `get_declaration` for symbol at cursor and return only file path and start line."
+  - Validation: "Run `get_declaration` on whitespace and show empty-result handling."
+  - Chaining: "Use `get_declaration` output to call `get_symbol_outline` on the declaration file."
+- `get_type_definition`:
+  - Goal: "Run `get_type_definition` and return the target type file and symbol range."
+  - Validation: "Run `get_type_definition` on a literal and report fallback/empty behavior."
+  - Chaining: "Resolve a variable with `get_type_info`, then call `get_type_definition` and summarize concrete type origin."
+- `get_document_highlights`:
+  - Goal: "Run `get_document_highlights` and group counts by highlight kind (read/write/text)."
+  - Validation: "Run `get_document_highlights` at an invalid position and show the returned tool error."
+  - Chaining: "Use `get_document_highlights` first; if broad scope is needed, escalate to `find_references`."
+- `get_inlay_hints`:
+  - Goal: "Run `get_inlay_hints` for the full file and return top 10 hints by position."
+  - Validation: "Run `get_inlay_hints` on a missing file and show exact error behavior."
+  - Chaining: "Use `get_inlay_hints`, then call `get_semantic_tokens` and compare inferred types with token classes."
+- `get_semantic_tokens`:
+  - Goal: "Run `get_semantic_tokens` and summarize token counts by token_type."
+  - Validation: "Run `get_semantic_tokens` for a file unsupported by backend and explain empty-result handling."
+  - Chaining: "Use `get_semantic_tokens` to identify high-density regions, then call `get_folding_ranges` to chunk review windows."
+- `get_folding_ranges`:
+  - Goal: "Run `get_folding_ranges` and return only start_line/end_line/kind."
+  - Validation: "Run `get_folding_ranges` on an invalid path and report the tool error."
+  - Chaining: "Use `get_folding_ranges` to split file sections, then call `get_symbol_outline` per section target."
+- `get_call_signatures_fallback`:
+  - Goal: "Run `get_call_signatures_fallback` at callsite and return signature label + active parameter."
+  - Validation: "Run `get_call_signatures_fallback` outside a call expression and show null response handling."
+  - Chaining: "Call `get_signature_help`; if null, call `get_call_signatures_fallback` and continue with returned signature context."
+- `introduce_parameter`:
+  - Goal: "Run `introduce_parameter` with `apply=false` and summarize files_affected and edits count."
+  - Validation: "Run `introduce_parameter` on non-callable symbol and show corrective error guidance."
+  - Chaining: "Preview `introduce_parameter`, pass edits to `diff_preview`, then re-run with `apply=true` if accepted."
+- `encapsulate_field`:
+  - Goal: "Run `encapsulate_field` with `apply=false` and summarize generated accessor-related edits."
+  - Validation: "Run `encapsulate_field` on unsupported target and show explicit failure message."
+  - Chaining: "Preview `encapsulate_field`, then call `get_diagnostics` on affected files before applying."
 
 ## F. Prioritization Rubric
 

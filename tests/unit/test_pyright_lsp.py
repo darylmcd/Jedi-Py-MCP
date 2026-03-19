@@ -457,3 +457,153 @@ def test_encode_message_has_valid_content_length() -> None:
 
     decoded_body = json.loads(body.decode("utf-8"))
     assert decoded_body == payload
+
+
+@pytest.mark.asyncio
+async def test_declaration_and_type_definition_mapping(tmp_path: Path) -> None:
+    """Verify declaration and typeDefinition responses map into location models."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("value = 1\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/declaration": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "uri": path_to_uri(str(sample)),
+                    "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}},
+                },
+            },
+            "textDocument/typeDefinition": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "uri": path_to_uri(str(sample)),
+                        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}},
+                    }
+                ],
+            },
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    declarations = await backend.get_declaration(str(sample), 0, 0)
+    type_definitions = await backend.get_type_definition(str(sample), 0, 0)
+
+    assert len(declarations) == 1
+    assert len(type_definitions) == 1
+
+
+@pytest.mark.asyncio
+async def test_document_highlights_and_prepare_rename_mapping(tmp_path: Path) -> None:
+    """Verify document highlights and prepareRename payloads map correctly."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("value = other\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/documentHighlight": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}},
+                        "kind": 3,
+                    }
+                ],
+            },
+            "textDocument/prepareRename": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}},
+                    "placeholder": "value",
+                },
+            },
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    highlights = await backend.get_document_highlights(str(sample), 0, 1)
+    rename = await backend.prepare_rename(str(sample), 0, 1)
+
+    assert len(highlights) == 1
+    assert highlights[0].kind == "write"
+    assert rename is not None
+    assert rename.placeholder == "value"
+
+
+@pytest.mark.asyncio
+async def test_inlay_semantic_and_folding_mapping(tmp_path: Path) -> None:
+    """Verify inlay hints, semantic tokens, and folding ranges map correctly."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f(x):\n    return x\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(
+        responses={
+            "textDocument/inlayHint": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [
+                    {
+                        "position": {"line": 0, "character": 6},
+                        "label": ": int",
+                        "kind": 1,
+                        "paddingLeft": True,
+                        "paddingRight": False,
+                    }
+                ],
+            },
+            "textDocument/semanticTokens/full": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"data": [0, 0, 3, 12, 1]},
+            },
+            "textDocument/foldingRange": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": [{"startLine": 0, "endLine": 1, "kind": "region"}],
+            },
+        }
+    )
+    backend.set_client(cast(LSPClient, fake_client))
+
+    hints = await backend.get_inlay_hints(str(sample), 0, 0, 1, 0)
+    tokens = await backend.get_semantic_tokens(str(sample))
+    ranges = await backend.get_folding_ranges(str(sample))
+
+    assert len(hints) == 1
+    assert hints[0].kind == "type"
+    assert len(tokens) == 1
+    assert tokens[0].token_type == "function"
+    assert len(ranges) == 1
+    assert ranges[0].start_line == 0

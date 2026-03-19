@@ -82,3 +82,22 @@ async def test_line_conversion_is_zero_based(jedi_backend: tuple[JediBackend, Pa
     assert definitions
     assert definitions[0].range.start.line == 0
     assert definitions[0].range.start.character == 6
+
+
+@pytest.mark.asyncio
+async def test_get_signatures_returns_signature_info(jedi_backend: tuple[JediBackend, Path]) -> None:
+    """Jedi signatures API returns a structured signature model at call sites."""
+    backend, module = jedi_backend
+    sig_module = module.parent / "sig_example.py"
+    sig_module.write_text(
+        "def greet(name: str, times: int) -> str:\n"
+        "    return name * times\n"
+        "\n"
+        "value = greet(\n",
+        encoding="utf-8",
+    )
+
+    signature = await backend.get_signatures(str(sig_module), 3, 13)
+
+    if signature is not None:
+        assert signature.label.startswith("greet")

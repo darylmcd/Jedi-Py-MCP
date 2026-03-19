@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.backends.pyright_lsp import uri_to_path
-from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.models import Diagnostic, Position, PrepareRenameResult, Range, RefactorResult, TextEdit
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 
 
@@ -28,6 +28,10 @@ class _PyrightRefactoringBackend(Protocol):
         diagnostics: list[Diagnostic],
     ) -> list[dict[str, object]]:
         """Return code actions for a range."""
+        ...
+
+    async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
+        """Return rename preflight metadata for a source position."""
         ...
 
 
@@ -83,6 +87,28 @@ class _RopeRefactoringBackend(Protocol):
         apply: bool,
     ) -> RefactorResult:
         """Move symbol and return computed edits/result."""
+        ...
+
+    async def introduce_parameter(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        parameter_name: str,
+        default_value: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a new parameter on a function and update call sites."""
+        ...
+
+    async def encapsulate_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Encapsulate a field using property accessors."""
         ...
 
 
@@ -390,4 +416,49 @@ async def organize_imports(
     if not edits:
         raise ValueError("Organize imports did not return editable workspace changes.")
     result = _result_from_text_edits(edits, "Organized imports", apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def prepare_rename(
+    pyright: _PyrightRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> PrepareRenameResult | None:
+    """Run rename preflight checks for the requested source position."""
+    return await pyright.prepare_rename(file_path, line, character)
+
+
+async def introduce_parameter(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    parameter_name: str,
+    default_value: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Introduce a parameter and optionally apply edits on disk."""
+    result = await rope.introduce_parameter(
+        file_path,
+        line,
+        character,
+        parameter_name,
+        default_value,
+        apply,
+    )
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def encapsulate_field(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Encapsulate a field into property accessors and optionally apply changes."""
+    result = await rope.encapsulate_field(file_path, line, character, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
