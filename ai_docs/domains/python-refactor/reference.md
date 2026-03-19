@@ -16,7 +16,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/search.py`
 - `src/python_refactor_mcp/tools/composite.py`
 
-## Tool Surface (25 tools)
+## Tool Surface (35 tools)
 
 ### Analysis
 
@@ -27,6 +27,10 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | `get_hover_info` | `TypeInfo` | Same as `get_type_info`; use for position-based hover. |
 | `get_completions` | `list[CompletionItem]` | label, kind, insert_text, documentation. |
 | `get_signature_help` | `SignatureInfo \| None` | label, parameters, active_parameter index. |
+| `get_call_signatures_fallback` | `SignatureInfo \| None` | Jedi fallback signature help for dynamic call sites. |
+| `get_document_highlights` | `list[DocumentHighlight]` | In-file text/read/write highlight ranges at a position. |
+| `get_inlay_hints` | `list[InlayHint]` | Type/parameter inlay hints for a requested file range. |
+| `get_semantic_tokens` | `list[SemanticToken]` | Decoded semantic token stream for symbol-classified analysis. |
 | `get_diagnostics` | `list[Diagnostic]` | Per-file or workspace; supports severity_filter. |
 | `get_workspace_diagnostics` | `list[DiagnosticSummary]` | Aggregate error/warning/hint counts per file, sorted by path. |
 
@@ -35,7 +39,10 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | Tool | Returns | Notes |
 |---|---|---|
 | `goto_definition` | `list[Location]` | Pyright primary, Jedi fallback. |
+| `get_declaration` | `list[Location]` | Declaration/stub navigation; falls back to definition if unsupported. |
+| `get_type_definition` | `list[Location]` | Type-definition navigation for aliases/protocol-heavy code. |
 | `find_implementations` | `list[Location]` | Concrete implementations of abstract/protocol symbols. |
+| `get_folding_ranges` | `list[FoldingRange]` | Foldable blocks for token-efficient chunking workflows. |
 | `get_symbol_outline` | `list[SymbolOutlineItem]` | Hierarchical; omit file_path for full workspace scan. |
 | `call_hierarchy` | `CallHierarchyResult` | Callers, callees, or both; configurable depth. |
 
@@ -44,11 +51,14 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | Tool | Returns | Notes |
 |---|---|---|
 | `rename_symbol` | `RefactorResult` | rope rename; apply=False to preview. |
+| `prepare_rename` | `PrepareRenameResult \| None` | Rename preflight; validates symbol/editable range first. |
 | `smart_rename` | `RefactorResult` | Pyright reference scan + rope rename + post-apply validation. |
 | `extract_method` | `RefactorResult` | Extract a text range into a new method. |
 | `extract_variable` | `RefactorResult` | Extract an expression into a named variable. |
 | `inline_variable` | `RefactorResult` | Inline a variable definition at all usages. |
 | `move_symbol` | `RefactorResult` | Move a symbol to another file. |
+| `introduce_parameter` | `RefactorResult` | Introduce a parameter and update call sites (preview/apply). |
+| `encapsulate_field` | `RefactorResult` | Convert direct field access to encapsulated property accessors. |
 | `apply_code_action` | `RefactorResult` | Apply any Pyright code action by title (or first available). |
 | `organize_imports` | `RefactorResult` | Sort and deduplicate imports via Pyright source action. |
 
@@ -112,32 +122,18 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `DiffPreview`: `file_path`, `unified_diff`.
 - `SymbolInfo`: `name`, `kind`, `file_path`, `range`, `container`.
 
-## Next 10 High-Value Unexposed Picks
+## Recent Additions
 
-These are prioritized additions that are not currently exposed as MCP tools but are available via underlying backends (Pyright/Jedi/rope).
+The next-10 roadmap has been implemented. Highlights:
 
-1. `get_declaration` (Pyright `textDocument/declaration`)
-	- Why: agent can jump to stubs/interfaces when definition points to implementation or import glue.
-2. `get_type_definition` (Pyright `textDocument/typeDefinition`)
-	- Why: critical for understanding concrete runtime type behind aliases/protocol-heavy code.
-3. `get_document_highlights` (Pyright `textDocument/documentHighlight`)
-	- Why: fast local symbol usage clustering in-file before expensive workspace scans.
-4. `prepare_rename` (Pyright `textDocument/prepareRename`)
-	- Why: preflight safety check before rename/edit operations; reduces failed refactors.
-5. `get_inlay_hints` (Pyright `textDocument/inlayHint`)
-	- Why: exposes inferred type/parameter names to improve agent reasoning and code review output.
-6. `get_semantic_tokens` (Pyright `textDocument/semanticTokens/full`)
-	- Why: enables robust symbol-kind-aware analysis and richer code understanding.
-7. `get_folding_ranges` (Pyright `textDocument/foldingRange`)
-	- Why: helps chunk large files into review/refactor windows for token-efficient planning.
-8. `get_call_signatures_fallback` (Jedi `Script.get_signatures`)
-	- Why: fallback when Pyright signature help is absent in dynamic code.
-9. `introduce_parameter` (rope `refactor.introduce_parameter`)
-	- Why: high-value API evolution primitive for agents doing compatibility-preserving refactors.
-10. `encapsulate_field` (rope `refactor.encapsulate_field`)
-	- Why: converts direct attribute access into managed property access for safer staged refactors.
+1. Safer rename flow via `prepare_rename` preflight and `rename_symbol`/`smart_rename` chaining.
+2. Better navigation precision with `get_declaration` and `get_type_definition`.
+3. Faster local reasoning via `get_document_highlights` and `get_folding_ranges`.
+4. Richer semantic context via `get_inlay_hints` and `get_semantic_tokens`.
+5. Expanded refactor primitives with `introduce_parameter` and `encapsulate_field`.
+6. Dynamic-code fallback coverage with `get_call_signatures_fallback`.
 
-Use the implementation and quality checklist in `ai_docs/domains/python-refactor/mcp-checklist.md` before exposing any new tool.
+Use the checklist in `ai_docs/domains/python-refactor/mcp-checklist.md` for all future MCP surface additions.
 
 ## Deep Historical Material
 

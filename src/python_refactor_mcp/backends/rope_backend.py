@@ -11,8 +11,10 @@ from typing import Protocol, cast
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
+from rope.refactor.encapsulate_field import EncapsulateField  # type: ignore[import-untyped]
 from rope.refactor.extract import ExtractMethod, ExtractVariable  # type: ignore[import-untyped]
 from rope.refactor.inline import create_inline  # type: ignore[import-untyped]
+from rope.refactor.introduce_parameter import IntroduceParameter  # type: ignore[import-untyped]
 from rope.refactor.move import create_move  # type: ignore[import-untyped]
 from rope.refactor.rename import Rename  # type: ignore[import-untyped]
 
@@ -319,3 +321,62 @@ class RopeBackend:
             return result
         except Exception as exc:
             raise RopeError(f"rope move failed for symbol {symbol_name}") from exc
+
+    async def introduce_parameter(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        parameter_name: str,
+        default_value: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a parameter and optionally apply resulting edits."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            parameter_spec = parameter_name.strip()
+            if default_value.strip():
+                parameter_spec = f"{parameter_spec}={default_value.strip()}"
+            changes = IntroduceParameter(project, resource, offset).get_changes(parameter_spec)
+            return self._build_result(
+                changes,
+                f"Introduced parameter '{parameter_name}'",
+                apply,
+            )
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope introduce_parameter produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(
+                f"rope introduce_parameter failed for {file_path}:{line}:{character}"
+            ) from exc
+
+    async def encapsulate_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Encapsulate a field and optionally apply resulting edits."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = EncapsulateField(project, resource, offset).get_changes()
+            return self._build_result(changes, "Encapsulated field", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope encapsulate_field produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope encapsulate_field failed for {file_path}:{line}:{character}") from exc

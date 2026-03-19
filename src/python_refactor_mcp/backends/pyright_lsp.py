@@ -13,10 +13,15 @@ from python_refactor_mcp.models import (
     CallHierarchyItem,
     CompletionItem,
     Diagnostic,
+    DocumentHighlight,
+    FoldingRange,
+    InlayHint,
     Location,
     ParameterInfo,
     Position,
+    PrepareRenameResult,
     Range,
+    SemanticToken,
     SignatureInfo,
     SymbolInfo,
     SymbolOutlineItem,
@@ -52,6 +57,45 @@ _SYMBOL_KIND: dict[int, str] = {
     25: "operator",
     26: "typeParameter",
 }
+
+_DOCUMENT_HIGHLIGHT_KIND: dict[int, str] = {1: "text", 2: "read", 3: "write"}
+_SEMANTIC_TOKEN_TYPES: list[str] = [
+    "namespace",
+    "type",
+    "class",
+    "enum",
+    "interface",
+    "struct",
+    "typeParameter",
+    "parameter",
+    "variable",
+    "property",
+    "enumMember",
+    "event",
+    "function",
+    "method",
+    "macro",
+    "keyword",
+    "modifier",
+    "comment",
+    "string",
+    "number",
+    "regexp",
+    "operator",
+    "decorator",
+]
+_SEMANTIC_TOKEN_MODIFIERS: list[str] = [
+    "declaration",
+    "definition",
+    "readonly",
+    "static",
+    "deprecated",
+    "abstract",
+    "async",
+    "modification",
+    "documentation",
+    "defaultLibrary",
+]
 
 
 def _normalize_path(file_path: str) -> str:
@@ -118,6 +162,18 @@ def _severity_to_string(value: int) -> str:
     return mapping.get(value, "information")
 
 
+def _is_unhandled_method_error(response: JSONDict) -> bool:
+    """Return True when server reports an unsupported/unhandled LSP method."""
+    error_value = response.get("error")
+    if not isinstance(error_value, dict):
+        return False
+    code = error_value.get("code")
+    message = error_value.get("message")
+    if code == -32601:
+        return True
+    return isinstance(message, str) and "Unhandled method" in message
+
+
 class PyrightLSPClient:
     """Pyright backend that wraps language-server calls with model conversion."""
 
@@ -125,9 +181,26 @@ class PyrightLSPClient:
         """Initialize the Pyright backend with server config."""
         self._config = config
         self._client = self._make_client()
+        timeout_env = os.getenv("PYRIGHT_REQUEST_TIMEOUT_SECONDS", "5")
+        try:
+            self._request_timeout_seconds = max(float(timeout_env), 1.0)
+        except ValueError:
+            self._request_timeout_seconds = 5.0
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
+
+    async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        """Send an LSP request with a bounded timeout for backend resilience."""
+        try:
+            return await asyncio.wait_for(
+                self._client.send_request(method, params),
+                timeout=self._request_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise PyrightError(
+                f"{method} request timed out after {self._request_timeout_seconds:.1f}s"
+            ) from exc
 
     def _make_client(self) -> LSPClient:
         """Create and configure a fresh LSP transport client."""
@@ -280,7 +353,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/hover",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -311,7 +384,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/documentSymbol",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -385,7 +458,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/completion",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -438,7 +511,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/references",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -474,7 +547,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/definition",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -500,7 +573,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/implementation",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -526,7 +599,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/signatureHelp",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -592,7 +665,7 @@ class PyrightLSPClient:
 
     async def workspace_symbol(self, query: str) -> list[SymbolInfo]:
         """Search workspace symbols by query string."""
-        response = await self._client.send_request(
+        response = await self._request(
             "workspace/symbol",
             {"query": query},
         )
@@ -657,7 +730,7 @@ class PyrightLSPClient:
         absolute_path = _normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        response = await self._client.send_request(
+        response = await self._request(
             "textDocument/prepareCallHierarchy",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -674,7 +747,7 @@ class PyrightLSPClient:
 
     async def get_incoming_calls(self, item: CallHierarchyItem) -> list[CallHierarchyItem]:
         """Return incoming call hierarchy items."""
-        response = await self._client.send_request(
+        response = await self._request(
             "callHierarchy/incomingCalls",
             {"item": self._call_hierarchy_item_to_lsp(item)},
         )
@@ -696,7 +769,7 @@ class PyrightLSPClient:
 
     async def get_outgoing_calls(self, item: CallHierarchyItem) -> list[CallHierarchyItem]:
         """Return outgoing call hierarchy items."""
-        response = await self._client.send_request(
+        response = await self._request(
             "callHierarchy/outgoingCalls",
             {"item": self._call_hierarchy_item_to_lsp(item)},
         )
@@ -759,7 +832,7 @@ class PyrightLSPClient:
             },
             "context": {"diagnostics": lsp_diagnostics},
         }
-        response = await self._client.send_request("textDocument/codeAction", request_params)
+        response = await self._request("textDocument/codeAction", request_params)
         if "error" in response:
             raise PyrightError(f"codeAction request failed: {response['error']}")
 
@@ -773,6 +846,298 @@ class PyrightLSPClient:
                 action: dict[str, object] = dict(item)
                 actions.append(action)
         return actions
+
+    async def get_declaration(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Get declaration locations for a symbol from Pyright."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/declaration",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return await self.get_definition(file_path, line, char)
+            raise PyrightError(f"Declaration request failed: {response['error']}")
+
+        result = response.get("result")
+        if isinstance(result, dict):
+            return self._definition_entry_to_locations(result)
+        if isinstance(result, list):
+            resolved: list[Location] = []
+            for entry in result:
+                if isinstance(entry, dict):
+                    resolved.extend(self._definition_entry_to_locations(entry))
+            return resolved
+        return []
+
+    async def get_type_definition(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Get type-definition locations for a symbol from Pyright."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/typeDefinition",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"typeDefinition request failed: {response['error']}")
+
+        result = response.get("result")
+        if isinstance(result, dict):
+            return self._definition_entry_to_locations(result)
+        if isinstance(result, list):
+            resolved: list[Location] = []
+            for entry in result:
+                if isinstance(entry, dict):
+                    resolved.extend(self._definition_entry_to_locations(entry))
+            return resolved
+        return []
+
+    async def get_document_highlights(self, file_path: str, line: int, char: int) -> list[DocumentHighlight]:
+        """Get in-file highlights for a symbol at the provided position."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/documentHighlight",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            raise PyrightError(f"documentHighlight request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        highlights: list[DocumentHighlight] = []
+        for entry in result:
+            if not isinstance(entry, dict):
+                continue
+            range_value = entry.get("range")
+            if not isinstance(range_value, dict):
+                continue
+            kind = _DOCUMENT_HIGHLIGHT_KIND.get(_as_int(entry.get("kind", 1), 1), "text")
+            highlights.append(DocumentHighlight(range=_model_range(range_value), kind=kind))
+        return highlights
+
+    async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
+        """Run LSP rename preflight and return editable range metadata if valid."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/prepareRename",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return None
+            raise PyrightError(f"prepareRename request failed: {response['error']}")
+
+        result = response.get("result")
+        if result is None:
+            return None
+
+        if isinstance(result, dict) and "range" not in result:
+            return None
+
+        if isinstance(result, dict):
+            range_value = result.get("range")
+            placeholder = _as_str(result.get("placeholder"), "")
+        else:
+            range_value = result
+            placeholder = ""
+
+        if not isinstance(range_value, dict):
+            return None
+
+        if not placeholder:
+            placeholder = Path(absolute_path).stem
+
+        return PrepareRenameResult(range=_model_range(range_value), placeholder=placeholder)
+
+    async def get_inlay_hints(
+        self,
+        file_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+    ) -> list[InlayHint]:
+        """Get inlay hints for the provided file range."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/inlayHint",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "range": {
+                    "start": {"line": start_line, "character": start_character},
+                    "end": {"line": end_line, "character": end_character},
+                },
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"inlayHint request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        hints: list[InlayHint] = []
+        for entry in result:
+            if not isinstance(entry, dict):
+                continue
+            position_value = entry.get("position")
+            if not isinstance(position_value, dict):
+                continue
+            raw_label = entry.get("label")
+            if isinstance(raw_label, str):
+                label = raw_label
+            elif isinstance(raw_label, list):
+                parts: list[str] = []
+                for part in raw_label:
+                    if isinstance(part, str):
+                        parts.append(part)
+                    elif isinstance(part, dict):
+                        part_value = part.get("value")
+                        if isinstance(part_value, str):
+                            parts.append(part_value)
+                label = "".join(parts)
+            else:
+                label = ""
+            if not label:
+                continue
+            hint_kind = None
+            kind_value = entry.get("kind")
+            if isinstance(kind_value, int):
+                hint_kind = {1: "type", 2: "parameter"}.get(kind_value, "unknown")
+            hints.append(
+                InlayHint(
+                    position=_model_position(position_value),
+                    label=label,
+                    kind=hint_kind,
+                    padding_left=bool(entry.get("paddingLeft", False)),
+                    padding_right=bool(entry.get("paddingRight", False)),
+                )
+            )
+        return hints
+
+    async def get_semantic_tokens(self, file_path: str) -> list[SemanticToken]:
+        """Get and decode full-document semantic tokens from Pyright."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/semanticTokens/full",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"semanticTokens/full request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, dict):
+            return []
+        data = result.get("data")
+        if not isinstance(data, list):
+            return []
+
+        numbers: list[int] = [value for value in data if isinstance(value, int)]
+        tokens: list[SemanticToken] = []
+        line = 0
+        character = 0
+        for index in range(0, len(numbers), 5):
+            if index + 4 >= len(numbers):
+                break
+            delta_line = numbers[index]
+            delta_char = numbers[index + 1]
+            length = numbers[index + 2]
+            token_type_idx = numbers[index + 3]
+            modifiers_bits = numbers[index + 4]
+
+            if delta_line == 0:
+                character += delta_char
+            else:
+                line += delta_line
+                character = delta_char
+
+            token_type = (
+                _SEMANTIC_TOKEN_TYPES[token_type_idx]
+                if 0 <= token_type_idx < len(_SEMANTIC_TOKEN_TYPES)
+                else "unknown"
+            )
+            modifiers: list[str] = []
+            for bit, modifier_name in enumerate(_SEMANTIC_TOKEN_MODIFIERS):
+                if modifiers_bits & (1 << bit):
+                    modifiers.append(modifier_name)
+
+            tokens.append(
+                SemanticToken(
+                    range=Range(
+                        start=Position(line=line, character=character),
+                        end=Position(line=line, character=character + max(length, 0)),
+                    ),
+                    token_type=token_type,
+                    modifiers=modifiers,
+                )
+            )
+        return tokens
+
+    async def get_folding_ranges(self, file_path: str) -> list[FoldingRange]:
+        """Get foldable regions for a file from Pyright."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/foldingRange",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"foldingRange request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        ranges: list[FoldingRange] = []
+        for entry in result:
+            if not isinstance(entry, dict):
+                continue
+            start_line = entry.get("startLine")
+            end_line = entry.get("endLine")
+            if not isinstance(start_line, int) or not isinstance(end_line, int):
+                continue
+            kind_value = entry.get("kind")
+            kind = kind_value if isinstance(kind_value, str) else None
+            ranges.append(FoldingRange(start_line=start_line, end_line=end_line, kind=kind))
+        return ranges
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
         """Return diagnostics for one file or the whole project."""

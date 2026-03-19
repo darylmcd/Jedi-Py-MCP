@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import CallHierarchyItem, CallHierarchyResult, Location, SymbolOutlineItem
+from python_refactor_mcp.models import CallHierarchyItem, CallHierarchyResult, FoldingRange, Location, SymbolOutlineItem
 
 _VALID_DIRECTIONS = {"callers", "callees", "both"}
 
@@ -43,6 +43,18 @@ class _PyrightNavigationBackend(Protocol):
 
     async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
         """Return implementation locations for a source position."""
+        ...
+
+    async def get_declaration(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Return declaration locations for a source position."""
+        ...
+
+    async def get_type_definition(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Return type definition locations for a source position."""
+        ...
+
+    async def get_folding_ranges(self, file_path: str) -> list[FoldingRange]:
+        """Return foldable source ranges for a file."""
         ...
 
 
@@ -204,3 +216,42 @@ async def find_implementations(
         for location in implementations
     }
     return sorted(deduped.values(), key=_location_key)
+
+
+async def get_declaration(
+    pyright: _PyrightNavigationBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> list[Location]:
+    """Navigate to symbol declarations from a source position."""
+    declarations = await pyright.get_declaration(file_path, line, character)
+    deduped = {
+        _location_key(location): location
+        for location in declarations
+    }
+    return sorted(deduped.values(), key=_location_key)
+
+
+async def get_type_definition(
+    pyright: _PyrightNavigationBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> list[Location]:
+    """Navigate to symbol type definitions from a source position."""
+    definitions = await pyright.get_type_definition(file_path, line, character)
+    deduped = {
+        _location_key(location): location
+        for location in definitions
+    }
+    return sorted(deduped.values(), key=_location_key)
+
+
+async def get_folding_ranges(
+    pyright: _PyrightNavigationBackend,
+    file_path: str,
+) -> list[FoldingRange]:
+    """Return foldable ranges for a file in deterministic order."""
+    ranges = await pyright.get_folding_ranges(file_path)
+    return sorted(ranges, key=lambda item: (item.start_line, item.end_line, item.kind or ""))

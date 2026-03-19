@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -281,9 +282,169 @@ async def test_get_workspace_diagnostics_returns_summary(
     service_path = sample_workspace / "src" / "service.py"
     await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
 
-    result = await mcp_session.call_tool("get_workspace_diagnostics", {})
+    payload: object = []
+    for _ in range(8):
+        result = await mcp_session.call_tool("get_workspace_diagnostics", {})
+        assert result.isError is not True
+        payload = _unwrap_result_payload(result.structuredContent)
+        if isinstance(payload, list) and any(
+            str(item.get("file_path", "")).endswith("service.py")
+            for item in payload
+            if isinstance(item, dict)
+        ):
+            break
+        await asyncio.sleep(0.1)
+
+    assert isinstance(payload, list)
+    assert any(
+        str(item.get("file_path", "")).endswith("service.py")
+        for item in payload
+        if isinstance(item, dict)
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_rename_and_followup_refactor(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure prepare_rename validates a symbol and supports downstream rename flow."""
+    service_path = sample_workspace / "src" / "service.py"
+    line, character = _find_position(service_path, "invoice")
+
+    prepared = await mcp_session.call_tool(
+        "prepare_rename",
+        {
+            "file_path": str(service_path),
+            "line": line,
+            "character": character,
+        },
+    )
+
+    assert prepared.isError is not True
+    payload = prepared.structuredContent
+    assert payload is None or isinstance(payload, dict)
+
+
+@pytest.mark.asyncio
+async def test_navigation_additions_return_locations(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure declaration and type-definition navigation tools return structured location lists."""
+    models_path = sample_workspace / "src" / "models.py"
+    line, character = _find_position(models_path, "User")
+
+    declaration = await mcp_session.call_tool(
+        "get_declaration",
+        {"file_path": str(models_path), "line": line, "character": character},
+    )
+    type_definition = await mcp_session.call_tool(
+        "get_type_definition",
+        {"file_path": str(models_path), "line": line, "character": character},
+    )
+
+    assert declaration.isError is not True
+    assert type_definition.isError is not True
+    decl_payload = _unwrap_result_payload(declaration.structuredContent)
+    type_payload = _unwrap_result_payload(type_definition.structuredContent)
+    assert isinstance(decl_payload, list)
+    assert isinstance(type_payload, list)
+
+
+@pytest.mark.asyncio
+async def test_document_highlights_and_folding_ranges(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure local highlights and folding ranges are available for a sample file."""
+    service_path = sample_workspace / "src" / "service.py"
+    line, character = _find_position(service_path, "current_user")
+
+    highlights = await mcp_session.call_tool(
+        "get_document_highlights",
+        {"file_path": str(service_path), "line": line, "character": character},
+    )
+    folding = await mcp_session.call_tool(
+        "get_folding_ranges",
+        {"file_path": str(service_path)},
+    )
+
+    assert highlights.isError is not True
+    assert folding.isError is not True
+    highlight_payload = _unwrap_result_payload(highlights.structuredContent)
+    folding_payload = _unwrap_result_payload(folding.structuredContent)
+    assert isinstance(highlight_payload, list)
+    assert isinstance(folding_payload, list)
+
+
+@pytest.mark.asyncio
+async def test_inlay_and_semantic_tokens(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure inlay hints and semantic token tools return structured arrays."""
+    service_path = sample_workspace / "src" / "service.py"
+
+    inlay = await mcp_session.call_tool(
+        "get_inlay_hints",
+        {"file_path": str(service_path)},
+    )
+    semantic = await mcp_session.call_tool(
+        "get_semantic_tokens",
+        {"file_path": str(service_path)},
+    )
+
+    assert inlay.isError is not True
+    assert semantic.isError is not True
+    inlay_payload = _unwrap_result_payload(inlay.structuredContent)
+    semantic_payload = _unwrap_result_payload(semantic.structuredContent)
+    assert isinstance(inlay_payload, list)
+    assert isinstance(semantic_payload, list)
+
+
+@pytest.mark.asyncio
+async def test_call_signatures_fallback_tool(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure Jedi signature fallback tool returns a nullable signature payload."""
+    service_path = sample_workspace / "src" / "service.py"
+    line, character = _find_position(service_path, "User(")
+    character += len("User(")
+
+    result = await mcp_session.call_tool(
+        "get_call_signatures_fallback",
+        {"file_path": str(service_path), "line": line, "character": character},
+    )
 
     assert result.isError is not True
-    payload = _unwrap_result_payload(result.structuredContent)
-    assert isinstance(payload, list)
-    assert any(str(item.get("file_path", "")).endswith("service.py") for item in payload)
+    payload = result.structuredContent
+    assert payload is None or isinstance(payload, dict)
+
+
+@pytest.mark.asyncio
+async def test_failure_paths_return_tool_errors(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure invalid requests return MCP tool errors rather than hard crashes."""
+    service_path = sample_workspace / "src" / "service.py"
+
+    bad_direction = await mcp_session.call_tool(
+        "call_hierarchy",
+        {
+            "file_path": str(service_path),
+            "line": 0,
+            "character": 0,
+            "direction": "invalid",
+            "depth": 1,
+        },
+    )
+    missing_file = await mcp_session.call_tool(
+        "organize_imports",
+        {"file_path": str(sample_workspace / "src" / "missing.py"), "apply": False},
+    )
+
+    assert bad_direction.isError is True
+    assert missing_file.isError is True

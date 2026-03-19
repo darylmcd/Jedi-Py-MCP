@@ -113,6 +113,46 @@ class SignatureInfo(BaseModel):
     documentation: str | None = None
 
 
+class DocumentHighlight(BaseModel):
+    """In-document symbol usage with access kind metadata."""
+
+    range: Range
+    kind: str
+
+
+class PrepareRenameResult(BaseModel):
+    """Rename preflight payload describing editable range and placeholder."""
+
+    range: Range
+    placeholder: str
+
+
+class InlayHint(BaseModel):
+    """One inlay hint item returned from language server analysis."""
+
+    position: Position
+    label: str
+    kind: str | None = None
+    padding_left: bool = False
+    padding_right: bool = False
+
+
+class SemanticToken(BaseModel):
+    """One decoded semantic token entry for a document."""
+
+    range: Range
+    token_type: str
+    modifiers: list[str] = Field(default_factory=list)
+
+
+class FoldingRange(BaseModel):
+    """Foldable region metadata for a source file."""
+
+    start_line: int
+    end_line: int
+    kind: str | None = None
+
+
 class CallHierarchyItem(BaseModel):
     """One node in a call hierarchy graph."""
 

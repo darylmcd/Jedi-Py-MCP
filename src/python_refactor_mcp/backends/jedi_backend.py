@@ -10,7 +10,7 @@ import jedi  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import JediError
-from python_refactor_mcp.models import ImportSuggestion, Location, SymbolInfo, TypeInfo
+from python_refactor_mcp.models import ImportSuggestion, Location, ParameterInfo, SignatureInfo, SymbolInfo, TypeInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -251,3 +251,48 @@ class JediBackend:
             return result
         except Exception as exc:
             raise JediError(f"Jedi search_symbols failed for query {query}") from exc
+
+    async def get_signatures(self, file_path: str, line: int, character: int) -> SignatureInfo | None:
+        """Return call signatures for a source position using Jedi fallback APIs."""
+
+        def _work() -> SignatureInfo | None:
+            script = self._make_script(file_path)
+            signatures = script.get_signatures(line=line + 1, column=character)
+            if not signatures:
+                return None
+
+            signature = signatures[0]
+            name_value = getattr(signature, "name", None)
+            name = name_value if isinstance(name_value, str) and name_value else "call"
+
+            params_raw = getattr(signature, "params", [])
+            parameters: list[ParameterInfo] = []
+            if isinstance(params_raw, list):
+                for param in params_raw:
+                    param_name_value = getattr(param, "name", None)
+                    param_name = param_name_value if isinstance(param_name_value, str) else ""
+                    if not param_name:
+                        continue
+                    parameters.append(ParameterInfo(label=param_name))
+
+            label = name
+            if parameters:
+                label = f"{name}({', '.join(param.label for param in parameters)})"
+
+            index = getattr(signature, "index", None)
+            active_parameter = index if isinstance(index, int) else None
+
+            return SignatureInfo(
+                label=label,
+                parameters=parameters,
+                active_parameter=active_parameter,
+                active_signature=0,
+                documentation=None,
+            )
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("Jedi get_signatures returned %s for %s", "value" if result else "none", file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_signatures failed for {file_path}:{line}:{character}") from exc

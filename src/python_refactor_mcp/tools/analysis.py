@@ -10,8 +10,11 @@ from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
     DiagnosticSummary,
+    DocumentHighlight,
+    InlayHint,
     Location,
     ReferenceResult,
+    SemanticToken,
     SignatureInfo,
     TypeInfo,
 )
@@ -48,6 +51,30 @@ class _PyrightAnalysisBackend(Protocol):
         """Return signature help for a source position."""
         ...
 
+    async def get_document_highlights(
+        self,
+        file_path: str,
+        line: int,
+        char: int,
+    ) -> list[DocumentHighlight]:
+        """Return in-file highlights for the symbol under cursor."""
+        ...
+
+    async def get_inlay_hints(
+        self,
+        file_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+    ) -> list[InlayHint]:
+        """Return inlay hints for a source range."""
+        ...
+
+    async def get_semantic_tokens(self, file_path: str) -> list[SemanticToken]:
+        """Return decoded semantic tokens for a full file."""
+        ...
+
 
 class _JediAnalysisBackend(Protocol):
     """Protocol describing Jedi analysis methods used by this module."""
@@ -58,6 +85,10 @@ class _JediAnalysisBackend(Protocol):
 
     async def infer_type(self, file_path: str, line: int, character: int) -> TypeInfo | None:
         """Return inferred type information for a position."""
+        ...
+
+    async def get_signatures(self, file_path: str, line: int, character: int) -> SignatureInfo | None:
+        """Return Jedi signature help for dynamic fallback scenarios."""
         ...
 
 
@@ -233,6 +264,71 @@ async def get_signature_help(
 ) -> SignatureInfo | None:
     """Get function signature help for a call-site position."""
     return await pyright.get_signature_help(file_path, line, character)
+
+
+async def get_call_signatures_fallback(
+    jedi: _JediAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> SignatureInfo | None:
+    """Get Jedi signature help as a fallback for dynamic call sites."""
+    return await jedi.get_signatures(file_path, line, character)
+
+
+async def get_document_highlights(
+    pyright: _PyrightAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> list[DocumentHighlight]:
+    """Get in-file read/write highlights for a symbol position."""
+    highlights = await pyright.get_document_highlights(file_path, line, character)
+    return sorted(
+        highlights,
+        key=lambda item: (
+            item.range.start.line,
+            item.range.start.character,
+            item.range.end.line,
+            item.range.end.character,
+            item.kind,
+        ),
+    )
+
+
+async def get_inlay_hints(
+    pyright: _PyrightAnalysisBackend,
+    file_path: str,
+    start_line: int,
+    start_character: int,
+    end_line: int,
+    end_character: int,
+) -> list[InlayHint]:
+    """Get inlay hints for the supplied source range."""
+    hints = await pyright.get_inlay_hints(
+        file_path,
+        start_line,
+        start_character,
+        end_line,
+        end_character,
+    )
+    return sorted(hints, key=lambda item: (item.position.line, item.position.character, item.label))
+
+
+async def get_semantic_tokens(
+    pyright: _PyrightAnalysisBackend,
+    file_path: str,
+) -> list[SemanticToken]:
+    """Get semantic tokens for a file and return deterministic ordering."""
+    tokens = await pyright.get_semantic_tokens(file_path)
+    return sorted(
+        tokens,
+        key=lambda item: (
+            item.range.start.line,
+            item.range.start.character,
+            item.token_type,
+        ),
+    )
 
 
 async def get_diagnostics(

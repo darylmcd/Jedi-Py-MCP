@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import CallHierarchyItem, Location, Position, Range, SymbolOutlineItem
+from python_refactor_mcp.models import CallHierarchyItem, FoldingRange, Location, Position, Range, SymbolOutlineItem
 from python_refactor_mcp.tools import navigation
 
 
@@ -147,3 +147,32 @@ async def test_find_implementations_deduplicates_results() -> None:
     result = await navigation.find_implementations(pyright, "/repo/a.py", 1, 2)
 
     assert [item.file_path for item in result] == ["/repo/a.py", "/repo/b.py"]
+
+
+@pytest.mark.asyncio
+async def test_get_declaration_and_type_definition_deduplicate() -> None:
+    """Ensure declaration and type definition outputs are deduplicated."""
+    pyright = AsyncMock()
+    shared = _location("/repo/a.py", 1, 2)
+    pyright.get_declaration.return_value = [shared, shared]
+    pyright.get_type_definition.return_value = [shared, _location("/repo/b.py", 0, 0)]
+
+    declarations = await navigation.get_declaration(pyright, "/repo/a.py", 1, 2)
+    type_definitions = await navigation.get_type_definition(pyright, "/repo/a.py", 1, 2)
+
+    assert len(declarations) == 1
+    assert [item.file_path for item in type_definitions] == ["/repo/a.py", "/repo/b.py"]
+
+
+@pytest.mark.asyncio
+async def test_get_folding_ranges_sorted() -> None:
+    """Ensure folding ranges are returned in deterministic source order."""
+    pyright = AsyncMock()
+    pyright.get_folding_ranges.return_value = [
+        FoldingRange(start_line=10, end_line=20, kind="region"),
+        FoldingRange(start_line=2, end_line=5, kind="imports"),
+    ]
+
+    result = await navigation.get_folding_ranges(pyright, "/repo/a.py")
+
+    assert [item.start_line for item in result] == [2, 10]

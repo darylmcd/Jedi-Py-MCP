@@ -142,18 +142,28 @@ Other runtime discovery:
 | `get_hover_info` | Return hover-style type and documentation metadata for a symbol. | `TypeInfo` |
 | `get_completions` | Return completion candidates for a cursor location. | `list[CompletionItem]` |
 | `get_signature_help` | Return active signature and parameter help at a call site. | `SignatureInfo \| None` |
+| `get_call_signatures_fallback` | Return Jedi signature fallback for dynamic call sites. | `SignatureInfo \| None` |
+| `get_document_highlights` | Return in-file read/write highlights for a symbol. | `list[DocumentHighlight]` |
+| `get_inlay_hints` | Return inlay hints (type/parameter hints) for a file range. | `list[InlayHint]` |
+| `get_semantic_tokens` | Return semantic token classifications for a file. | `list[SemanticToken]` |
 | `get_diagnostics` | Return Pyright diagnostics for a file or workspace. | `list[Diagnostic]` |
 | `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `list[DiagnosticSummary]` |
 | `goto_definition` | Navigate to symbol definitions. | `list[Location]` |
+| `get_declaration` | Navigate to declaration sites (stub/interface) for a symbol. | `list[Location]` |
+| `get_type_definition` | Navigate to type definitions for a symbol. | `list[Location]` |
 | `find_implementations` | Navigate to concrete implementation locations. | `list[Location]` |
+| `get_folding_ranges` | Return foldable code regions for chunked analysis. | `list[FoldingRange]` |
 | `get_symbol_outline` | Return a hierarchical symbol outline for a file or workspace. | `list[SymbolOutlineItem]` |
 | `call_hierarchy` | Return callers and callees for a symbol. | `CallHierarchyResult` |
+| `prepare_rename` | Validate whether rename is allowed at a position. | `PrepareRenameResult \| None` |
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `smart_rename` | Run Pyright reference discovery plus rope rename and validation. | `RefactorResult` |
 | `extract_method` | Extract a selected block into a method. | `RefactorResult` |
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
 | `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |
 | `move_symbol` | Move a symbol between files. | `RefactorResult` |
+| `introduce_parameter` | Introduce a parameter and update call sites. | `RefactorResult` |
+| `encapsulate_field` | Encapsulate a field with property-style accessors. | `RefactorResult` |
 | `apply_code_action` | Preview or apply a Pyright code action at a source position. | `RefactorResult` |
 | `organize_imports` | Preview or apply import organization for a file. | `RefactorResult` |
 | `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |

@@ -86,3 +86,44 @@ async def test_apply_true_writes_file(rope_backend: tuple[RopeBackend, Path]) ->
     assert result.applied
     new_content = module.read_text(encoding="utf-8")
     assert "def sum_values" in new_content
+
+
+@pytest.mark.asyncio
+async def test_introduce_parameter_returns_edits(rope_backend: tuple[RopeBackend, Path]) -> None:
+    """Introduce parameter returns edits for a callable definition."""
+    backend, module = rope_backend
+
+    result = await backend.introduce_parameter(str(module), 0, 4, "c", "0", apply=False)
+
+    assert result.edits
+    assert result.applied is False
+
+
+@pytest.mark.asyncio
+async def test_encapsulate_field_returns_edits(tmp_path: Path) -> None:
+    """Encapsulate field returns edits for class attribute access."""
+    module = tmp_path / "model.py"
+    module.write_text(
+        "class User:\n"
+        "    def __init__(self, name: str):\n"
+        "        self.name = name\n"
+        "\n"
+        "    def get_name(self) -> str:\n"
+        "        return self.name\n",
+        encoding="utf-8",
+    )
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = RopeBackend(config)
+    backend.initialize()
+
+    result = await backend.encapsulate_field(str(module), 2, 13, apply=False)
+
+    assert result.edits
+    assert result.applied is False
