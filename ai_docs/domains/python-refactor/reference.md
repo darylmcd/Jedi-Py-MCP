@@ -112,6 +112,33 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `DiffPreview`: `file_path`, `unified_diff`.
 - `SymbolInfo`: `name`, `kind`, `file_path`, `range`, `container`.
 
+## Next 10 High-Value Unexposed Picks
+
+These are prioritized additions that are not currently exposed as MCP tools but are available via underlying backends (Pyright/Jedi/rope).
+
+1. `get_declaration` (Pyright `textDocument/declaration`)
+	- Why: agent can jump to stubs/interfaces when definition points to implementation or import glue.
+2. `get_type_definition` (Pyright `textDocument/typeDefinition`)
+	- Why: critical for understanding concrete runtime type behind aliases/protocol-heavy code.
+3. `get_document_highlights` (Pyright `textDocument/documentHighlight`)
+	- Why: fast local symbol usage clustering in-file before expensive workspace scans.
+4. `prepare_rename` (Pyright `textDocument/prepareRename`)
+	- Why: preflight safety check before rename/edit operations; reduces failed refactors.
+5. `get_inlay_hints` (Pyright `textDocument/inlayHint`)
+	- Why: exposes inferred type/parameter names to improve agent reasoning and code review output.
+6. `get_semantic_tokens` (Pyright `textDocument/semanticTokens/full`)
+	- Why: enables robust symbol-kind-aware analysis and richer code understanding.
+7. `get_folding_ranges` (Pyright `textDocument/foldingRange`)
+	- Why: helps chunk large files into review/refactor windows for token-efficient planning.
+8. `get_call_signatures_fallback` (Jedi `Script.get_signatures`)
+	- Why: fallback when Pyright signature help is absent in dynamic code.
+9. `introduce_parameter` (rope `refactor.introduce_parameter`)
+	- Why: high-value API evolution primitive for agents doing compatibility-preserving refactors.
+10. `encapsulate_field` (rope `refactor.encapsulate_field`)
+	- Why: converts direct attribute access into managed property access for safer staged refactors.
+
+Use the implementation and quality checklist in `ai_docs/domains/python-refactor/mcp-checklist.md` before exposing any new tool.
+
 ## Deep Historical Material
 
 - `ai_docs/archive/python-refactor-mcp-prompt.md`
