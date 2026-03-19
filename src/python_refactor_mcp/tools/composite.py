@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, Location, RefactorResult
+from python_refactor_mcp.models import Diagnostic, DiffPreview, Location, RefactorResult, TextEdit
+from python_refactor_mcp.util.diff import build_unified_diff
 
 
 class _PyrightCompositeBackend(Protocol):
@@ -92,3 +93,16 @@ async def smart_rename(
     _ = await pyright.get_references(file_path, line, character, True)
     result = await rope.rename(file_path, line, character, new_name, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def diff_preview(edits: list[TextEdit]) -> list[DiffPreview]:
+    """Build unified diff previews for one or more text edits."""
+    edits_by_file: dict[str, list[TextEdit]] = {}
+    for edit in edits:
+        edits_by_file.setdefault(edit.file_path, []).append(edit)
+
+    previews = [
+        DiffPreview(file_path=file_path, unified_diff=build_unified_diff(file_path, file_edits))
+        for file_path, file_edits in sorted(edits_by_file.items())
+    ]
+    return previews

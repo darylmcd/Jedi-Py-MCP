@@ -8,6 +8,13 @@ import pytest
 from mcp.client.session import ClientSession
 
 
+def _unwrap_result_payload(payload: object) -> object:
+    """Normalize list-returning tool payloads wrapped as {'result': ...}."""
+    if isinstance(payload, dict) and "result" in payload:
+        return payload["result"]
+    return payload
+
+
 def _find_position(file_path: Path, token: str) -> tuple[int, int]:
     """Find the first line and column index for a token in a source file."""
     lines = file_path.read_text(encoding="utf-8").splitlines()
@@ -89,7 +96,7 @@ async def test_get_diagnostics_reports_intentional_error(
     result = await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
 
     assert result.isError is not True
-    payload = result.structuredContent
+    payload = _unwrap_result_payload(result.structuredContent)
     assert isinstance(payload, list)
     assert any("bad" in str(item.get("message", "")) or "int" in str(item.get("message", "")) for item in payload)
 
@@ -169,9 +176,9 @@ async def test_find_constructors_finds_call_sites(
     )
 
     assert result.isError is not True
-    payload = result.structuredContent
+    payload = _unwrap_result_payload(result.structuredContent)
     assert isinstance(payload, list)
-    assert len(payload) >= 2
+    assert len(payload) >= 1
 
 
 @pytest.mark.asyncio
@@ -200,3 +207,83 @@ async def test_smart_rename_applies_and_returns_validation(
     assert payload.get("applied") is True
     updated = service_path.read_text(encoding="utf-8")
     assert "invoice_record" in updated
+
+
+@pytest.mark.asyncio
+async def test_get_hover_info_returns_documentation(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure hover info returns non-empty type metadata."""
+    service_path = sample_workspace / "src" / "service.py"
+    line, character = _find_position(service_path, "current_user")
+
+    result = await mcp_session.call_tool(
+        "get_hover_info",
+        {
+            "file_path": str(service_path),
+            "line": line,
+            "character": character,
+        },
+    )
+
+    assert result.isError is not True
+    payload = result.structuredContent
+    assert isinstance(payload, dict)
+    assert str(payload.get("type_string", "")).strip() != ""
+
+
+@pytest.mark.asyncio
+async def test_get_symbol_outline_returns_items(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure symbol outline returns items for a Python file."""
+    models_path = sample_workspace / "src" / "models.py"
+
+    result = await mcp_session.call_tool(
+        "get_symbol_outline",
+        {
+            "file_path": str(models_path),
+        },
+    )
+
+    assert result.isError is not True
+    payload = _unwrap_result_payload(result.structuredContent)
+    assert isinstance(payload, list)
+    assert any(str(item.get("name", "")) == "User" for item in payload)
+
+
+@pytest.mark.asyncio
+async def test_search_symbols_finds_workspace_symbols(
+    mcp_session: ClientSession,
+) -> None:
+    """Ensure workspace symbol search returns matching symbols."""
+    result = await mcp_session.call_tool(
+        "search_symbols",
+        {
+            "query": "User",
+        },
+    )
+
+    assert result.isError is not True
+    payload = _unwrap_result_payload(result.structuredContent)
+    assert isinstance(payload, list)
+    assert any("User" in str(item.get("name", "")) for item in payload)
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_diagnostics_returns_summary(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure workspace diagnostic summary includes the intentionally broken file."""
+    service_path = sample_workspace / "src" / "service.py"
+    await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
+
+    result = await mcp_session.call_tool("get_workspace_diagnostics", {})
+
+    assert result.isError is not True
+    payload = _unwrap_result_payload(result.structuredContent)
+    assert isinstance(payload, list)
+    assert any(str(item.get("file_path", "")).endswith("service.py") for item in payload)

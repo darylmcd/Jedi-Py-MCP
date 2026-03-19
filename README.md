@@ -1,5 +1,7 @@
 # Jedi-Py-MCP
 
+[![CI](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml)
+
 Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactoring. It combines three backends behind one MCP tool surface:
 
 - Pyright for semantic analysis, references, diagnostics, definitions, and call hierarchy.
@@ -10,7 +12,7 @@ Current implementation status: Stage 6 complete.
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.14+
 - Windows-first workflow with PowerShell examples
 - A Python environment that has the `pyright` package installed so `pyright-langserver` is available on PATH
 
@@ -137,8 +139,14 @@ Other runtime discovery:
 |---|---|---|
 | `find_references` | Find references for a symbol at a source location. | `ReferenceResult` |
 | `get_type_info` | Resolve type information for an expression or symbol. | `TypeInfo` |
+| `get_hover_info` | Return hover-style type and documentation metadata for a symbol. | `TypeInfo` |
+| `get_completions` | Return completion candidates for a cursor location. | `list[CompletionItem]` |
+| `get_signature_help` | Return active signature and parameter help at a call site. | `SignatureInfo \| None` |
 | `get_diagnostics` | Return Pyright diagnostics for a file or workspace. | `list[Diagnostic]` |
+| `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `list[DiagnosticSummary]` |
 | `goto_definition` | Navigate to symbol definitions. | `list[Location]` |
+| `find_implementations` | Navigate to concrete implementation locations. | `list[Location]` |
+| `get_symbol_outline` | Return a hierarchical symbol outline for a file or workspace. | `list[SymbolOutlineItem]` |
 | `call_hierarchy` | Return callers and callees for a symbol. | `CallHierarchyResult` |
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `smart_rename` | Run Pyright reference discovery plus rope rename and validation. | `RefactorResult` |
@@ -146,10 +154,14 @@ Other runtime discovery:
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
 | `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |
 | `move_symbol` | Move a symbol between files. | `RefactorResult` |
+| `apply_code_action` | Preview or apply a Pyright code action at a source position. | `RefactorResult` |
+| `organize_imports` | Preview or apply import organization for a file. | `RefactorResult` |
 | `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |
+| `search_symbols` | Search workspace symbols by name across semantic backends. | `list[SymbolInfo]` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
 | `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
+| `diff_preview` | Build unified diffs for pending text edits. | `list[DiffPreview]` |
 
 Refactoring tools default to returning `TextEdit` data. Set `apply=True` to write changes to disk and return post-change diagnostics.
 
@@ -202,7 +214,7 @@ python -m ruff check .
 python -m pyright .
 python -m mypy .
 python -m pytest tests/unit/ -v
-python -m pytest tests/integration/ -v
+./scripts/test-integration.ps1
 ```
 
 ## Repository Map

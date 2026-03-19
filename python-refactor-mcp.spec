@@ -5,8 +5,6 @@ hiddenimports = []
 hiddenimports += collect_submodules('python_refactor_mcp')
 hiddenimports += collect_submodules('jedi')
 hiddenimports += collect_submodules('rope')
-hiddenimports += collect_submodules('libcst')
-hiddenimports += collect_submodules('pydantic')
 
 
 a = Analysis(
@@ -18,7 +16,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['tzdata'],
     noarchive=False,
     optimize=0,
 )

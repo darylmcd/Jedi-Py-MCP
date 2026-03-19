@@ -23,7 +23,7 @@ Scope: verified environment, shell, tool, editor, and integration facts for this
 | Type check (Pyright) | python -m pyright . |
 | Type check (mypy) | python -m mypy . |
 | Unit tests | python -m pytest tests/unit/ -v |
-| Integration tests | python -m pytest tests/integration/ -v |
+| Integration tests | ./scripts/test-integration.ps1 |
 | Build executable | ./scripts/build.ps1 |
 
 ## Assumptions

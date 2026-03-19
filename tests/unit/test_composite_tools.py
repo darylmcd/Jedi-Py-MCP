@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -70,3 +71,22 @@ async def test_smart_rename_apply_refreshes_diagnostics() -> None:
     assert len(result.diagnostics_after) == 2
     pyright.notify_file_changed.assert_any_await("/repo/a.py")
     pyright.notify_file_changed.assert_any_await("/repo/b.py")
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_builds_unified_diff(tmp_path: Path) -> None:
+    """Ensure diff preview returns a unified diff per affected file."""
+    target = tmp_path / "sample.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    result = await composite.diff_preview([
+        TextEdit(
+            file_path=str(target),
+            range=Range(start=Position(line=0, character=4), end=Position(line=0, character=5)),
+            new_text="2",
+        )
+    ])
+
+    assert len(result) == 1
+    assert "-x = 1" in result[0].unified_diff
+    assert "+x = 2" in result[0].unified_diff

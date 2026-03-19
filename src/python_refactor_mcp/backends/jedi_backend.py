@@ -10,7 +10,7 @@ import jedi  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import JediError
-from python_refactor_mcp.models import ImportSuggestion, Location, TypeInfo
+from python_refactor_mcp.models import ImportSuggestion, Location, SymbolInfo, TypeInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -202,3 +202,52 @@ class JediBackend:
             return result
         except Exception as exc:
             raise JediError(f"Jedi search_names failed for symbol {symbol}") from exc
+
+    async def search_symbols(self, query: str) -> list[SymbolInfo]:
+        """Search project symbols by name using Jedi project search."""
+
+        def _work() -> list[SymbolInfo]:
+            project = self._require_project()
+            names = project.search(query, all_scopes=True)
+            symbols: list[SymbolInfo] = []
+            seen: set[tuple[str, str, int, int, str]] = set()
+            for name in names:
+                location = _name_to_location(name)
+                if location is None:
+                    continue
+
+                symbol_name = getattr(name, "name", "")
+                if not isinstance(symbol_name, str) or not symbol_name:
+                    continue
+
+                kind_value = getattr(name, "type", "variable")
+                kind = kind_value if isinstance(kind_value, str) and kind_value else "variable"
+                module_name = getattr(name, "module_name", None)
+                container = module_name if isinstance(module_name, str) and module_name else None
+                key = (
+                    symbol_name,
+                    location.file_path,
+                    location.range.start.line,
+                    location.range.start.character,
+                    container or "",
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                symbols.append(
+                    SymbolInfo(
+                        name=symbol_name,
+                        kind=kind,
+                        file_path=location.file_path,
+                        range=location.range,
+                        container=container,
+                    )
+                )
+            return symbols
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("Jedi search_symbols returned %d results for %s", len(result), query)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi search_symbols failed for query {query}") from exc

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, RefactorResult
+from python_refactor_mcp.backends.pyright_lsp import uri_to_path
+from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 
 
 class _PyrightRefactoringBackend(Protocol):
@@ -16,6 +19,15 @@ class _PyrightRefactoringBackend(Protocol):
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
         """Return diagnostics for one file or the full workspace."""
+        ...
+
+    async def get_code_actions(
+        self,
+        file_path: str,
+        range_value: Range,
+        diagnostics: list[Diagnostic],
+    ) -> list[dict[str, object]]:
+        """Return code actions for a range."""
         ...
 
 
@@ -85,6 +97,133 @@ def _diagnostic_key(item: Diagnostic) -> tuple[str, int, int, int, int, str, str
         item.severity,
         item.message,
     )
+
+
+def _range_contains_position(range_value: Range, line: int, character: int) -> bool:
+    """Return whether a 0-based position is inside a diagnostic range."""
+    start = (range_value.start.line, range_value.start.character)
+    end = (range_value.end.line, range_value.end.character)
+    target = (line, character)
+    return start <= target <= end
+
+
+def _end_position_for_content(content: str) -> Position:
+    """Compute the end position for a file content string."""
+    if not content:
+        return Position(line=0, character=0)
+    lines = content.splitlines()
+    if not lines:
+        return Position(line=0, character=0)
+    if content.endswith(("\n", "\r")):
+        return Position(line=len(lines), character=0)
+    return Position(line=len(lines) - 1, character=len(lines[-1]))
+
+
+def _full_file_range(file_path: str) -> Range:
+    """Build a range covering the entire current file content."""
+    content = Path(file_path).read_text(encoding="utf-8")
+    return Range(start=Position(line=0, character=0), end=_end_position_for_content(content))
+
+
+def _workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
+    """Convert an LSP workspace edit payload into project TextEdit models."""
+    if not isinstance(workspace_edit, dict):
+        return []
+
+    edits: list[TextEdit] = []
+    changes = workspace_edit.get("changes")
+    if isinstance(changes, dict):
+        for uri, file_edits in changes.items():
+            if not isinstance(uri, str) or not isinstance(file_edits, list):
+                continue
+            file_path = uri_to_path(uri)
+            for edit in file_edits:
+                if not isinstance(edit, dict):
+                    continue
+                range_value = edit.get("range")
+                new_text = edit.get("newText")
+                if not isinstance(range_value, dict) or not isinstance(new_text, str):
+                    continue
+                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+
+    document_changes = workspace_edit.get("documentChanges")
+    if isinstance(document_changes, list):
+        for change in document_changes:
+            if not isinstance(change, dict):
+                continue
+            text_document = change.get("textDocument")
+            edits_value = change.get("edits")
+            if not isinstance(text_document, dict) or not isinstance(edits_value, list):
+                continue
+            uri = text_document.get("uri")
+            if not isinstance(uri, str):
+                continue
+            file_path = uri_to_path(uri)
+            for edit in edits_value:
+                if not isinstance(edit, dict):
+                    continue
+                range_value = edit.get("range")
+                new_text = edit.get("newText")
+                if not isinstance(range_value, dict) or not isinstance(new_text, str):
+                    continue
+                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+
+    deduped: dict[tuple[str, int, int, int, int, str], TextEdit] = {}
+    for edit in edits:
+        key = (
+            edit.file_path,
+            edit.range.start.line,
+            edit.range.start.character,
+            edit.range.end.line,
+            edit.range.end.character,
+            edit.new_text,
+        )
+        deduped[key] = edit
+    return sorted(
+        deduped.values(),
+        key=lambda item: (
+            item.file_path,
+            item.range.start.line,
+            item.range.start.character,
+            item.range.end.line,
+            item.range.end.character,
+        ),
+    )
+
+
+def _result_from_text_edits(edits: list[TextEdit], description: str, apply: bool) -> RefactorResult:
+    """Build a refactor result from LSP-style text edits and optionally apply them."""
+    files_affected = sorted({edit.file_path for edit in edits})
+    if not apply:
+        return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=False)
+
+    edits_by_file: dict[str, list[TextEdit]] = {}
+    for edit in edits:
+        edits_by_file.setdefault(edit.file_path, []).append(edit)
+    for file_path, file_edits in edits_by_file.items():
+        updated = apply_text_edits(file_path, file_edits)
+        write_atomic(file_path, updated)
+
+    return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=True)
+
+
+def _pick_code_action(actions: list[dict[str, object]], action_title: str | None = None) -> dict[str, object]:
+    """Select a code action by title or fall back to the first available action."""
+    if not actions:
+        raise ValueError("No code actions were available for the requested location.")
+    if action_title is None:
+        return actions[0]
+
+    lowered_title = action_title.strip().lower()
+    for action in actions:
+        title = action.get("title")
+        if isinstance(title, str) and title.strip().lower() == lowered_title:
+            return action
+    for action in actions:
+        title = action.get("title")
+        if isinstance(title, str) and lowered_title in title.strip().lower():
+            return action
+    raise ValueError(f"Unable to find code action matching '{action_title}'.")
 
 
 async def _attach_post_apply_diagnostics(
@@ -194,4 +333,61 @@ async def move_symbol(
 ) -> RefactorResult:
     """Move a symbol from one file to another."""
     result = await rope.move(source_file, symbol_name, destination_file, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def apply_code_action(
+    pyright: _PyrightRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    action_title: str | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Apply or preview a Pyright code action at a source position."""
+    diagnostics = await pyright.get_diagnostics(file_path)
+    selected_diagnostics = [
+        diagnostic
+        for diagnostic in diagnostics
+        if _range_contains_position(diagnostic.range, line, character)
+    ]
+    request_range = Range(
+        start=Position(line=line, character=character),
+        end=Position(line=line, character=character),
+    )
+    actions = await pyright.get_code_actions(file_path, request_range, selected_diagnostics)
+    selected = _pick_code_action(actions, action_title)
+    title = selected.get("title")
+    description = title if isinstance(title, str) and title else "Applied code action"
+    edits = _workspace_edit_to_text_edits(selected.get("edit"))
+    if not edits:
+        raise ValueError("Selected code action does not provide editable workspace changes.")
+    result = _result_from_text_edits(edits, description, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def organize_imports(
+    pyright: _PyrightRefactoringBackend,
+    file_path: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Run organize imports for a file using available Pyright code actions."""
+    actions = await pyright.get_code_actions(file_path, _full_file_range(file_path), [])
+    organize_actions = [
+        action
+        for action in actions
+        if (
+            isinstance(action.get("kind"), str)
+            and action.get("kind") == "source.organizeImports"
+        )
+        or (
+            isinstance(action.get("title"), str)
+            and "organize imports" in str(action.get("title")).strip().lower()
+        )
+    ]
+    selected = _pick_code_action(organize_actions, "organize imports")
+    edits = _workspace_edit_to_text_edits(selected.get("edit"))
+    if not edits:
+        raise ValueError("Organize imports did not return editable workspace changes.")
+    result = _result_from_text_edits(edits, "Organized imports", apply)
     return await _attach_post_apply_diagnostics(pyright, result)

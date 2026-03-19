@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  validate:
+    name: Validate (Python 3.14, Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Create virtualenv
+        run: python -m venv .venv
+
+      - name: Install dependencies
+        run: |
+          .\.venv\Scripts\pip install --upgrade pip
+          .\.venv\Scripts\pip install -e ".[dev,build]"
+
+      - name: Lint (ruff)
+        run: .\.venv\Scripts\python -m ruff check .
+
+      - name: Type check (Pyright)
+        run: .\.venv\Scripts\python -m pyright .
+
+      - name: Type check (mypy)
+        run: .\.venv\Scripts\python -m mypy .
+
+      - name: Unit tests
+        run: .\.venv\Scripts\python -m pytest tests/unit/ -v
+
+      - name: Integration tests
+        run: .\scripts\test-integration.ps1

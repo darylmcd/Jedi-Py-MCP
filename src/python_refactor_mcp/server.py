@@ -15,33 +15,50 @@ from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
 from python_refactor_mcp.models import (
 	CallHierarchyResult,
+	CompletionItem,
 	ConstructorSite,
 	DeadCodeItem,
 	Diagnostic,
+	DiagnosticSummary,
+	DiffPreview,
 	ImportSuggestion,
 	Location,
 	RefactorResult,
 	ReferenceResult,
+	SignatureInfo,
 	StructuralMatch,
+	SymbolInfo,
+	SymbolOutlineItem,
+	TextEdit,
 	TypeInfo,
 )
 from python_refactor_mcp.tools.analysis import (
 	find_references as analysis_find_references,
 )
+from python_refactor_mcp.tools.analysis import get_completions as analysis_get_completions
 from python_refactor_mcp.tools.analysis import (
 	get_diagnostics as analysis_get_diagnostics,
 )
+from python_refactor_mcp.tools.analysis import get_hover_info as analysis_get_hover_info
+from python_refactor_mcp.tools.analysis import get_signature_help as analysis_get_signature_help
 from python_refactor_mcp.tools.analysis import get_type_info as analysis_get_type_info
+from python_refactor_mcp.tools.analysis import get_workspace_diagnostics as analysis_get_workspace_diagnostics
+from python_refactor_mcp.tools.composite import diff_preview as composite_diff_preview
 from python_refactor_mcp.tools.composite import smart_rename as composite_smart_rename
 from python_refactor_mcp.tools.navigation import call_hierarchy as navigation_call_hierarchy
+from python_refactor_mcp.tools.navigation import find_implementations as navigation_find_implementations
+from python_refactor_mcp.tools.navigation import get_symbol_outline as navigation_get_symbol_outline
 from python_refactor_mcp.tools.navigation import goto_definition as navigation_goto_definition
+from python_refactor_mcp.tools.refactoring import apply_code_action as refactoring_apply_code_action
 from python_refactor_mcp.tools.refactoring import extract_method as refactoring_extract_method
 from python_refactor_mcp.tools.refactoring import extract_variable as refactoring_extract_variable
 from python_refactor_mcp.tools.refactoring import inline_variable as refactoring_inline_variable
 from python_refactor_mcp.tools.refactoring import move_symbol as refactoring_move_symbol
+from python_refactor_mcp.tools.refactoring import organize_imports as refactoring_organize_imports
 from python_refactor_mcp.tools.refactoring import rename_symbol as refactoring_rename_symbol
 from python_refactor_mcp.tools.search import dead_code_detection as search_dead_code_detection
 from python_refactor_mcp.tools.search import find_constructors as search_find_constructors
+from python_refactor_mcp.tools.search import search_symbols as search_search_symbols
 from python_refactor_mcp.tools.search import structural_search as search_structural_search
 from python_refactor_mcp.tools.search import suggest_imports as search_suggest_imports
 
@@ -140,6 +157,38 @@ async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: i
 
 
 @mcp.tool()
+async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
+	"""Get hover-style type and documentation information for a source location."""
+	app = _get_app_context(ctx)
+	result = await analysis_get_hover_info(app.pyright, app.jedi, file_path, line, character)
+	await ctx.debug(f"get_hover_info source={result.source} type={result.type_string}")
+	return result
+
+
+@mcp.tool()
+async def get_completions(ctx: MCPContext, file_path: str, line: int, character: int) -> list[CompletionItem]:
+	"""Get completion candidates for a source location."""
+	app = _get_app_context(ctx)
+	result = await analysis_get_completions(app.pyright, file_path, line, character)
+	await ctx.debug(f"get_completions count={len(result)}")
+	return result
+
+
+@mcp.tool()
+async def get_signature_help(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+) -> SignatureInfo | None:
+	"""Get active signature help for a call site."""
+	app = _get_app_context(ctx)
+	result = await analysis_get_signature_help(app.pyright, file_path, line, character)
+	await ctx.debug(f"get_signature_help found={result is not None}")
+	return result
+
+
+@mcp.tool()
 async def get_diagnostics(
 	ctx: MCPContext,
 	file_path: str | None = None,
@@ -149,6 +198,15 @@ async def get_diagnostics(
 	app = _get_app_context(ctx)
 	result = await analysis_get_diagnostics(app.pyright, file_path, severity_filter)
 	await ctx.debug(f"get_diagnostics count={len(result)} severity_filter={severity_filter}")
+	return result
+
+
+@mcp.tool()
+async def get_workspace_diagnostics(ctx: MCPContext) -> list[DiagnosticSummary]:
+	"""Get aggregated diagnostic counts for the full workspace."""
+	app = _get_app_context(ctx)
+	result = await analysis_get_workspace_diagnostics(app.pyright, app.config)
+	await ctx.debug(f"get_workspace_diagnostics files={len(result)}")
 	return result
 
 
@@ -177,6 +235,32 @@ async def goto_definition(ctx: MCPContext, file_path: str, line: int, character:
 	app = _get_app_context(ctx)
 	result = await navigation_goto_definition(app.pyright, app.jedi, file_path, line, character)
 	await ctx.debug(f"goto_definition count={len(result)}")
+	return result
+
+
+@mcp.tool()
+async def get_symbol_outline(
+	ctx: MCPContext,
+	file_path: str | None = None,
+) -> list[SymbolOutlineItem]:
+	"""Get hierarchical symbol outline for a file or the full workspace."""
+	app = _get_app_context(ctx)
+	result = await navigation_get_symbol_outline(app.pyright, app.config, file_path)
+	await ctx.debug(f"get_symbol_outline count={len(result)}")
+	return result
+
+
+@mcp.tool()
+async def find_implementations(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+) -> list[Location]:
+	"""Find implementation locations for the symbol at the source position."""
+	app = _get_app_context(ctx)
+	result = await navigation_find_implementations(app.pyright, file_path, line, character)
+	await ctx.debug(f"find_implementations count={len(result)}")
 	return result
 
 
@@ -298,6 +382,35 @@ async def move_symbol(
 
 
 @mcp.tool()
+async def apply_code_action(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	action_title: str | None = None,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Apply or preview a Pyright code action at the provided location."""
+	app = _get_app_context(ctx)
+	result = await refactoring_apply_code_action(app.pyright, file_path, line, character, action_title, apply)
+	await ctx.debug(f"apply_code_action edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+async def organize_imports(
+	ctx: MCPContext,
+	file_path: str,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Organize imports for a file and optionally apply the edits."""
+	app = _get_app_context(ctx)
+	result = await refactoring_organize_imports(app.pyright, file_path, apply)
+	await ctx.debug(f"organize_imports edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
 async def find_constructors(
 	ctx: MCPContext,
 	class_name: str,
@@ -307,6 +420,15 @@ async def find_constructors(
 	app = _get_app_context(ctx)
 	result = await search_find_constructors(app.pyright, app.config, class_name, file_path)
 	await ctx.debug(f"find_constructors class={class_name} count={len(result)}")
+	return result
+
+
+@mcp.tool()
+async def search_symbols(ctx: MCPContext, query: str) -> list[SymbolInfo]:
+	"""Search workspace symbols by name across semantic backends."""
+	app = _get_app_context(ctx)
+	result = await search_search_symbols(app.pyright, app.jedi, query)
+	await ctx.debug(f"search_symbols query={query} count={len(result)}")
 	return result
 
 
@@ -370,6 +492,15 @@ async def smart_rename(
 		apply,
 	)
 	await ctx.debug(f"smart_rename edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPreview]:
+	"""Build unified diff previews for pending text edits."""
+	_ = _get_app_context(ctx)
+	result = await composite_diff_preview(edits)
+	await ctx.debug(f"diff_preview files={len(result)}")
 	return result
 
 

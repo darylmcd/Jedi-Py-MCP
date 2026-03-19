@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import CallHierarchyItem, CallHierarchyResult, Location
+from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.models import CallHierarchyItem, CallHierarchyResult, Location, SymbolOutlineItem
 
 _VALID_DIRECTIONS = {"callers", "callees", "both"}
 
@@ -35,6 +37,14 @@ class _PyrightNavigationBackend(Protocol):
         """Return definition locations for a source position."""
         ...
 
+    async def get_document_symbols(self, file_path: str) -> list[SymbolOutlineItem]:
+        """Return document symbols for a file."""
+        ...
+
+    async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
+        """Return implementation locations for a source position."""
+        ...
+
 
 class _JediNavigationBackend(Protocol):
     """Protocol describing Jedi navigation methods used by this module."""
@@ -58,6 +68,11 @@ def _location_key(location: Location) -> tuple[str, int, int, int, int]:
         location.range.end.line,
         location.range.end.character,
     )
+
+
+def _outline_key(item: SymbolOutlineItem) -> tuple[str, int, int, str]:
+    """Build a stable sort key for outline items."""
+    return (item.file_path, item.selection_range.start.line, item.selection_range.start.character, item.name)
 
 
 async def _traverse_calls(
@@ -153,3 +168,39 @@ async def goto_definition(
         for location in jedi_locations
     }
     return sorted(deduped_jedi.values(), key=_location_key)
+
+
+async def get_symbol_outline(
+    pyright: _PyrightNavigationBackend,
+    config: ServerConfig,
+    file_path: str | None = None,
+) -> list[SymbolOutlineItem]:
+    """Return a symbol outline for one file or the full workspace."""
+    candidate_files = (
+        [Path(file_path).resolve()]
+        if file_path is not None
+        else sorted(config.workspace_root.rglob("*.py"))
+    )
+
+    outlines: list[SymbolOutlineItem] = []
+    for path in candidate_files:
+        if not path.is_file():
+            continue
+        outlines.extend(await pyright.get_document_symbols(str(path)))
+
+    return sorted(outlines, key=_outline_key)
+
+
+async def find_implementations(
+    pyright: _PyrightNavigationBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> list[Location]:
+    """Find implementation locations for the symbol at the provided position."""
+    implementations = await pyright.get_implementation(file_path, line, character)
+    deduped = {
+        _location_key(location): location
+        for location in implementations
+    }
+    return sorted(deduped.values(), key=_location_key)

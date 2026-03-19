@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -92,3 +93,93 @@ async def test_extract_inline_and_move_delegate_correctly() -> None:
     rope.extract_variable.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "v", False)
     rope.inline.assert_awaited_once_with("/repo/a.py", 0, 0, False)
     rope.move.assert_awaited_once_with("/repo/a.py", "Thing", "/repo/b.py", False)
+
+
+@pytest.mark.asyncio
+async def test_apply_code_action_applies_workspace_edits(tmp_path: Path) -> None:
+    """Ensure code-action edits can be previewed and applied through the refactoring tool."""
+    target = tmp_path / "sample.py"
+    target.write_text("value = thing\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = [
+        Diagnostic(
+            file_path=str(target),
+            range=Range(start=Position(line=0, character=8), end=Position(line=0, character=13)),
+            severity="error",
+            message="undefined",
+            code="reportUndefinedVariable",
+        )
+    ]
+    pyright.get_code_actions.return_value = [
+        {
+            "title": "Replace with constant",
+            "edit": {
+                "changes": {
+                    target.resolve().as_uri(): [
+                        {
+                            "range": {
+                                "start": {"line": 0, "character": 8},
+                                "end": {"line": 0, "character": 13},
+                            },
+                            "newText": "THING",
+                        }
+                    ]
+                }
+            },
+        }
+    ]
+
+    preview = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=False)
+    assert preview.applied is False
+    assert target.read_text(encoding="utf-8") == "value = thing\n"
+
+    pyright.get_diagnostics.side_effect = [
+        [
+            Diagnostic(
+                file_path=str(target),
+                range=Range(start=Position(line=0, character=8), end=Position(line=0, character=13)),
+                severity="error",
+                message="undefined",
+                code="reportUndefinedVariable",
+            )
+        ],
+        [],
+    ]
+    applied = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=True)
+    assert applied.applied is True
+    assert "THING" in target.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_organize_imports_selects_source_action(tmp_path: Path) -> None:
+    """Ensure organize imports picks the organize-imports code action kind."""
+    target = tmp_path / "sample.py"
+    target.write_text("import sys\nimport os\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_code_actions.return_value = [
+        {
+            "title": "Organize Imports",
+            "kind": "source.organizeImports",
+            "edit": {
+                "changes": {
+                    target.resolve().as_uri(): [
+                        {
+                            "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 2, "character": 0},
+                            },
+                            "newText": "import os\nimport sys\n",
+                        }
+                    ]
+                }
+            },
+        }
+    ]
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.organize_imports(pyright, str(target), apply=True)
+
+    assert result.applied is True
+    assert target.read_text(encoding="utf-8") == "import os\nimport sys\n"

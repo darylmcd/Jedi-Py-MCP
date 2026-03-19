@@ -4,7 +4,7 @@ Purpose: stable reference for Python-related tooling used in this repository.
 
 ## Runtime
 
-- Python 3.13+ target (current environment details in `../../runtime.md`).
+- Python 3.14+ target (current environment details in `../../runtime.md`).
 - Project virtual environment: `.venv`.
 
 ## Key Packages
