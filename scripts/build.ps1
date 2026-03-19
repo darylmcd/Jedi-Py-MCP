@@ -61,12 +61,18 @@ $arguments = @(
 Write-Host "Building python-refactor-mcp executable..."
 Push-Location $repoRoot
 $previousPythonWarnings = $env:PYTHONWARNINGS
+$previousSourceDateEpoch = $env:SOURCE_DATE_EPOCH
+# SOURCE_DATE_EPOCH: tells PyInstaller to use a fixed reproducible PE timestamp,
+# avoiding the OSError(22) 'Invalid argument' warning from set_exe_build_timestamp
+# on some Windows / Python 3.14 combinations.
 $env:PYTHONWARNINGS = "ignore:Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.:UserWarning"
+$env:SOURCE_DATE_EPOCH = "1"
 try {
 	& $pythonExe @arguments
 }
 finally {
 	$env:PYTHONWARNINGS = $previousPythonWarnings
+	$env:SOURCE_DATE_EPOCH = $previousSourceDateEpoch
 	Pop-Location
 }
 

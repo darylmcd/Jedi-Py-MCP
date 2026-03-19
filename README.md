@@ -52,6 +52,12 @@ Build a Windows executable with PyInstaller:
 .\scripts\build.ps1
 ```
 
+From Command Prompt (or when you prefer a batch entry point):
+
+```bat
+.\build.bat
+```
+
 Optional flags:
 
 - `-OneFile` builds a single executable instead of a directory bundle.
