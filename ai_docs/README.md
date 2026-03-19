@@ -19,6 +19,8 @@ Read order is defined by `../AGENTS.md`.
 
 - `architecture.md`: compact system architecture reference
 - `domains/python-refactor/reference.md`: domain-specific entry point
+- `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and
+	prompt-example template for current and planned tools
 - `references/testing.md`: stable test strategy and command reference
 - `references/tooling/python.md`: Python/runtime tooling reference
 - `procedures/release-handoff.md`: repeatable handoff sequence
