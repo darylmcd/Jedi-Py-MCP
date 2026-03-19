@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, SignatureOperation, TextEdit
 from python_refactor_mcp.tools import refactoring
 
 
@@ -89,7 +89,7 @@ async def test_extract_inline_and_move_delegate_correctly() -> None:
     await refactoring.inline_variable(pyright, rope, "/repo/a.py", 0, 0, apply=False)
     await refactoring.move_symbol(pyright, rope, "/repo/a.py", "Thing", "/repo/b.py", apply=False)
 
-    rope.extract_method.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "m", False)
+    rope.extract_method.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "m", False, False)
     rope.extract_variable.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "v", False)
     rope.inline.assert_awaited_once_with("/repo/a.py", 0, 0, False)
     rope.move.assert_awaited_once_with("/repo/a.py", "Thing", "/repo/b.py", False)
@@ -237,3 +237,46 @@ async def test_introduce_parameter_and_encapsulate_field_delegate() -> None:
     assert encapsulated.applied is False
     rope.introduce_parameter.assert_awaited_once_with("/repo/a.py", 0, 0, "new_param", "1", False)
     rope.encapsulate_field.assert_awaited_once_with("/repo/a.py", 0, 0, False)
+
+
+@pytest.mark.asyncio
+async def test_new_refactor_tools_delegate_to_rope() -> None:
+    """Ensure newly added rope-backed tools delegate and preserve apply mode."""
+    pyright = AsyncMock()
+    rope = AsyncMock()
+    pyright.prepare_rename.return_value = {
+        "range": {
+            "start": {"line": 0, "character": 0},
+            "end": {"line": 0, "character": 1},
+        },
+        "placeholder": "f",
+    }
+
+    for attr in (
+        "change_signature",
+        "restructure",
+        "use_function",
+        "introduce_factory",
+        "module_to_package",
+        "local_to_field",
+        "method_object",
+    ):
+        getattr(rope, attr).return_value = RefactorResult(edits=[], files_affected=[], description=attr, applied=False)
+
+    operations = [SignatureOperation(op="add", index=0, name="new_arg", default="None")]
+
+    await refactoring.change_signature(pyright, rope, "/repo/a.py", 0, 0, operations, apply=False)
+    await refactoring.restructure(pyright, rope, "${x}", "${x}", apply=False)
+    await refactoring.use_function(pyright, rope, "/repo/a.py", 0, 0, apply=False)
+    await refactoring.introduce_factory(pyright, rope, "/repo/a.py", 0, 0, apply=False)
+    await refactoring.module_to_package(pyright, rope, "/repo/a.py", apply=False)
+    await refactoring.local_to_field(pyright, rope, "/repo/a.py", 0, 0, apply=False)
+    await refactoring.method_object(pyright, rope, "/repo/a.py", 0, 0, apply=False)
+
+    rope.change_signature.assert_awaited_once_with("/repo/a.py", 0, 0, operations, False)
+    rope.restructure.assert_awaited_once_with("${x}", "${x}", None, None, None, False)
+    rope.use_function.assert_awaited_once_with("/repo/a.py", 0, 0, False)
+    rope.introduce_factory.assert_awaited_once_with("/repo/a.py", 0, 0, None, True, False)
+    rope.module_to_package.assert_awaited_once_with("/repo/a.py", False)
+    rope.local_to_field.assert_awaited_once_with("/repo/a.py", 0, 0, False)
+    rope.method_object.assert_awaited_once_with("/repo/a.py", 0, 0, None, False)

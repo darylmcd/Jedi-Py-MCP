@@ -10,6 +10,7 @@ from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
     DiagnosticSummary,
+    DocumentationResult,
     DocumentHighlight,
     InlayHint,
     Location,
@@ -91,6 +92,16 @@ class _JediAnalysisBackend(Protocol):
         """Return Jedi signature help for dynamic fallback scenarios."""
         ...
 
+    async def get_help(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        source: str | None = None,
+    ) -> DocumentationResult:
+        """Return detailed help/doc entries for a source position."""
+        ...
+
 
 def _is_unknown_type(type_info: TypeInfo | None) -> bool:
     """Return True when type info is missing or effectively unknown."""
@@ -128,6 +139,37 @@ def _sort_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
     )
 
 
+def _apply_limit[T](items: list[T], limit: int | None) -> tuple[list[T], bool]:
+    """Apply an optional positive limit and return items plus truncated flag."""
+    if limit is None:
+        return items, False
+    if limit < 1:
+        raise ValueError("limit must be greater than or equal to 1")
+    if len(items) <= limit:
+        return items, False
+    return items[:limit], True
+
+
+def _add_context_lines(locations: list[Location]) -> list[Location]:
+    """Attach single-line source context to locations when files are readable."""
+    enriched: list[Location] = []
+    cache: dict[str, list[str]] = {}
+    for location in locations:
+        file_path = location.file_path
+        line = location.range.start.line
+        if file_path not in cache:
+            try:
+                cache[file_path] = Path(file_path).read_text(encoding="utf-8").splitlines()
+            except Exception:
+                cache[file_path] = []
+        lines = cache[file_path]
+        context: str | None = None
+        if 0 <= line < len(lines):
+            context = lines[line].rstrip("\r\n")
+        enriched.append(location.model_copy(update={"context": context}))
+    return enriched
+
+
 async def find_references(
     pyright: _PyrightAnalysisBackend,
     jedi: _JediAnalysisBackend,
@@ -135,6 +177,8 @@ async def find_references(
     line: int,
     character: int,
     include_declaration: bool = True,
+    include_context: bool = False,
+    limit: int | None = None,
 ) -> ReferenceResult:
     """Find symbol references via analysis backends."""
     pyright_references = await pyright.get_references(
@@ -162,12 +206,17 @@ async def find_references(
             }.values(),
             key=_location_key,
         )
+        final_refs = deduped_jedi
+        if include_context:
+            final_refs = _add_context_lines(final_refs)
+        final_refs, truncated = _apply_limit(final_refs, limit)
         return ReferenceResult(
             symbol=f"{file_path}:{line}:{character}",
             definition=None,
-            references=deduped_jedi,
-            total_count=len(deduped_jedi),
+            references=final_refs,
+            total_count=len(final_refs),
             source="jedi",
+            truncated=truncated,
         )
 
     merged = {
@@ -188,12 +237,16 @@ async def find_references(
         pass
 
     deduped = sorted(merged.values(), key=_location_key)
+    if include_context:
+        deduped = _add_context_lines(deduped)
+    deduped, truncated = _apply_limit(deduped, limit)
     return ReferenceResult(
         symbol=f"{file_path}:{line}:{character}",
         definition=None,
         references=deduped,
         total_count=len(deduped),
         source=source,
+        truncated=truncated,
     )
 
 
@@ -250,10 +303,13 @@ async def get_completions(
     file_path: str,
     line: int,
     character: int,
+    limit: int | None = None,
 ) -> list[CompletionItem]:
     """Get code completion candidates from the primary analysis backend."""
     completions = await pyright.get_completions(file_path, line, character)
-    return sorted(completions, key=lambda item: (item.label, item.kind, item.detail or ""))
+    sorted_items = sorted(completions, key=lambda item: (item.label, item.kind, item.detail or ""))
+    limited, _ = _apply_limit(sorted_items, limit)
+    return limited
 
 
 async def get_signature_help(
@@ -335,6 +391,7 @@ async def get_diagnostics(
     pyright: _PyrightAnalysisBackend,
     file_path: str | None = None,
     severity_filter: str | None = None,
+    limit: int | None = None,
 ) -> list[Diagnostic]:
     """Get diagnostics for one file or the full project."""
     normalized_severity: str | None = None
@@ -352,7 +409,20 @@ async def get_diagnostics(
             if diagnostic.severity.strip().lower() == normalized_severity
         ]
 
-    return _sort_diagnostics(diagnostics)
+    sorted_items = _sort_diagnostics(diagnostics)
+    limited, _ = _apply_limit(sorted_items, limit)
+    return limited
+
+
+async def get_documentation(
+    jedi: _JediAnalysisBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    source: str | None = None,
+) -> DocumentationResult:
+    """Get detailed symbol documentation/help using Jedi."""
+    return await jedi.get_help(file_path, line, character, source)
 
 
 async def get_workspace_diagnostics(

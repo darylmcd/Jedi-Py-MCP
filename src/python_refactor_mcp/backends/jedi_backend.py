@@ -10,7 +10,16 @@ import jedi  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import JediError
-from python_refactor_mcp.models import ImportSuggestion, Location, ParameterInfo, SignatureInfo, SymbolInfo, TypeInfo
+from python_refactor_mcp.models import (
+    DocumentationEntry,
+    DocumentationResult,
+    ImportSuggestion,
+    Location,
+    ParameterInfo,
+    SignatureInfo,
+    SymbolInfo,
+    TypeInfo,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -296,3 +305,67 @@ class JediBackend:
             return result
         except Exception as exc:
             raise JediError(f"Jedi get_signatures failed for {file_path}:{line}:{character}") from exc
+
+    async def get_help(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        source: str | None = None,
+    ) -> DocumentationResult:
+        """Return detailed help/doc entries for a source position."""
+
+        def _work() -> DocumentationResult:
+            script = self._make_script(file_path, source)
+            names = script.help(line=line + 1, column=character)
+            entries: list[DocumentationEntry] = []
+            for name in names:
+                module_path = _to_absolute_path(getattr(name, "module_path", None))
+                kind_value = getattr(name, "type", None)
+                kind = kind_value if isinstance(kind_value, str) else None
+                full_doc = name.docstring(raw=True)
+                signatures: list[str] = []
+                signatures_raw = getattr(name, "get_signatures", None)
+                if callable(signatures_raw):
+                    try:
+                        signatures_value = signatures_raw()
+                        if not isinstance(signatures_value, list):
+                            signatures_value = []
+                        for signature in signatures_value:
+                            signature_name = getattr(signature, "name", None)
+                            params = getattr(signature, "params", [])
+                            param_names: list[str] = []
+                            if isinstance(params, list):
+                                for param in params:
+                                    param_name = getattr(param, "name", None)
+                                    if isinstance(param_name, str) and param_name:
+                                        param_names.append(param_name)
+                            if isinstance(signature_name, str) and signature_name:
+                                signatures.append(f"{signature_name}({', '.join(param_names)})")
+                    except Exception:
+                        pass
+
+                entry_name = getattr(name, "name", "")
+                entries.append(
+                    DocumentationEntry(
+                        name=entry_name if isinstance(entry_name, str) else "",
+                        module_path=module_path,
+                        kind=kind,
+                        full_doc=full_doc or None,
+                        signatures=signatures,
+                    )
+                )
+
+            return DocumentationResult(
+                file_path=str(Path(file_path).resolve()),
+                line=line,
+                character=character,
+                entries=entries,
+            )
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("Jedi get_help returned %d entries for %s", len(result.entries), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_help failed for {file_path}:{line}:{character}") from exc

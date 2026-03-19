@@ -21,7 +21,8 @@ Read order is defined by `../AGENTS.md`.
 - `domains/python-refactor/reference.md`: domain-specific entry point
 - `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and
 	prompt-example template for current and planned tools
-- `domains/python-refactor/next10-implementation-plan.md`: approved and executed implementation/audit plan for the 35-tool surface
+- `domains/python-refactor/next10-implementation-plan.md`: approved and executed implementation/audit plan for the original 35-tool surface
+- `domains/python-refactor/next10-wave2-plan.md`: approved expansion plan for hardening + the additional 10-tool implementation wave (current 45-tool surface)
 - `references/testing.md`: stable test strategy and command reference
 - `references/tooling/python.md`: Python/runtime tooling reference
 - `procedures/release-handoff.md`: repeatable handoff sequence

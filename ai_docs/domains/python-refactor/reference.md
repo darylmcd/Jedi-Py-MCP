@@ -16,7 +16,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/search.py`
 - `src/python_refactor_mcp/tools/composite.py`
 
-## Tool Surface (35 tools)
+## Tool Surface (45 tools)
 
 ### Analysis
 
@@ -25,6 +25,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | `find_references` | `ReferenceResult` | All usages + optional declaration. |
 | `get_type_info` | `TypeInfo` | Type string, documentation, source (pyright/jedi). |
 | `get_hover_info` | `TypeInfo` | Same as `get_type_info`; use for position-based hover. |
+| `get_documentation` | `DocumentationResult` | Jedi-backed detailed docs/signatures/help entries for a symbol. |
 | `get_completions` | `list[CompletionItem]` | label, kind, insert_text, documentation. |
 | `get_signature_help` | `SignatureInfo \| None` | label, parameters, active_parameter index. |
 | `get_call_signatures_fallback` | `SignatureInfo \| None` | Jedi fallback signature help for dynamic call sites. |
@@ -45,6 +46,8 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | `get_folding_ranges` | `list[FoldingRange]` | Foldable blocks for token-efficient chunking workflows. |
 | `get_symbol_outline` | `list[SymbolOutlineItem]` | Hierarchical; omit file_path for full workspace scan. |
 | `call_hierarchy` | `CallHierarchyResult` | Callers, callees, or both; configurable depth. |
+| `type_hierarchy` | `TypeHierarchyResult` | Supertypes/subtypes traversal; configurable depth and direction. |
+| `selection_range` | `list[SelectionRangeResult]` | Nested expression-to-scope ranges for precise extraction targets. |
 
 ### Refactoring
 
@@ -59,6 +62,13 @@ Purpose: compact entry point for the Python refactor MCP domain.
 | `move_symbol` | `RefactorResult` | Move a symbol to another file. |
 | `introduce_parameter` | `RefactorResult` | Introduce a parameter and update call sites (preview/apply). |
 | `encapsulate_field` | `RefactorResult` | Convert direct field access to encapsulated property accessors. |
+| `change_signature` | `RefactorResult` | Add/remove/reorder/inline/normalize function parameters at scale. |
+| `restructure` | `RefactorResult` | Rope structural replace (pattern to goal transformation). |
+| `use_function` | `RefactorResult` | Replace duplicated code fragments with calls to an existing function. |
+| `introduce_factory` | `RefactorResult` | Introduce constructor factory function or helper. |
+| `module_to_package` | `RefactorResult` | Convert a module file into package layout with updated references. |
+| `local_to_field` | `RefactorResult` | Promote local variable usage to instance field state. |
+| `method_object` | `RefactorResult` | Extract complex method logic into a dedicated callable object class. |
 | `apply_code_action` | `RefactorResult` | Apply any Pyright code action by title (or first available). |
 | `organize_imports` | `RefactorResult` | Sort and deduplicate imports via Pyright source action. |
 
@@ -124,14 +134,12 @@ Purpose: compact entry point for the Python refactor MCP domain.
 
 ## Recent Additions
 
-The next-10 roadmap has been implemented. Highlights:
+The wave2 roadmap has been implemented. Highlights:
 
-1. Safer rename flow via `prepare_rename` preflight and `rename_symbol`/`smart_rename` chaining.
-2. Better navigation precision with `get_declaration` and `get_type_definition`.
-3. Faster local reasoning via `get_document_highlights` and `get_folding_ranges`.
-4. Richer semantic context via `get_inlay_hints` and `get_semantic_tokens`.
-5. Expanded refactor primitives with `introduce_parameter` and `encapsulate_field`.
-6. Dynamic-code fallback coverage with `get_call_signatures_fallback`.
+1. Existing-tool hardening: bounded result support, richer reference context, and improved dead-code heuristics.
+2. New analysis/navigation coverage: `get_documentation`, `type_hierarchy`, and `selection_range`.
+3. Expanded rope refactoring surface: `change_signature`, `restructure`, `use_function`, `introduce_factory`, `module_to_package`, `local_to_field`, and `method_object`.
+4. Safer rename orchestration with integrated preflight checks in both `rename_symbol` and `smart_rename`.
 
 Use the checklist in `ai_docs/domains/python-refactor/mcp-checklist.md` for all future MCP surface additions.
 

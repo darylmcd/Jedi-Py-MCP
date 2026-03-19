@@ -11,6 +11,7 @@ from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
+    DocumentationResult,
     DocumentHighlight,
     InlayHint,
     Location,
@@ -241,6 +242,18 @@ async def test_get_call_signatures_fallback_passthrough() -> None:
     result = await analysis.get_call_signatures_fallback(jedi, "/repo/a.py", 0, 0)
 
     assert result is signature
+
+
+@pytest.mark.asyncio
+async def test_get_documentation_passthrough() -> None:
+    """Ensure Jedi documentation lookup is passed through unchanged."""
+    jedi = AsyncMock()
+    docs = DocumentationResult(file_path="/repo/a.py", line=0, character=0, entries=[])
+    jedi.get_help.return_value = docs
+
+    result = await analysis.get_documentation(jedi, "/repo/a.py", 0, 0)
+
+    assert result is docs
 
 
 @pytest.mark.asyncio

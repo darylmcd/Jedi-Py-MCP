@@ -8,7 +8,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import CallHierarchyItem, FoldingRange, Location, Position, Range, SymbolOutlineItem
+from python_refactor_mcp.models import (
+    CallHierarchyItem,
+    FoldingRange,
+    Location,
+    Position,
+    Range,
+    SelectionRangeResult,
+    SymbolOutlineItem,
+    TypeHierarchyItem,
+)
 from python_refactor_mcp.tools import navigation
 
 
@@ -176,3 +185,53 @@ async def test_get_folding_ranges_sorted() -> None:
     result = await navigation.get_folding_ranges(pyright, "/repo/a.py")
 
     assert [item.start_line for item in result] == [2, 10]
+
+
+@pytest.mark.asyncio
+async def test_type_hierarchy_collects_depth() -> None:
+    """Ensure type hierarchy traverses supertypes and subtypes to requested depth."""
+    pyright = AsyncMock()
+    root = TypeHierarchyItem(
+        name="Widget",
+        kind="class",
+        file_path="/repo/a.py",
+        range=Range(start=Position(line=1, character=0), end=Position(line=1, character=6)),
+    )
+    base = TypeHierarchyItem(
+        name="BaseWidget",
+        kind="class",
+        file_path="/repo/base.py",
+        range=Range(start=Position(line=1, character=0), end=Position(line=1, character=10)),
+    )
+    derived = TypeHierarchyItem(
+        name="SpecialWidget",
+        kind="class",
+        file_path="/repo/derived.py",
+        range=Range(start=Position(line=1, character=0), end=Position(line=1, character=13)),
+    )
+    pyright.prepare_type_hierarchy.return_value = [root]
+    pyright.get_supertypes.return_value = [base]
+    pyright.get_subtypes.return_value = [derived]
+
+    result = await navigation.type_hierarchy(pyright, "/repo/a.py", 1, 0, depth=2)
+
+    assert result.item.name == "Widget"
+    assert [item.name for item in result.supertypes] == ["BaseWidget"]
+    assert [item.name for item in result.subtypes] == ["SpecialWidget"]
+
+
+@pytest.mark.asyncio
+async def test_selection_range_passthrough() -> None:
+    """Ensure selection range results are delegated from Pyright backend."""
+    pyright = AsyncMock()
+    expected = [
+        SelectionRangeResult(
+            position=Position(line=1, character=4),
+            ranges=[Range(start=Position(line=1, character=4), end=Position(line=1, character=10))],
+        )
+    ]
+    pyright.get_selection_range.return_value = expected
+
+    result = await navigation.selection_range(pyright, "/repo/a.py", [Position(line=1, character=4)])
+
+    assert result == expected

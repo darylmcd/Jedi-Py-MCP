@@ -143,6 +143,7 @@ Other runtime discovery:
 | `get_completions` | Return completion candidates for a cursor location. | `list[CompletionItem]` |
 | `get_signature_help` | Return active signature and parameter help at a call site. | `SignatureInfo \| None` |
 | `get_call_signatures_fallback` | Return Jedi signature fallback for dynamic call sites. | `SignatureInfo \| None` |
+| `get_documentation` | Return detailed Jedi help/doc entries for a symbol position. | `DocumentationResult` |
 | `get_document_highlights` | Return in-file read/write highlights for a symbol. | `list[DocumentHighlight]` |
 | `get_inlay_hints` | Return inlay hints (type/parameter hints) for a file range. | `list[InlayHint]` |
 | `get_semantic_tokens` | Return semantic token classifications for a file. | `list[SemanticToken]` |
@@ -155,6 +156,8 @@ Other runtime discovery:
 | `get_folding_ranges` | Return foldable code regions for chunked analysis. | `list[FoldingRange]` |
 | `get_symbol_outline` | Return a hierarchical symbol outline for a file or workspace. | `list[SymbolOutlineItem]` |
 | `call_hierarchy` | Return callers and callees for a symbol. | `CallHierarchyResult` |
+| `type_hierarchy` | Return supertypes/subtypes for a class/type symbol. | `TypeHierarchyResult` |
+| `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `prepare_rename` | Validate whether rename is allowed at a position. | `PrepareRenameResult \| None` |
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `smart_rename` | Run Pyright reference discovery plus rope rename and validation. | `RefactorResult` |
@@ -164,6 +167,13 @@ Other runtime discovery:
 | `move_symbol` | Move a symbol between files. | `RefactorResult` |
 | `introduce_parameter` | Introduce a parameter and update call sites. | `RefactorResult` |
 | `encapsulate_field` | Encapsulate a field with property-style accessors. | `RefactorResult` |
+| `change_signature` | Add/remove/reorder parameters and update call sites. | `RefactorResult` |
+| `restructure` | Apply Rope pattern-based structural replacements. | `RefactorResult` |
+| `use_function` | Replace duplicate code with calls to an existing function. | `RefactorResult` |
+| `introduce_factory` | Introduce factory-based construction helpers for classes. | `RefactorResult` |
+| `module_to_package` | Convert a Python module file into a package layout. | `RefactorResult` |
+| `local_to_field` | Promote a local variable to an instance field. | `RefactorResult` |
+| `method_object` | Extract complex method logic into a new method-object class. | `RefactorResult` |
 | `apply_code_action` | Preview or apply a Pyright code action at a source position. | `RefactorResult` |
 | `organize_imports` | Preview or apply import organization for a file. | `RefactorResult` |
 | `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |

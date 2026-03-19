@@ -6,7 +6,15 @@ from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.backends.pyright_lsp import uri_to_path
-from python_refactor_mcp.models import Diagnostic, Position, PrepareRenameResult, Range, RefactorResult, TextEdit
+from python_refactor_mcp.models import (
+    Diagnostic,
+    Position,
+    PrepareRenameResult,
+    Range,
+    RefactorResult,
+    SignatureOperation,
+    TextEdit,
+)
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 
 
@@ -57,6 +65,7 @@ class _RopeRefactoringBackend(Protocol):
         end_line: int,
         end_character: int,
         method_name: str,
+        similar: bool,
         apply: bool,
     ) -> RefactorResult:
         """Extract selected code into a method."""
@@ -109,6 +118,76 @@ class _RopeRefactoringBackend(Protocol):
         apply: bool,
     ) -> RefactorResult:
         """Encapsulate a field using property accessors."""
+        ...
+
+    async def change_signature(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        operations: list[SignatureOperation],
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply signature operation list and update call sites."""
+        ...
+
+    async def restructure(
+        self,
+        pattern: str,
+        goal: str,
+        checks: dict[str, str] | None,
+        imports: list[str] | None,
+        file_path: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply structural replace patterns to matching code."""
+        ...
+
+    async def use_function(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Replace duplicate code with calls to selected function."""
+        ...
+
+    async def introduce_factory(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        factory_name: str | None,
+        global_factory: bool,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a factory function for a class constructor."""
+        ...
+
+    async def module_to_package(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert module to package and adjust imports."""
+        ...
+
+    async def local_to_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Promote a local variable to class field."""
+        ...
+
+    async def method_object(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        classname: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Extract method logic into a method object class."""
         ...
 
 
@@ -274,6 +353,33 @@ async def _attach_post_apply_diagnostics(
     return result
 
 
+async def _ensure_renameable(
+    pyright: _PyrightRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+) -> None:
+    """Validate renameability before invoking rope operations."""
+    preflight = await pyright.prepare_rename(file_path, line, character)
+    if preflight is not None:
+        return
+
+    # Pyright can return null for valid positions in some dynamic contexts.
+    # Keep a lightweight local guard for obvious invalid targets.
+    lines = Path(file_path).read_text(encoding="utf-8").splitlines()
+    if line < 0 or line >= len(lines):
+        raise ValueError("Rename preflight failed: line is outside file bounds.")
+    line_text = lines[line]
+    if character < 0 or character >= len(line_text):
+        raise ValueError("Rename preflight failed: character is outside line bounds.")
+    target = line_text[character]
+    if not (target.isalnum() or target == "_"):
+        raise ValueError(
+            "Rename preflight failed for the selected position. "
+            "Choose an identifier location and retry."
+        )
+
+
 async def rename_symbol(
     pyright: _PyrightRefactoringBackend,
     rope: _RopeRefactoringBackend,
@@ -284,6 +390,7 @@ async def rename_symbol(
     apply: bool = False,
 ) -> RefactorResult:
     """Rename a symbol at the provided position."""
+    await _ensure_renameable(pyright, file_path, line, character)
     result = await rope.rename(file_path, line, character, new_name, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
 
@@ -297,6 +404,7 @@ async def extract_method(
     end_line: int,
     end_character: int,
     method_name: str,
+    similar: bool = False,
     apply: bool = False,
 ) -> RefactorResult:
     """Extract selected code into a method."""
@@ -307,6 +415,7 @@ async def extract_method(
         end_line,
         end_character,
         method_name,
+        similar,
         apply,
     )
     return await _attach_post_apply_diagnostics(pyright, result)
@@ -461,4 +570,107 @@ async def encapsulate_field(
 ) -> RefactorResult:
     """Encapsulate a field into property accessors and optionally apply changes."""
     result = await rope.encapsulate_field(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def change_signature(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    operations: list[SignatureOperation],
+    apply: bool = False,
+) -> RefactorResult:
+    """Apply ordered signature operations and update call sites."""
+    await _ensure_renameable(pyright, file_path, line, character)
+    result = await rope.change_signature(file_path, line, character, operations, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def restructure(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    pattern: str,
+    goal: str,
+    checks: dict[str, str] | None = None,
+    imports: list[str] | None = None,
+    file_path: str | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Run Rope restructure (structural replace) with optional scope filters."""
+    result = await rope.restructure(pattern, goal, checks, imports, file_path, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def use_function(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Replace similar code fragments with calls to the selected function."""
+    result = await rope.use_function(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def introduce_factory(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    factory_name: str | None = None,
+    global_factory: bool = True,
+    apply: bool = False,
+) -> RefactorResult:
+    """Introduce factory-based construction for the selected class."""
+    result = await rope.introduce_factory(
+        file_path,
+        line,
+        character,
+        factory_name,
+        global_factory,
+        apply,
+    )
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def module_to_package(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Convert a module file into a package and update references."""
+    result = await rope.module_to_package(file_path, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def local_to_field(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Promote local variable usage to class field state."""
+    result = await rope.local_to_field(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def method_object(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    classname: str | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Extract selected method into a new callable object class."""
+    result = await rope.method_object(file_path, line, character, classname, apply)
     return await _attach_post_apply_diagnostics(pyright, result)

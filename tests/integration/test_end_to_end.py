@@ -26,6 +26,15 @@ def _find_position(file_path: Path, token: str) -> tuple[int, int]:
     raise AssertionError(f"Token {token!r} not found in {file_path}")
 
 
+def _assert_refactor_preview_payload(payload: object) -> None:
+    """Assert preview-mode refactor responses follow the shared contract."""
+    assert isinstance(payload, dict)
+    assert isinstance(payload.get("edits"), list)
+    assert isinstance(payload.get("files_affected"), list)
+    assert isinstance(payload.get("description"), str)
+    assert payload.get("applied") is False
+
+
 @pytest.mark.asyncio
 async def test_find_references_returns_locations(
     mcp_session: ClientSession,
@@ -421,6 +430,174 @@ async def test_call_signatures_fallback_tool(
     assert result.isError is not True
     payload = result.structuredContent
     assert payload is None or isinstance(payload, dict)
+
+
+@pytest.mark.asyncio
+async def test_get_documentation_returns_structured_payload(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure get_documentation returns a structured result for a known symbol."""
+    models_path = sample_workspace / "src" / "models.py"
+    line, character = _find_position(models_path, "User")
+
+    result = await mcp_session.call_tool(
+        "get_documentation",
+        {"file_path": str(models_path), "line": line, "character": character},
+    )
+
+    assert result.isError is not True
+    payload = result.structuredContent
+    assert isinstance(payload, dict)
+    assert isinstance(payload.get("entries", []), list)
+
+
+@pytest.mark.asyncio
+async def test_type_hierarchy_and_selection_range_tools(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure newly added navigation helpers return structured payloads."""
+    hierarchy_path = sample_workspace / "src" / "hierarchy.py"
+    hierarchy_path.write_text(
+        "class Base:\n"
+        "    pass\n\n"
+        "class Child(Base):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    line, character = _find_position(hierarchy_path, "Child")
+
+    type_result = await mcp_session.call_tool(
+        "type_hierarchy",
+        {
+            "file_path": str(hierarchy_path),
+            "line": line,
+            "character": character,
+            "direction": "both",
+            "depth": 2,
+        },
+    )
+    selection_result = await mcp_session.call_tool(
+        "selection_range",
+        {
+            "file_path": str(hierarchy_path),
+            "positions": [{"line": line, "character": character}],
+        },
+    )
+
+    assert type_result.isError is not True
+    assert selection_result.isError is not True
+    type_payload = type_result.structuredContent
+    selection_payload = _unwrap_result_payload(selection_result.structuredContent)
+    assert isinstance(type_payload, dict)
+    assert isinstance(selection_payload, list)
+
+
+@pytest.mark.asyncio
+async def test_new_refactoring_tools_preview_mode(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure newly exposed rope-backed refactors run in preview mode."""
+    target = sample_workspace / "src" / "refactor_targets.py"
+    target.write_text(
+        "class Widget:\n"
+        "    def __init__(self, value: int):\n"
+        "        self.value = value\n\n"
+        "    def compute(self, amount: int) -> int:\n"
+        "        local_value = amount + self.value\n"
+        "        return local_value\n\n"
+        "def compute_total(price: float, tax: float) -> float:\n"
+        "    total = price + tax\n"
+        "    return total\n",
+        encoding="utf-8",
+    )
+
+    compute_line, compute_char = _find_position(target, "compute_total")
+    method_line, method_char = _find_position(target, "compute(self")
+    local_line, local_char = _find_position(target, "local_value")
+    class_line, class_char = _find_position(target, "Widget")
+
+    change_signature = await mcp_session.call_tool(
+        "change_signature",
+        {
+            "file_path": str(target),
+            "line": compute_line,
+            "character": compute_char,
+            "operations": [{"op": "add", "index": 2, "name": "discount", "default": "0.0"}],
+            "apply": False,
+        },
+    )
+    restructure = await mcp_session.call_tool(
+        "restructure",
+        {
+            "pattern": "${a} + ${b}",
+            "goal": "${b} + ${a}",
+            "file_path": str(target),
+            "apply": False,
+        },
+    )
+    use_function = await mcp_session.call_tool(
+        "use_function",
+        {"file_path": str(target), "line": compute_line, "character": compute_char, "apply": False},
+    )
+    introduce_factory = await mcp_session.call_tool(
+        "introduce_factory",
+        {"file_path": str(target), "line": class_line, "character": class_char, "apply": False},
+    )
+    local_to_field = await mcp_session.call_tool(
+        "local_to_field",
+        {"file_path": str(target), "line": local_line, "character": local_char, "apply": False},
+    )
+    method_object = await mcp_session.call_tool(
+        "method_object",
+        {
+            "file_path": str(target),
+            "line": method_line,
+            "character": method_char,
+            "classname": "ComputeMethodObject",
+            "apply": False,
+        },
+    )
+
+    assert change_signature.isError is not True
+    assert restructure.isError is not True
+    assert use_function.isError is not True
+    assert introduce_factory.isError is not True
+    assert local_to_field.isError is not True
+    assert method_object.isError is not True
+
+    for response in (
+        change_signature,
+        restructure,
+        use_function,
+        introduce_factory,
+        local_to_field,
+        method_object,
+    ):
+        _assert_refactor_preview_payload(response.structuredContent)
+
+
+@pytest.mark.asyncio
+async def test_module_to_package_preview_mode(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure module_to_package preview returns structured non-error output."""
+    module_path = sample_workspace / "src" / "module_to_convert.py"
+    module_path.write_text(
+        "VALUE = 1\n",
+        encoding="utf-8",
+    )
+
+    result = await mcp_session.call_tool(
+        "module_to_package",
+        {"file_path": str(module_path), "apply": False},
+    )
+
+    assert result.isError is not True
+    _assert_refactor_preview_payload(result.structuredContent)
 
 
 @pytest.mark.asyncio
