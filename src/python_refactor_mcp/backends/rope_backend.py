@@ -11,16 +11,30 @@ from typing import Protocol, cast
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
+from rope.refactor.change_signature import (  # type: ignore[import-untyped]
+    ArgumentAdder,
+    ArgumentDefaultInliner,
+    ArgumentNormalizer,
+    ArgumentRemover,
+    ArgumentReorderer,
+    ChangeSignature,
+)
 from rope.refactor.encapsulate_field import EncapsulateField  # type: ignore[import-untyped]
 from rope.refactor.extract import ExtractMethod, ExtractVariable  # type: ignore[import-untyped]
 from rope.refactor.inline import create_inline  # type: ignore[import-untyped]
+from rope.refactor.introduce_factory import IntroduceFactory  # type: ignore[import-untyped]
 from rope.refactor.introduce_parameter import IntroduceParameter  # type: ignore[import-untyped]
+from rope.refactor.localtofield import LocalToField  # type: ignore[import-untyped]
+from rope.refactor.method_object import MethodObject  # type: ignore[import-untyped]
 from rope.refactor.move import create_move  # type: ignore[import-untyped]
 from rope.refactor.rename import Rename  # type: ignore[import-untyped]
+from rope.refactor.restructure import Restructure  # type: ignore[import-untyped]
+from rope.refactor.topackage import ModuleToPackage  # type: ignore[import-untyped]
+from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
-from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.models import Position, Range, RefactorResult, SignatureOperation, TextEdit
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 
 _LOGGER = logging.getLogger(__name__)
@@ -226,7 +240,8 @@ class RopeBackend:
         end_line: int,
         end_character: int,
         method_name: str,
-        apply: bool,
+        similar: bool = False,
+        apply: bool = False,
     ) -> RefactorResult:
         """Extract selected code into a new method and optionally apply edits."""
 
@@ -236,7 +251,7 @@ class RopeBackend:
             resource = self._resource_for_path(file_path)
             start = self._position_to_offset(file_path, start_line, start_character)
             end = self._position_to_offset(file_path, end_line, end_character)
-            changes = ExtractMethod(project, resource, start, end).get_changes(method_name)
+            changes = ExtractMethod(project, resource, start, end).get_changes(method_name, similar=similar)
             return self._build_result(changes, f"Extracted method '{method_name}'", apply)
 
         try:
@@ -380,3 +395,204 @@ class RopeBackend:
             return result
         except Exception as exc:
             raise RopeError(f"rope encapsulate_field failed for {file_path}:{line}:{character}") from exc
+
+    async def change_signature(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        operations: list[SignatureOperation],
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply ordered signature changes to a function and call sites."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+
+            changers: list[object] = []
+            for operation in operations:
+                op = operation.op.strip().lower()
+                if op == "add":
+                    if operation.index is None or not operation.name:
+                        raise RopeError("change_signature add operation requires index and name")
+                    changers.append(ArgumentAdder(operation.index, operation.name, default=operation.default))
+                elif op == "remove":
+                    if operation.index is None:
+                        raise RopeError("change_signature remove operation requires index")
+                    changers.append(ArgumentRemover(operation.index))
+                elif op == "reorder":
+                    if not operation.new_order:
+                        raise RopeError("change_signature reorder operation requires new_order")
+                    changers.append(ArgumentReorderer(operation.new_order))
+                elif op == "inline_default":
+                    if operation.index is None:
+                        raise RopeError("change_signature inline_default operation requires index")
+                    changers.append(ArgumentDefaultInliner(operation.index))
+                elif op == "normalize":
+                    changers.append(ArgumentNormalizer())
+                elif op == "rename":
+                    if operation.index is None or not operation.new_name:
+                        raise RopeError("change_signature rename operation requires index and new_name")
+                    changers.append(ArgumentRemover(operation.index))
+                    changers.append(ArgumentAdder(operation.index, operation.new_name, default=operation.default))
+                else:
+                    raise RopeError(f"Unsupported change_signature operation: {operation.op}")
+
+            changes = ChangeSignature(project, resource, offset).get_changes(changers)
+            return self._build_result(changes, "Changed function signature", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope change_signature produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope change_signature failed for {file_path}:{line}:{character}") from exc
+
+    async def restructure(
+        self,
+        pattern: str,
+        goal: str,
+        checks: dict[str, str] | None,
+        imports: list[str] | None,
+        file_path: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply rope restructure pattern replacement and return resulting edits."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resources: list[Resource] | None = None
+            if file_path is not None:
+                resources = [self._resource_for_path(file_path)]
+            refactor = Restructure(project, pattern, goal)
+            changes = refactor.get_changes(checks=checks, imports=imports, resources=resources)
+            return self._build_result(changes, "Applied structural replacement", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope restructure produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError("rope restructure failed") from exc
+
+    async def use_function(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Replace duplicated code segments with calls to selected function."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = UseFunction(project, resource, offset).get_changes()
+            return self._build_result(changes, "Replaced duplicated code with function call", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope use_function produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope use_function failed for {file_path}:{line}:{character}") from exc
+
+    async def introduce_factory(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        factory_name: str | None,
+        global_factory: bool,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a factory helper for selected class constructor."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            refactor = IntroduceFactory(project, resource, offset)
+            default_name = f"create_{refactor.get_name().lower()}"
+            changes = refactor.get_changes(factory_name or default_name, global_factory=global_factory)
+            return self._build_result(changes, "Introduced factory", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope introduce_factory produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope introduce_factory failed for {file_path}:{line}:{character}") from exc
+
+    async def module_to_package(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert a module into a package preserving public imports."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            changes = ModuleToPackage(project, resource).get_changes()
+            return self._build_result(changes, "Converted module to package", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope module_to_package produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope module_to_package failed for {file_path}") from exc
+
+    async def local_to_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Promote local variable usage to instance field."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = LocalToField(project, resource, offset).get_changes()
+            return self._build_result(changes, "Promoted local to field", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope local_to_field produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope local_to_field failed for {file_path}:{line}:{character}") from exc
+
+    async def method_object(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        classname: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Extract selected method logic to a new method-object class."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = MethodObject(project, resource, offset).get_changes(classname=classname)
+            return self._build_result(changes, "Extracted method object", apply)
+
+        try:
+            result = await asyncio.to_thread(_work)
+            _LOGGER.debug("rope method_object produced %d edits", len(result.edits))
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope method_object failed for {file_path}:{line}:{character}") from exc

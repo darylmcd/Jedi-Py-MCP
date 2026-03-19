@@ -24,6 +24,7 @@ class Location(BaseModel):
 
     file_path: str
     range: Range
+    context: str | None = None
 
 
 class TextEdit(BaseModel):
@@ -65,6 +66,7 @@ class Diagnostic(BaseModel):
     severity: str
     message: str
     code: str | None = None
+    tags: list[int] = Field(default_factory=list)
 
 
 class ReferenceResult(BaseModel):
@@ -75,6 +77,7 @@ class ReferenceResult(BaseModel):
     references: list[Location]
     total_count: int
     source: str
+    truncated: bool = False
 
 
 class TypeInfo(BaseModel):
@@ -169,6 +172,52 @@ class CallHierarchyResult(BaseModel):
     item: CallHierarchyItem
     callers: list[CallHierarchyItem]
     callees: list[CallHierarchyItem]
+    truncated: bool = False
+
+
+class TypeHierarchyItem(BaseModel):
+    """One node in a type hierarchy graph."""
+
+    name: str
+    kind: str
+    file_path: str
+    range: Range
+    detail: str | None = None
+
+
+class TypeHierarchyResult(BaseModel):
+    """Type hierarchy data for supertypes/subtypes traversal."""
+
+    item: TypeHierarchyItem
+    supertypes: list[TypeHierarchyItem]
+    subtypes: list[TypeHierarchyItem]
+    truncated: bool = False
+
+
+class SelectionRangeResult(BaseModel):
+    """Nested selection ranges from inner-most to outer-most scope."""
+
+    position: Position
+    ranges: list[Range]
+
+
+class DocumentationEntry(BaseModel):
+    """Documentation entry returned from Jedi help lookup."""
+
+    name: str
+    module_path: str | None = None
+    kind: str | None = None
+    full_doc: str | None = None
+    signatures: list[str] = Field(default_factory=list)
+
+
+class DocumentationResult(BaseModel):
+    """Documentation lookup result for one source position."""
+
+    file_path: str
+    line: int
+    character: int
+    entries: list[DocumentationEntry]
 
 
 class RefactorResult(BaseModel):
@@ -179,6 +228,17 @@ class RefactorResult(BaseModel):
     description: str
     applied: bool = False
     diagnostics_after: list[Diagnostic] | None = None
+
+
+class SignatureOperation(BaseModel):
+    """One operation applied by change_signature refactoring."""
+
+    op: str
+    index: int | None = None
+    name: str | None = None
+    new_name: str | None = None
+    default: str | None = None
+    new_order: list[int] | None = None
 
 
 class ConstructorSite(BaseModel):

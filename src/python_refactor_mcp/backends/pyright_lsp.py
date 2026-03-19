@@ -21,10 +21,12 @@ from python_refactor_mcp.models import (
     Position,
     PrepareRenameResult,
     Range,
+    SelectionRangeResult,
     SemanticToken,
     SignatureInfo,
     SymbolInfo,
     SymbolOutlineItem,
+    TypeHierarchyItem,
     TypeInfo,
 )
 from python_refactor_mcp.util.lsp_client import JSONDict, JSONValue, LSPClient
@@ -789,6 +791,108 @@ class PyrightLSPClient:
                 items.append(self._call_hierarchy_item_to_model(target_item))
         return items
 
+    async def prepare_type_hierarchy(self, file_path: str, line: int, char: int) -> list[TypeHierarchyItem]:
+        """Prepare type hierarchy item(s) for a source position."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/prepareTypeHierarchy",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "position": {"line": line, "character": char},
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"prepareTypeHierarchy failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+        return [self._type_hierarchy_item_to_model(item) for item in result if isinstance(item, dict)]
+
+    async def get_supertypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
+        """Return direct supertypes for a type hierarchy item."""
+        response = await self._request(
+            "typeHierarchy/supertypes",
+            {"item": self._type_hierarchy_item_to_lsp(item)},
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"typeHierarchy/supertypes failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+        return [self._type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
+
+    async def get_subtypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
+        """Return direct subtypes for a type hierarchy item."""
+        response = await self._request(
+            "typeHierarchy/subtypes",
+            {"item": self._type_hierarchy_item_to_lsp(item)},
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"typeHierarchy/subtypes failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+        return [self._type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
+
+    async def get_selection_range(self, file_path: str, positions: list[Position]) -> list[SelectionRangeResult]:
+        """Return nested selection ranges for one or more positions."""
+        absolute_path = _normalize_path(file_path)
+        await self.ensure_file_open(absolute_path)
+
+        response = await self._request(
+            "textDocument/selectionRange",
+            {
+                "textDocument": {"uri": path_to_uri(absolute_path)},
+                "positions": [
+                    {"line": position.line, "character": position.character}
+                    for position in positions
+                ],
+            },
+        )
+        if "error" in response:
+            if _is_unhandled_method_error(response):
+                return []
+            raise PyrightError(f"selectionRange request failed: {response['error']}")
+
+        result = response.get("result")
+        if not isinstance(result, list):
+            return []
+
+        def _flatten_selection_ranges(item: JSONDict) -> list[Range]:
+            flattened: list[Range] = []
+            current: JSONValue = item
+            while isinstance(current, dict):
+                range_value = current.get("range")
+                if isinstance(range_value, dict):
+                    flattened.append(_model_range(range_value))
+                current = current.get("parent")
+            return flattened
+
+        mapped: list[SelectionRangeResult] = []
+        for index, entry in enumerate(result):
+            if not isinstance(entry, dict):
+                continue
+            if index >= len(positions):
+                break
+            mapped.append(
+                SelectionRangeResult(
+                    position=positions[index],
+                    ranges=_flatten_selection_ranges(entry),
+                )
+            )
+        return mapped
+
     async def get_code_actions(
         self,
         file_path: str,
@@ -1193,6 +1297,11 @@ class PyrightLSPClient:
             elif isinstance(code_value, int):
                 code = str(code_value)
 
+            tags_value = entry.get("tags")
+            tags: list[int] = []
+            if isinstance(tags_value, list):
+                tags = [tag for tag in tags_value if isinstance(tag, int)]
+
             converted.append(
                 Diagnostic(
                     file_path=file_path,
@@ -1200,6 +1309,7 @@ class PyrightLSPClient:
                     severity=_severity_to_string(_as_int(severity_value, 3)),
                     message=message_value,
                     code=code,
+                    tags=tags,
                 )
             )
 
@@ -1290,6 +1400,44 @@ class PyrightLSPClient:
                     "line": item.range.end.line,
                     "character": item.range.end.character,
                 },
+            },
+            "detail": item.detail or "",
+        }
+
+    @staticmethod
+    def _type_hierarchy_item_to_model(item: JSONDict) -> TypeHierarchyItem:
+        """Convert an LSP type hierarchy payload to the project model."""
+        uri = _as_str(item.get("uri"), "")
+        range_value = item.get("selectionRange")
+        if not isinstance(range_value, dict):
+            range_value = item.get("range")
+        model_range = _model_range(range_value) if isinstance(range_value, dict) else Range(
+            start=Position(line=0, character=0),
+            end=Position(line=0, character=0),
+        )
+        kind_number = _as_int(item.get("kind"), 5)
+        return TypeHierarchyItem(
+            name=_as_str(item.get("name"), ""),
+            kind=_SYMBOL_KIND.get(kind_number, "class"),
+            file_path=uri_to_path(uri) if uri else "",
+            range=model_range,
+            detail=_as_str(item.get("detail"), "") or None,
+        )
+
+    @staticmethod
+    def _type_hierarchy_item_to_lsp(item: TypeHierarchyItem) -> dict[str, JSONValue]:
+        """Convert type hierarchy model to LSP TypeHierarchyItem payload."""
+        return {
+            "name": item.name,
+            "kind": 5,
+            "uri": path_to_uri(item.file_path),
+            "range": {
+                "start": {"line": item.range.start.line, "character": item.range.start.character},
+                "end": {"line": item.range.end.line, "character": item.range.end.character},
+            },
+            "selectionRange": {
+                "start": {"line": item.range.start.line, "character": item.range.start.character},
+                "end": {"line": item.range.end.line, "character": item.range.end.character},
             },
             "detail": item.detail or "",
         }

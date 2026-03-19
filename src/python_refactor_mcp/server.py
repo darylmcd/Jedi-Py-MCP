@@ -24,20 +24,25 @@ from python_refactor_mcp.models import (
 	Diagnostic,
 	DiagnosticSummary,
 	DiffPreview,
+	DocumentationResult,
 	DocumentHighlight,
 	FoldingRange,
 	ImportSuggestion,
 	InlayHint,
 	Location,
+	Position,
 	PrepareRenameResult,
 	RefactorResult,
 	ReferenceResult,
+	SelectionRangeResult,
 	SemanticToken,
 	SignatureInfo,
+	SignatureOperation,
 	StructuralMatch,
 	SymbolInfo,
 	SymbolOutlineItem,
 	TextEdit,
+	TypeHierarchyResult,
 	TypeInfo,
 )
 from python_refactor_mcp.tools.analysis import (
@@ -51,6 +56,7 @@ from python_refactor_mcp.tools.analysis import (
 	get_diagnostics as analysis_get_diagnostics,
 )
 from python_refactor_mcp.tools.analysis import get_document_highlights as analysis_get_document_highlights
+from python_refactor_mcp.tools.analysis import get_documentation as analysis_get_documentation
 from python_refactor_mcp.tools.analysis import get_hover_info as analysis_get_hover_info
 from python_refactor_mcp.tools.analysis import get_inlay_hints as analysis_get_inlay_hints
 from python_refactor_mcp.tools.analysis import get_semantic_tokens as analysis_get_semantic_tokens
@@ -66,16 +72,25 @@ from python_refactor_mcp.tools.navigation import get_folding_ranges as navigatio
 from python_refactor_mcp.tools.navigation import get_symbol_outline as navigation_get_symbol_outline
 from python_refactor_mcp.tools.navigation import get_type_definition as navigation_get_type_definition
 from python_refactor_mcp.tools.navigation import goto_definition as navigation_goto_definition
+from python_refactor_mcp.tools.navigation import selection_range as navigation_selection_range
+from python_refactor_mcp.tools.navigation import type_hierarchy as navigation_type_hierarchy
 from python_refactor_mcp.tools.refactoring import apply_code_action as refactoring_apply_code_action
+from python_refactor_mcp.tools.refactoring import change_signature as refactoring_change_signature
 from python_refactor_mcp.tools.refactoring import encapsulate_field as refactoring_encapsulate_field
 from python_refactor_mcp.tools.refactoring import extract_method as refactoring_extract_method
 from python_refactor_mcp.tools.refactoring import extract_variable as refactoring_extract_variable
 from python_refactor_mcp.tools.refactoring import inline_variable as refactoring_inline_variable
+from python_refactor_mcp.tools.refactoring import introduce_factory as refactoring_introduce_factory
 from python_refactor_mcp.tools.refactoring import introduce_parameter as refactoring_introduce_parameter
+from python_refactor_mcp.tools.refactoring import local_to_field as refactoring_local_to_field
+from python_refactor_mcp.tools.refactoring import method_object as refactoring_method_object
+from python_refactor_mcp.tools.refactoring import module_to_package as refactoring_module_to_package
 from python_refactor_mcp.tools.refactoring import move_symbol as refactoring_move_symbol
 from python_refactor_mcp.tools.refactoring import organize_imports as refactoring_organize_imports
 from python_refactor_mcp.tools.refactoring import prepare_rename as refactoring_prepare_rename
 from python_refactor_mcp.tools.refactoring import rename_symbol as refactoring_rename_symbol
+from python_refactor_mcp.tools.refactoring import restructure as refactoring_restructure
+from python_refactor_mcp.tools.refactoring import use_function as refactoring_use_function
 from python_refactor_mcp.tools.search import dead_code_detection as search_dead_code_detection
 from python_refactor_mcp.tools.search import find_constructors as search_find_constructors
 from python_refactor_mcp.tools.search import search_symbols as search_search_symbols
@@ -168,6 +183,8 @@ async def find_references(
 	line: int,
 	character: int,
 	include_declaration: bool = True,
+	include_context: bool = False,
+	limit: int | None = None,
 ) -> ReferenceResult:
 	"""Find symbol references for the provided source location."""
 	app = _get_app_context(ctx)
@@ -178,6 +195,8 @@ async def find_references(
 		line,
 		character,
 		include_declaration,
+		include_context,
+		limit,
 	)
 	await ctx.debug(f"find_references source={result.source} count={result.total_count}")
 	return result
@@ -205,11 +224,33 @@ async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: 
 
 @mcp.tool()
 @_tool_error_boundary
-async def get_completions(ctx: MCPContext, file_path: str, line: int, character: int) -> list[CompletionItem]:
+async def get_completions(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	limit: int | None = None,
+) -> list[CompletionItem]:
 	"""Get completion candidates for a source location."""
 	app = _get_app_context(ctx)
-	result = await analysis_get_completions(app.pyright, file_path, line, character)
+	result = await analysis_get_completions(app.pyright, file_path, line, character, limit)
 	await ctx.debug(f"get_completions count={len(result)}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def get_documentation(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	source: str | None = None,
+) -> DocumentationResult:
+	"""Get detailed symbol documentation/help for a source location."""
+	app = _get_app_context(ctx)
+	result = await analysis_get_documentation(app.jedi, file_path, line, character, source)
+	await ctx.debug(f"get_documentation entries={len(result.entries)}")
 	return result
 
 
@@ -301,10 +342,11 @@ async def get_diagnostics(
 	ctx: MCPContext,
 	file_path: str | None = None,
 	severity_filter: str | None = None,
+	limit: int | None = None,
 ) -> list[Diagnostic]:
 	"""Get diagnostics for a file or for the full workspace."""
 	app = _get_app_context(ctx)
-	result = await analysis_get_diagnostics(app.pyright, file_path, severity_filter)
+	result = await analysis_get_diagnostics(app.pyright, file_path, severity_filter, limit)
 	await ctx.debug(f"get_diagnostics count={len(result)} severity_filter={severity_filter}")
 	return result
 
@@ -328,10 +370,19 @@ async def call_hierarchy(
 	character: int,
 	direction: str = "both",
 	depth: int = 1,
+	max_items: int | None = 200,
 ) -> CallHierarchyResult:
 	"""Get call hierarchy data for callers and/or callees."""
 	app = _get_app_context(ctx)
-	result = await navigation_call_hierarchy(app.pyright, file_path, line, character, direction, depth)
+	result = await navigation_call_hierarchy(
+		app.pyright,
+		file_path,
+		line,
+		character,
+		direction,
+		depth,
+		max_items,
+	)
 	await ctx.debug(
 		"call_hierarchy callers="
 		f"{len(result.callers)} callees={len(result.callees)} depth={depth} direction={direction}"
@@ -354,11 +405,57 @@ async def goto_definition(ctx: MCPContext, file_path: str, line: int, character:
 async def get_symbol_outline(
 	ctx: MCPContext,
 	file_path: str | None = None,
+	kind_filter: list[str] | None = None,
+	name_pattern: str | None = None,
+	limit: int | None = None,
 ) -> list[SymbolOutlineItem]:
 	"""Get hierarchical symbol outline for a file or the full workspace."""
 	app = _get_app_context(ctx)
-	result = await navigation_get_symbol_outline(app.pyright, app.config, file_path)
+	result = await navigation_get_symbol_outline(app.pyright, app.config, file_path, kind_filter, name_pattern, limit)
 	await ctx.debug(f"get_symbol_outline count={len(result)}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def type_hierarchy(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	direction: str = "both",
+	depth: int = 3,
+	max_items: int | None = 200,
+) -> TypeHierarchyResult:
+	"""Get type hierarchy data for supertypes/subtypes from a source position."""
+	app = _get_app_context(ctx)
+	result = await navigation_type_hierarchy(
+		app.pyright,
+		file_path,
+		line,
+		character,
+		direction,
+		depth,
+		max_items,
+	)
+	await ctx.debug(
+		"type_hierarchy supertypes="
+		f"{len(result.supertypes)} subtypes={len(result.subtypes)} depth={depth} direction={direction}"
+	)
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def selection_range(
+	ctx: MCPContext,
+	file_path: str,
+	positions: list[Position],
+) -> list[SelectionRangeResult]:
+	"""Get nested selection ranges for one or more positions in a file."""
+	app = _get_app_context(ctx)
+	result = await navigation_selection_range(app.pyright, file_path, positions)
+	await ctx.debug(f"selection_range count={len(result)}")
 	return result
 
 
@@ -442,6 +539,7 @@ async def extract_method(
 	end_line: int,
 	end_character: int,
 	method_name: str,
+	similar: bool = False,
 	apply: bool = False,
 ) -> RefactorResult:
 	"""Extract selected code into a new method."""
@@ -455,6 +553,7 @@ async def extract_method(
 		end_line,
 		end_character,
 		method_name,
+		similar,
 		apply,
 	)
 	await ctx.debug(f"extract_method edits={len(result.edits)} applied={result.applied}")
@@ -624,20 +723,21 @@ async def find_constructors(
 	ctx: MCPContext,
 	class_name: str,
 	file_path: str | None = None,
+	limit: int | None = None,
 ) -> list[ConstructorSite]:
 	"""Find constructor call sites for a class."""
 	app = _get_app_context(ctx)
-	result = await search_find_constructors(app.pyright, app.config, class_name, file_path)
+	result = await search_find_constructors(app.pyright, app.config, class_name, file_path, limit)
 	await ctx.debug(f"find_constructors class={class_name} count={len(result)}")
 	return result
 
 
 @mcp.tool()
 @_tool_error_boundary
-async def search_symbols(ctx: MCPContext, query: str) -> list[SymbolInfo]:
+async def search_symbols(ctx: MCPContext, query: str, limit: int | None = None) -> list[SymbolInfo]:
 	"""Search workspace symbols by name across semantic backends."""
 	app = _get_app_context(ctx)
-	result = await search_search_symbols(app.pyright, app.jedi, query)
+	result = await search_search_symbols(app.pyright, app.jedi, query, limit)
 	await ctx.debug(f"search_symbols query={query} count={len(result)}")
 	return result
 
@@ -649,10 +749,11 @@ async def structural_search(
 	pattern: str,
 	file_path: str | None = None,
 	language: str = "python",
+	limit: int | None = None,
 ) -> list[StructuralMatch]:
 	"""Search code structurally using a pattern expression."""
 	app = _get_app_context(ctx)
-	result = await search_structural_search(app.config, pattern, file_path, language)
+	result = await search_structural_search(app.config, pattern, file_path, language, limit)
 	await ctx.debug(f"structural_search language={language} count={len(result)}")
 	return result
 
@@ -662,11 +763,133 @@ async def structural_search(
 async def dead_code_detection(
 	ctx: MCPContext,
 	file_path: str | None = None,
+	exclude_patterns: list[str] | None = None,
 ) -> list[DeadCodeItem]:
 	"""Detect dead code candidates in a file or workspace."""
 	app = _get_app_context(ctx)
-	result = await search_dead_code_detection(app.pyright, app.config, file_path)
+	result = await search_dead_code_detection(app.pyright, app.config, file_path, exclude_patterns)
 	await ctx.debug(f"dead_code_detection count={len(result)}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def change_signature(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	operations: list[SignatureOperation],
+	apply: bool = False,
+) -> RefactorResult:
+	"""Change function signature and update call sites."""
+	app = _get_app_context(ctx)
+	result = await refactoring_change_signature(app.pyright, app.rope, file_path, line, character, operations, apply)
+	await ctx.debug(f"change_signature edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def restructure(
+	ctx: MCPContext,
+	pattern: str,
+	goal: str,
+	checks: dict[str, str] | None = None,
+	imports: list[str] | None = None,
+	file_path: str | None = None,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Apply structural replace pattern transformations."""
+	app = _get_app_context(ctx)
+	result = await refactoring_restructure(app.pyright, app.rope, pattern, goal, checks, imports, file_path, apply)
+	await ctx.debug(f"restructure edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def use_function(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Replace duplicated code with calls to selected function."""
+	app = _get_app_context(ctx)
+	result = await refactoring_use_function(app.pyright, app.rope, file_path, line, character, apply)
+	await ctx.debug(f"use_function edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def introduce_factory(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	factory_name: str | None = None,
+	global_factory: bool = True,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Introduce a factory function for selected class constructor."""
+	app = _get_app_context(ctx)
+	result = await refactoring_introduce_factory(
+		app.pyright,
+		app.rope,
+		file_path,
+		line,
+		character,
+		factory_name,
+		global_factory,
+		apply,
+	)
+	await ctx.debug(f"introduce_factory edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def module_to_package(ctx: MCPContext, file_path: str, apply: bool = False) -> RefactorResult:
+	"""Convert a module file into a package directory structure."""
+	app = _get_app_context(ctx)
+	result = await refactoring_module_to_package(app.pyright, app.rope, file_path, apply)
+	await ctx.debug(f"module_to_package edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def local_to_field(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Promote a local variable to instance field usage."""
+	app = _get_app_context(ctx)
+	result = await refactoring_local_to_field(app.pyright, app.rope, file_path, line, character, apply)
+	await ctx.debug(f"local_to_field edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool()
+@_tool_error_boundary
+async def method_object(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	classname: str | None = None,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Extract selected method into a new callable object class."""
+	app = _get_app_context(ctx)
+	result = await refactoring_method_object(app.pyright, app.rope, file_path, line, character, classname, apply)
+	await ctx.debug(f"method_object edits={len(result.edits)} applied={result.applied}")
 	return result
 
 

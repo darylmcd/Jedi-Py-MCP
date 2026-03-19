@@ -26,6 +26,8 @@ from python_refactor_mcp.models import (
     SymbolInfo,
 )
 
+_DIAGNOSTIC_TAG_UNNECESSARY = 1
+
 
 class _PyrightSearchBackend(Protocol):
     """Protocol describing Pyright search methods used by this module."""
@@ -102,6 +104,15 @@ def _symbol_sort_key(symbol: SymbolInfo) -> tuple[str, str, int, int, str]:
         symbol.range.start.character,
         symbol.kind,
     )
+
+
+def _apply_limit[T](items: list[T], limit: int | None) -> list[T]:
+    """Apply an optional positive limit to list-style tool results."""
+    if limit is None:
+        return items
+    if limit < 1:
+        raise ValueError("limit must be greater than or equal to 1")
+    return items[:limit]
 
 
 def _extract_call_arguments(call_node: ast.Call) -> list[str]:
@@ -290,6 +301,7 @@ async def find_constructors(
     config: ServerConfig,
     class_name: str,
     file_path: str | None = None,
+    limit: int | None = None,
 ) -> list[ConstructorSite]:
     """Find constructor call sites for a class across workspace files."""
     candidate_files = [Path(file_path).resolve()] if file_path is not None else _python_files(config.workspace_root)
@@ -364,13 +376,15 @@ async def find_constructors(
                 )
                 results[key] = site
 
-    return sorted(results.values(), key=lambda item: (item.file_path, *_range_sort_key(item.range)))
+    sorted_items = sorted(results.values(), key=lambda item: (item.file_path, *_range_sort_key(item.range)))
+    return _apply_limit(sorted_items, limit)
 
 
 async def search_symbols(
     pyright: _PyrightSearchBackend,
     jedi: _JediSearchBackend,
     query: str,
+    limit: int | None = None,
 ) -> list[SymbolInfo]:
     """Search workspace symbols by name across both semantic backends."""
     merged: dict[tuple[str, str, int, int, str], SymbolInfo] = {}
@@ -389,7 +403,8 @@ async def search_symbols(
     for symbol in jedi_symbols:
         merged.setdefault(_symbol_sort_key(symbol), symbol)
 
-    return sorted(merged.values(), key=_symbol_sort_key)
+    sorted_items = sorted(merged.values(), key=_symbol_sort_key)
+    return _apply_limit(sorted_items, limit)
 
 
 async def structural_search(
@@ -397,6 +412,7 @@ async def structural_search(
     pattern: str,
     file_path: str | None = None,
     language: str = "python",
+    limit: int | None = None,
 ) -> list[StructuralMatch]:
     """Run LibCST matcher-based structural search for Python code."""
     if language.strip().lower() != "python":
@@ -452,23 +468,28 @@ async def structural_search(
 
     all_matches = await asyncio.gather(*[asyncio.to_thread(_scan_file, path) for path in candidate_files])
     flattened = [item for group in all_matches for item in group]
-    return sorted(flattened, key=lambda item: (item.file_path, *_range_sort_key(item.range)))
+    sorted_items = sorted(flattened, key=lambda item: (item.file_path, *_range_sort_key(item.range)))
+    return _apply_limit(sorted_items, limit)
 
 
 async def dead_code_detection(
     pyright: _PyrightSearchBackend,
     config: ServerConfig,
     file_path: str | None = None,
+    exclude_patterns: list[str] | None = None,
 ) -> list[DeadCodeItem]:
     """Detect dead code candidates using diagnostics and reference counts."""
     target_files = [Path(file_path).resolve()] if file_path is not None else _python_files(config.workspace_root)
 
     dead_items: dict[tuple[str, str, int, int], DeadCodeItem] = {}
 
+    compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
+
     diagnostics = await pyright.get_diagnostics(file_path)
     for diagnostic in diagnostics:
         lowered = diagnostic.message.lower()
-        if "unused" not in lowered and "not accessed" not in lowered:
+        has_unnecessary_tag = _DIAGNOSTIC_TAG_UNNECESSARY in diagnostic.tags
+        if not has_unnecessary_tag and "unused" not in lowered and "not accessed" not in lowered:
             continue
 
         quoted = re.findall(r"['\"]([^'\"]+)['\"]", diagnostic.message)
@@ -487,6 +508,8 @@ async def dead_code_detection(
         if not path.exists():
             continue
         for name, kind, symbol_range in _iter_module_level_symbols(path):
+            if any(pattern.search(name) for pattern in compiled_excludes):
+                continue
             references = await pyright.get_references(
                 str(path),
                 symbol_range.start.line,
