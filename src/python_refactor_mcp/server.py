@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
 
 from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -97,6 +98,9 @@ from python_refactor_mcp.tools.search import search_symbols as search_search_sym
 from python_refactor_mcp.tools.search import structural_search as search_structural_search
 from python_refactor_mcp.tools.search import suggest_imports as search_suggest_imports
 
+_READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+_DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
 
 @dataclass(slots=True)
 class AppContext:
@@ -175,7 +179,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 mcp = FastMCP("Python Refactor", lifespan=app_lifespan)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def find_references(
 	ctx: MCPContext,
@@ -202,7 +206,7 @@ async def find_references(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
 	"""Get type information for the provided source location."""
@@ -212,7 +216,7 @@ async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: i
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
 	"""Get hover-style type and documentation information for a source location."""
@@ -222,7 +226,7 @@ async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: 
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_completions(
 	ctx: MCPContext,
@@ -238,7 +242,7 @@ async def get_completions(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_documentation(
 	ctx: MCPContext,
@@ -254,7 +258,7 @@ async def get_documentation(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_signature_help(
 	ctx: MCPContext,
@@ -269,7 +273,7 @@ async def get_signature_help(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_call_signatures_fallback(
 	ctx: MCPContext,
@@ -284,7 +288,7 @@ async def get_call_signatures_fallback(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_document_highlights(
 	ctx: MCPContext,
@@ -299,7 +303,7 @@ async def get_document_highlights(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_inlay_hints(
 	ctx: MCPContext,
@@ -326,7 +330,7 @@ async def get_inlay_hints(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_semantic_tokens(ctx: MCPContext, file_path: str) -> list[SemanticToken]:
 	"""Get semantic token classifications for a file."""
@@ -336,7 +340,7 @@ async def get_semantic_tokens(ctx: MCPContext, file_path: str) -> list[SemanticT
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_diagnostics(
 	ctx: MCPContext,
@@ -351,7 +355,7 @@ async def get_diagnostics(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_workspace_diagnostics(ctx: MCPContext) -> list[DiagnosticSummary]:
 	"""Get aggregated diagnostic counts for the full workspace."""
@@ -361,7 +365,7 @@ async def get_workspace_diagnostics(ctx: MCPContext) -> list[DiagnosticSummary]:
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def call_hierarchy(
 	ctx: MCPContext,
@@ -390,7 +394,7 @@ async def call_hierarchy(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def goto_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
 	"""Navigate to symbol definitions for the provided source location."""
@@ -400,7 +404,7 @@ async def goto_definition(ctx: MCPContext, file_path: str, line: int, character:
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_symbol_outline(
 	ctx: MCPContext,
@@ -416,7 +420,7 @@ async def get_symbol_outline(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def type_hierarchy(
 	ctx: MCPContext,
@@ -445,7 +449,7 @@ async def type_hierarchy(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def selection_range(
 	ctx: MCPContext,
@@ -459,7 +463,7 @@ async def selection_range(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def find_implementations(
 	ctx: MCPContext,
@@ -474,7 +478,7 @@ async def find_implementations(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_declaration(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
 	"""Navigate to declaration sites for the symbol at the source location."""
@@ -484,7 +488,7 @@ async def get_declaration(ctx: MCPContext, file_path: str, line: int, character:
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_type_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
 	"""Navigate to type definitions for the symbol at the source location."""
@@ -494,7 +498,7 @@ async def get_type_definition(ctx: MCPContext, file_path: str, line: int, charac
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_folding_ranges(ctx: MCPContext, file_path: str) -> list[FoldingRange]:
 	"""Return foldable regions to support chunked file analysis workflows."""
@@ -504,7 +508,7 @@ async def get_folding_ranges(ctx: MCPContext, file_path: str) -> list[FoldingRan
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def rename_symbol(
 	ctx: MCPContext,
@@ -529,7 +533,7 @@ async def rename_symbol(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def extract_method(
 	ctx: MCPContext,
@@ -560,7 +564,7 @@ async def extract_method(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def extract_variable(
 	ctx: MCPContext,
@@ -589,7 +593,7 @@ async def extract_variable(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def inline_variable(
 	ctx: MCPContext,
@@ -605,7 +609,7 @@ async def inline_variable(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def move_symbol(
 	ctx: MCPContext,
@@ -628,7 +632,7 @@ async def move_symbol(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def apply_code_action(
 	ctx: MCPContext,
@@ -645,7 +649,7 @@ async def apply_code_action(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def organize_imports(
 	ctx: MCPContext,
@@ -659,7 +663,7 @@ async def organize_imports(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def prepare_rename(
 	ctx: MCPContext,
@@ -674,7 +678,7 @@ async def prepare_rename(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def introduce_parameter(
 	ctx: MCPContext,
@@ -701,7 +705,7 @@ async def introduce_parameter(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def encapsulate_field(
 	ctx: MCPContext,
@@ -717,7 +721,7 @@ async def encapsulate_field(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def find_constructors(
 	ctx: MCPContext,
@@ -732,7 +736,7 @@ async def find_constructors(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def search_symbols(ctx: MCPContext, query: str, limit: int | None = None) -> list[SymbolInfo]:
 	"""Search workspace symbols by name across semantic backends."""
@@ -742,7 +746,7 @@ async def search_symbols(ctx: MCPContext, query: str, limit: int | None = None) 
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def structural_search(
 	ctx: MCPContext,
@@ -758,7 +762,7 @@ async def structural_search(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def dead_code_detection(
 	ctx: MCPContext,
@@ -772,7 +776,7 @@ async def dead_code_detection(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def change_signature(
 	ctx: MCPContext,
@@ -789,7 +793,7 @@ async def change_signature(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def restructure(
 	ctx: MCPContext,
@@ -807,7 +811,7 @@ async def restructure(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def use_function(
 	ctx: MCPContext,
@@ -823,7 +827,7 @@ async def use_function(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def introduce_factory(
 	ctx: MCPContext,
@@ -850,7 +854,7 @@ async def introduce_factory(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def module_to_package(ctx: MCPContext, file_path: str, apply: bool = False) -> RefactorResult:
 	"""Convert a module file into a package directory structure."""
@@ -860,7 +864,7 @@ async def module_to_package(ctx: MCPContext, file_path: str, apply: bool = False
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def local_to_field(
 	ctx: MCPContext,
@@ -876,7 +880,7 @@ async def local_to_field(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def method_object(
 	ctx: MCPContext,
@@ -893,7 +897,7 @@ async def method_object(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def suggest_imports(
 	ctx: MCPContext,
@@ -907,7 +911,7 @@ async def suggest_imports(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def smart_rename(
 	ctx: MCPContext,
@@ -932,7 +936,7 @@ async def smart_rename(
 	return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPreview]:
 	"""Build unified diff previews for pending text edits."""
