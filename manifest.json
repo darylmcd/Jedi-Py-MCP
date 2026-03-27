@@ -1,0 +1,20 @@
+{
+	"manifest_version": "0.3",
+	"name": "python-refactor-mcp",
+	"display_name": "Python Refactor MCP",
+	"version": "0.1.0",
+	"description": "MCP server for Python code analysis and refactoring using Pyright, Jedi, and rope backends.",
+	"author": "darylmcd",
+	"license": "MIT",
+	"repository": "https://github.com/darylmcd/Jedi-Py-MCP",
+	"privacy_policies": [
+		"https://github.com/darylmcd/Jedi-Py-MCP/blob/main/PRIVACY.md"
+	],
+	"categories": ["developer-tools", "code-analysis"],
+	"icon": "icon.png",
+	"tools": {
+		"transport": "stdio",
+		"command": "python",
+		"args": ["-m", "python_refactor_mcp"]
+	}
+}
