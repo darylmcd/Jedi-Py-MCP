@@ -14,10 +14,10 @@ from python_refactor_mcp.models import (
 )
 from python_refactor_mcp.util.file_filter import python_files as _filtered_python_files
 
-_DIAGNOSTIC_TAG_UNNECESSARY = 1
+DIAGNOSTIC_TAG_UNNECESSARY = 1
 
 
-class _PyrightSearchBackend(Protocol):
+class PyrightSearchBackend(Protocol):
     """Protocol describing Pyright search methods used by this module."""
 
     async def get_references(
@@ -48,7 +48,7 @@ class _PyrightSearchBackend(Protocol):
         ...
 
 
-class _JediSearchBackend(Protocol):
+class JediSearchBackend(Protocol):
     """Protocol describing Jedi search methods used by this module."""
 
     async def search_names(self, symbol: str) -> list[ImportSuggestion]:
@@ -60,12 +60,12 @@ class _JediSearchBackend(Protocol):
         ...
 
 
-def _python_files(root: Path) -> list[Path]:
+def python_files(root: Path) -> list[Path]:
     """Return Python files below a root path in stable order, excluding common non-project dirs."""
     return _filtered_python_files(root)
 
 
-def _range_sort_key(range_value: Range) -> tuple[int, int, int, int]:
+def range_sort_key(range_value: Range) -> tuple[int, int, int, int]:
     """Build stable sort key for model ranges."""
     return (
         range_value.start.line,
@@ -75,7 +75,7 @@ def _range_sort_key(range_value: Range) -> tuple[int, int, int, int]:
     )
 
 
-def _apply_limit[T](items: list[T], limit: int | None) -> list[T]:
+def apply_limit_items[T](items: list[T], limit: int | None) -> list[T]:
     """Apply an optional positive limit to list-style tool results."""
     from python_refactor_mcp.util.shared import apply_limit  # noqa: PLC0415
 
@@ -83,7 +83,7 @@ def _apply_limit[T](items: list[T], limit: int | None) -> list[T]:
     return limited
 
 
-def _name_position(line_text: str, default_col: int, name: str) -> int:
+def name_position(line_text: str, default_col: int, name: str) -> int:
     """Find a symbol name offset in a source line with fallback to default."""
     index = line_text.find(name, max(default_col, 0))
     if index >= 0:

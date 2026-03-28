@@ -476,13 +476,6 @@ class StaticError(BaseModel):
     message: str
 
 
-class MethodSignature(BaseModel):
-    """A method signature extracted for interface comparison."""
-
-    name: str
-    params: list[str]
-    return_annotation: str | None = None
-
 
 class InterfaceComparison(BaseModel):
     """Result of comparing class interfaces for protocol conformance."""

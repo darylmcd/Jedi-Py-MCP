@@ -21,7 +21,7 @@ from python_refactor_mcp.util.shared import (
 )
 
 
-class _PyrightRefactoringBackend(Protocol):
+class PyrightRefactoringBackend(Protocol):
     """Protocol describing Pyright methods used in apply validation paths."""
 
     async def notify_file_changed(self, file_path: str) -> None:
@@ -46,7 +46,7 @@ class _PyrightRefactoringBackend(Protocol):
         ...
 
 
-class _RopeRefactoringBackend(Protocol):
+class RopeRefactoringBackend(Protocol):
     """Protocol describing rope refactoring methods used by this module."""
 
     async def rename(
@@ -248,7 +248,7 @@ class _RopeRefactoringBackend(Protocol):
         ...
 
 
-def _range_contains_position(range_value: Range, line: int, character: int) -> bool:
+def range_contains_position(range_value: Range, line: int, character: int) -> bool:
     """Return whether a 0-based position is inside a diagnostic range."""
     start = (range_value.start.line, range_value.start.character)
     end = (range_value.end.line, range_value.end.character)
@@ -256,7 +256,7 @@ def _range_contains_position(range_value: Range, line: int, character: int) -> b
     return start <= target <= end
 
 
-def _full_file_range(file_path: str) -> Range:
+def full_file_range(file_path: str) -> Range:
     """Build a range covering the entire current file content."""
     from python_refactor_mcp.errors import RopeError  # noqa: PLC0415
     from python_refactor_mcp.util.shared import end_position_for_content  # noqa: PLC0415
@@ -268,7 +268,7 @@ def _full_file_range(file_path: str) -> Range:
     return Range(start=Position(line=0, character=0), end=end_position_for_content(content))
 
 
-def _workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
+def workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
     """Convert an LSP workspace edit payload into project TextEdit models."""
     if not isinstance(workspace_edit, dict):
         return []
@@ -334,7 +334,7 @@ def _workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
     )
 
 
-def _result_from_text_edits(edits: list[TextEdit], description: str, apply: bool) -> RefactorResult:
+def result_from_text_edits(edits: list[TextEdit], description: str, apply: bool) -> RefactorResult:
     """Build a refactor result from LSP-style text edits and optionally apply them."""
     files_affected = sorted({edit.file_path for edit in edits})
     if not apply:
@@ -350,8 +350,8 @@ def _result_from_text_edits(edits: list[TextEdit], description: str, apply: bool
     return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=True)
 
 
-async def _attach_post_apply_diagnostics(
-    pyright: _PyrightRefactoringBackend,
+async def post_apply_diagnostics(
+    pyright: PyrightRefactoringBackend,
     result: RefactorResult,
 ) -> RefactorResult:
     """Notify Pyright of changed files and append refreshed diagnostics."""

@@ -80,40 +80,30 @@ async def test_tool_descriptions_are_workflow_oriented() -> None:
 async def test_server_has_version() -> None:
     """Server should expose its version matching the package version."""
     # The FastMCP instance stores the version
-    assert server.mcp._mcp_server.name == "Python Refactor"
+    assert server.mcp._mcp_server.name == "Python Refactor"  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio
 async def test_annotation_variants_exist() -> None:
     """Server should use all three annotation variants: READONLY, DESTRUCTIVE, ADDITIVE."""
     tools = await server.mcp.list_tools()
-    has_readonly = False
-    has_destructive = False
-    has_additive = False
-    for tool in tools:
-        ann = tool.annotations
-        if ann is None:
-            continue
-        if ann.readOnlyHint:
-            has_readonly = True
-        elif ann.destructiveHint:
-            has_destructive = True
-        elif not ann.readOnlyHint and not ann.destructiveHint:
-            has_additive = True
-    assert has_readonly, "No tools use READONLY annotations"
-    assert has_destructive, "No tools use DESTRUCTIVE annotations"
-    assert has_additive, "No tools use ADDITIVE annotations"
+    annotations = [t.annotations for t in tools if t.annotations is not None]
+    assert any(a.readOnlyHint for a in annotations), "No tools use READONLY annotations"
+    assert any(a.destructiveHint for a in annotations), "No tools use DESTRUCTIVE annotations"
+    assert any(
+        not a.readOnlyHint and not a.destructiveHint for a in annotations
+    ), "No tools use ADDITIVE annotations"
 
 
 @pytest.mark.asyncio
 async def test_path_params_are_validated() -> None:
     """All known path parameter names should be in the validation set."""
     expected_path_params = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
-    assert server._PATH_PARAMS == expected_path_params
+    assert server._PATH_PARAMS == expected_path_params  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio
 async def test_identifier_params_are_validated() -> None:
     """All known identifier parameter names should be in the validation set."""
     expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
-    assert server._IDENTIFIER_PARAMS == expected
+    assert server._IDENTIFIER_PARAMS == expected  # pyright: ignore[reportPrivateUsage]

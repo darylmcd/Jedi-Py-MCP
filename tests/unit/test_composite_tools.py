@@ -9,24 +9,7 @@ import pytest
 
 from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, TextEdit
 from python_refactor_mcp.tools import composite
-
-
-def _edit(path: str) -> TextEdit:
-    return TextEdit(
-        file_path=path,
-        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
-        new_text="x",
-    )
-
-
-def _diag(path: str, line: int) -> Diagnostic:
-    return Diagnostic(
-        file_path=path,
-        range=Range(start=Position(line=line, character=0), end=Position(line=line, character=1)),
-        severity="error",
-        message=f"e{line}",
-        code=None,
-    )
+from tests.helpers import make_diag as _diag, make_edit as _edit
 
 
 @pytest.mark.asyncio

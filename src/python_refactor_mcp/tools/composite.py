@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from python_refactor_mcp.models import Diagnostic, DiffPreview, Location, RefactorResult, TextEdit
-from python_refactor_mcp.tools.refactoring.rename import _ensure_renameable
+from python_refactor_mcp.tools.refactoring.rename import ensure_renameable
 from python_refactor_mcp.util.diff import build_unified_diff
 from python_refactor_mcp.util.shared import attach_post_apply_diagnostics
 
@@ -69,7 +69,7 @@ async def smart_rename(
     apply: bool = False,
 ) -> RefactorResult:
     """Coordinate analysis and refactoring for a safe rename."""
-    await _ensure_renameable(pyright, file_path, line, character)  # type: ignore[arg-type]
+    await ensure_renameable(pyright, file_path, line, character)  # type: ignore[arg-type]
     result = await rope.rename(file_path, line, character, new_name, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
 

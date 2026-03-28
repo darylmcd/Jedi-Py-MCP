@@ -23,16 +23,7 @@ from python_refactor_mcp.models import (
     TypeInfo,
 )
 from python_refactor_mcp.tools import analysis
-
-
-def _location(path: str, line: int, character: int) -> Location:
-    return Location(
-        file_path=path,
-        range=Range(
-            start=Position(line=line, character=character),
-            end=Position(line=line, character=character + 1),
-        ),
-    )
+from tests.helpers import make_location as _location
 
 
 @pytest.mark.asyncio

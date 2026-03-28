@@ -5,15 +5,15 @@ from __future__ import annotations
 from python_refactor_mcp.models import RefactorResult
 
 from .helpers import (
-    _attach_post_apply_diagnostics,
-    _PyrightRefactoringBackend,
-    _RopeRefactoringBackend,
+    post_apply_diagnostics,
+    PyrightRefactoringBackend,
+    RopeRefactoringBackend,
 )
 
 
 async def extract_method(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     start_line: int,
     start_character: int,
@@ -34,12 +34,12 @@ async def extract_method(
         similar,
         apply,
     )
-    return await _attach_post_apply_diagnostics(pyright, result)
+    return await post_apply_diagnostics(pyright, result)
 
 
 async def extract_variable(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     start_line: int,
     start_character: int,
@@ -58,12 +58,12 @@ async def extract_variable(
         variable_name,
         apply,
     )
-    return await _attach_post_apply_diagnostics(pyright, result)
+    return await post_apply_diagnostics(pyright, result)
 
 
 async def inline_variable(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -71,12 +71,12 @@ async def inline_variable(
 ) -> RefactorResult:
     """Inline a variable at the provided position."""
     result = await rope.inline(file_path, line, character, apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    return await post_apply_diagnostics(pyright, result)
 
 
 async def inline_method(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -84,12 +84,12 @@ async def inline_method(
 ) -> RefactorResult:
     """Inline a function/method body into all call sites and remove the original definition."""
     result = await rope.inline_method(file_path, line, character, apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    return await post_apply_diagnostics(pyright, result)
 
 
 async def inline_parameter(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -97,4 +97,4 @@ async def inline_parameter(
 ) -> RefactorResult:
     """Remove a parameter by inlining its default value into the function body."""
     result = await rope.inline_parameter(file_path, line, character, apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    return await post_apply_diagnostics(pyright, result)

@@ -17,10 +17,10 @@ from python_refactor_mcp.models import (
 )
 
 from ._helpers import (
-    _DIAGNOSTIC_TAG_UNNECESSARY,
-    _name_position,
-    _PyrightSearchBackend,
-    _python_files,
+    DIAGNOSTIC_TAG_UNNECESSARY,
+    name_position,
+    PyrightSearchBackend,
+    python_files,
 )
 
 
@@ -59,7 +59,7 @@ def _iter_module_level_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
             line_index = node.lineno - 1
             if line_index < 0 or line_index >= len(lines):
                 continue
-            char_index = _name_position(lines[line_index], node.col_offset, node.name)
+            char_index = name_position(lines[line_index], node.col_offset, node.name)
             kind = "class" if isinstance(node, ast.ClassDef) else "function"
             symbols.append(
                 (
@@ -103,8 +103,95 @@ def _iter_module_level_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
     return symbols
 
 
+def _resolve_target_files(
+    file_path: str | None,
+    file_paths: list[str] | None,
+    root_path: str | None,
+    config: ServerConfig,
+    exclude_test_files: bool,
+) -> tuple[list[Path], set[str]]:
+    """Determine which files to scan for dead code."""
+    if file_path is not None and file_paths is not None:
+        raise ValueError("file_path and file_paths are mutually exclusive")
+    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
+    if file_paths is not None:
+        target_files = [Path(p).resolve() for p in file_paths]
+    elif file_path is not None:
+        target_files = [Path(file_path).resolve()]
+    else:
+        target_files = python_files(effective_root)
+    if exclude_test_files:
+        target_files = [p for p in target_files if not _is_test_file(p)]
+    target_paths = {str(p.resolve()) for p in target_files}
+    return target_files, target_paths
+
+
+def _is_dead_code_diagnostic(diagnostic: Diagnostic) -> bool:
+    """Return True if the diagnostic indicates unused/dead code."""
+    lowered = diagnostic.message.lower()
+    has_unnecessary_tag = DIAGNOSTIC_TAG_UNNECESSARY in diagnostic.tags
+    return has_unnecessary_tag or "unused" in lowered or "not accessed" in lowered
+
+
+def _dead_item_from_diagnostic(diagnostic: Diagnostic) -> DeadCodeItem:
+    """Convert a dead-code diagnostic into a DeadCodeItem."""
+    lowered = diagnostic.message.lower()
+    quoted = re.findall(r"['\"]([^'\"]+)['\"]", diagnostic.message)
+    name = quoted[0] if quoted else "unknown"
+    reason = "unused diagnostic"
+    return DeadCodeItem(
+        name=name,
+        kind="import" if "import" in lowered else "symbol",
+        file_path=diagnostic.file_path,
+        range=diagnostic.range,
+        reason=reason,
+        confidence=_score_confidence(name, reason),
+    )
+
+
+async def _check_symbol(
+    pyright: PyrightSearchBackend,
+    sem: asyncio.Semaphore,
+    path: Path,
+    name: str,
+    kind: str,
+    symbol_range: Range,
+) -> DeadCodeItem | None:
+    """Check whether a symbol has external references; return a dead-code item if not."""
+    async with sem:
+        references = await pyright.get_references(
+            str(path),
+            symbol_range.start.line,
+            symbol_range.start.character,
+            False,
+        )
+    resolved_path = str(path.resolve())
+    same_file_count = 0
+    has_external = False
+    for ref in references:
+        ref_path = getattr(ref, "file_path", None)
+        if not isinstance(ref_path, str):
+            continue
+        if ref_path == resolved_path:
+            same_file_count += 1
+        else:
+            has_external = True
+            break
+    if has_external or same_file_count > 1:
+        return None
+    reason = "no references"
+    return DeadCodeItem(
+        name=name,
+        kind=kind,
+        file_path=resolved_path,
+        range=symbol_range,
+        reason=reason,
+        confidence=_score_confidence(name, reason),
+    )
+
+
 async def dead_code_detection(
-    pyright: _PyrightSearchBackend,
+    pyright: PyrightSearchBackend,
     config: ServerConfig,
     file_path: str | None = None,
     exclude_patterns: list[str] | None = None,
@@ -115,24 +202,12 @@ async def dead_code_detection(
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Detect dead code candidates using diagnostics and reference counts."""
-    if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
-    if file_paths is not None:
-        target_files = [Path(p).resolve() for p in file_paths]
-    elif file_path is not None:
-        target_files = [Path(file_path).resolve()]
-    else:
-        target_files = _python_files(effective_root)
-    if exclude_test_files:
-        target_files = [p for p in target_files if not _is_test_file(p)]
-    target_paths = {str(p.resolve()) for p in target_files}
+    target_files, target_paths = _resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
 
     dead_items: dict[tuple[str, str, int, int], DeadCodeItem] = {}
-
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
-    # Collect diagnostics per target file with bounded concurrency.
+    # Phase 1: Collect diagnostics per target file with bounded concurrency.
     sem = asyncio.Semaphore(10)
 
     async def _fetch_diags(path: Path) -> list[Diagnostic]:
@@ -149,26 +224,13 @@ async def dead_code_detection(
             all_diagnostics.extend(diag_result)
 
     for diagnostic in all_diagnostics:
-        lowered = diagnostic.message.lower()
-        has_unnecessary_tag = _DIAGNOSTIC_TAG_UNNECESSARY in diagnostic.tags
-        if not has_unnecessary_tag and "unused" not in lowered and "not accessed" not in lowered:
+        if not _is_dead_code_diagnostic(diagnostic):
             continue
-
-        quoted = re.findall(r"['\"]([^'\"]+)['\"]", diagnostic.message)
-        name = quoted[0] if quoted else "unknown"
-        reason = "unused diagnostic"
-        item = DeadCodeItem(
-            name=name,
-            kind="import" if "import" in lowered else "symbol",
-            file_path=diagnostic.file_path,
-            range=diagnostic.range,
-            reason=reason,
-            confidence=_score_confidence(name, reason),
-        )
+        item = _dead_item_from_diagnostic(diagnostic)
         key = (item.file_path, item.name, item.range.start.line, item.range.start.character)
         dead_items[key] = item
 
-    # Collect all symbols to check, then check references with bounded concurrency.
+    # Phase 2: Collect symbols and check references with bounded concurrency.
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
     for path in target_files:
         if not path.exists():
@@ -178,40 +240,8 @@ async def dead_code_detection(
                 continue
             symbols_to_check.append((path, name, kind, symbol_range))
 
-    async def _check_symbol(path: Path, name: str, kind: str, symbol_range: Range) -> DeadCodeItem | None:
-        async with sem:
-            references = await pyright.get_references(
-                str(path),
-                symbol_range.start.line,
-                symbol_range.start.character,
-                False,
-            )
-        resolved_path = str(path.resolve())
-        same_file_count = 0
-        has_external = False
-        for ref in references:
-            ref_path = getattr(ref, "file_path", None)
-            if not isinstance(ref_path, str):
-                continue
-            if ref_path == resolved_path:
-                same_file_count += 1
-            else:
-                has_external = True
-                break
-        if has_external or same_file_count > 1:
-            return None
-        reason = "no references"
-        return DeadCodeItem(
-            name=name,
-            kind=kind,
-            file_path=resolved_path,
-            range=symbol_range,
-            reason=reason,
-            confidence=_score_confidence(name, reason),
-        )
-
     ref_results = await asyncio.gather(
-        *[_check_symbol(p, n, k, r) for p, n, k, r in symbols_to_check],
+        *[_check_symbol(pyright, sem, p, n, k, r) for p, n, k, r in symbols_to_check],
         return_exceptions=True,
     )
     for ref_result in ref_results:
@@ -219,14 +249,10 @@ async def dead_code_detection(
             key = (ref_result.file_path, ref_result.name, ref_result.range.start.line, ref_result.range.start.character)
             dead_items[key] = ref_result
 
+    # Phase 3: Sort and paginate results.
     all_items = sorted(
         dead_items.values(),
-        key=lambda item: (
-            item.file_path,
-            item.name,
-            item.range.start.line,
-            item.range.start.character,
-        ),
+        key=lambda item: (item.file_path, item.name, item.range.start.line, item.range.start.character),
     )
     total_count = len(all_items)
     items = all_items[offset:] if offset > 0 else all_items
