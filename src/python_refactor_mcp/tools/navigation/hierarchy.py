@@ -6,6 +6,7 @@ import ast
 from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TypeVar
 
 from python_refactor_mcp.models import (
     CallHierarchyItem,
@@ -22,27 +23,29 @@ _VALID_DIRECTIONS = {"callers", "callees", "both"}
 _VALID_TYPE_DIRECTIONS = {"supertypes", "subtypes", "both"}
 _TYPE_DIRECTION_ALIASES: dict[str, str] = {"callers": "supertypes", "callees": "subtypes"}
 
+_T = TypeVar("_T", CallHierarchyItem, TypeHierarchyItem)
 
-def _call_item_key(item: CallHierarchyItem) -> tuple[str, int, int, str]:
-    """Build a stable key for call hierarchy deduplication."""
+_KeyTuple = tuple[str, int, int, str]
+
+
+def _hierarchy_item_key(item: CallHierarchyItem | TypeHierarchyItem) -> _KeyTuple:
+    """Build a stable key for hierarchy item deduplication."""
     return (item.file_path, item.range.start.line, item.range.start.character, item.name)
 
 
-def _type_item_key(item: TypeHierarchyItem) -> tuple[str, int, int, str]:
-    """Build a stable key for type hierarchy deduplication."""
-    return (item.file_path, item.range.start.line, item.range.start.character, item.name)
-
-
-async def _traverse_calls(
-    root: CallHierarchyItem,
+async def _traverse_hierarchy(
+    root: _T,
     depth: int,
-    fetch_next: Callable[[CallHierarchyItem], Awaitable[list[CallHierarchyItem]]],
+    fetch_next: Callable[[_T], Awaitable[list[_T]]],
     max_items: int | None,
-) -> tuple[list[CallHierarchyItem], bool]:
-    """Traverse call hierarchy breadth-first up to the requested depth."""
-    visited: set[tuple[str, int, int, str]] = {_call_item_key(root)}
-    discovered: dict[tuple[str, int, int, str], CallHierarchyItem] = {}
-    pending: deque[tuple[CallHierarchyItem, int]] = deque([(root, 0)])
+) -> tuple[list[_T], bool]:
+    """Traverse a hierarchy breadth-first up to the requested depth.
+
+    Works for both call hierarchy and type hierarchy items.
+    """
+    visited: set[_KeyTuple] = {_hierarchy_item_key(root)}
+    discovered: dict[_KeyTuple, _T] = {}
+    pending: deque[tuple[_T, int]] = deque([(root, 0)])
 
     while pending:
         current, current_depth = pending.popleft()
@@ -51,46 +54,16 @@ async def _traverse_calls(
 
         next_items = await fetch_next(current)
         for next_item in next_items:
-            key = _call_item_key(next_item)
+            key = _hierarchy_item_key(next_item)
             if key in visited:
                 continue
             visited.add(key)
             discovered[key] = next_item
             if max_items is not None and len(discovered) >= max_items:
-                return sorted(discovered.values(), key=_call_item_key), True
+                return sorted(discovered.values(), key=_hierarchy_item_key), True
             pending.append((next_item, current_depth + 1))
 
-    return sorted(discovered.values(), key=_call_item_key), False
-
-
-async def _traverse_types(
-    root: TypeHierarchyItem,
-    depth: int,
-    fetch_next: Callable[[TypeHierarchyItem], Awaitable[list[TypeHierarchyItem]]],
-    max_items: int | None,
-) -> tuple[list[TypeHierarchyItem], bool]:
-    """Traverse type hierarchy breadth-first up to the requested depth."""
-    visited: set[tuple[str, int, int, str]] = {_type_item_key(root)}
-    discovered: dict[tuple[str, int, int, str], TypeHierarchyItem] = {}
-    pending: deque[tuple[TypeHierarchyItem, int]] = deque([(root, 0)])
-
-    while pending:
-        current, current_depth = pending.popleft()
-        if current_depth >= depth:
-            continue
-
-        next_items = await fetch_next(current)
-        for next_item in next_items:
-            key = _type_item_key(next_item)
-            if key in visited:
-                continue
-            visited.add(key)
-            discovered[key] = next_item
-            if max_items is not None and len(discovered) >= max_items:
-                return sorted(discovered.values(), key=_type_item_key), True
-            pending.append((next_item, current_depth + 1))
-
-    return sorted(discovered.values(), key=_type_item_key), False
+    return sorted(discovered.values(), key=_hierarchy_item_key), False
 
 
 def _resolve_class_position(
@@ -203,11 +176,11 @@ async def call_hierarchy(
     truncated = False
 
     if normalized_direction in {"callers", "both"}:
-        callers, callers_truncated = await _traverse_calls(root, depth, pyright.get_incoming_calls, max_items)
+        callers, callers_truncated = await _traverse_hierarchy(root, depth, pyright.get_incoming_calls, max_items)
         truncated = truncated or callers_truncated
 
     if normalized_direction in {"callees", "both"}:
-        callees, callees_truncated = await _traverse_calls(root, depth, pyright.get_outgoing_calls, max_items)
+        callees, callees_truncated = await _traverse_hierarchy(root, depth, pyright.get_outgoing_calls, max_items)
         truncated = truncated or callees_truncated
 
     return CallHierarchyResult(item=root, callers=callers, callees=callees, truncated=truncated)
@@ -262,11 +235,11 @@ async def type_hierarchy(
     truncated = False
 
     if normalized_direction in {"supertypes", "both"}:
-        supertypes, super_truncated = await _traverse_types(root, depth, pyright.get_supertypes, max_items)
+        supertypes, super_truncated = await _traverse_hierarchy(root, depth, pyright.get_supertypes, max_items)
         truncated = truncated or super_truncated
 
     if normalized_direction in {"subtypes", "both"}:
-        subtypes, sub_truncated = await _traverse_types(root, depth, pyright.get_subtypes, max_items)
+        subtypes, sub_truncated = await _traverse_hierarchy(root, depth, pyright.get_subtypes, max_items)
         truncated = truncated or sub_truncated
 
     return TypeHierarchyResult(item=root, supertypes=supertypes, subtypes=subtypes, truncated=truncated)

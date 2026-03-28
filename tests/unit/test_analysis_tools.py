@@ -364,7 +364,7 @@ async def test_get_workspace_diagnostics_aggregates_by_file(tmp_path: Path) -> N
 
     result = await analysis.get_workspace_diagnostics(pyright, config)
 
-    assert [(item.file_path, item.total_count) for item in result] == [
+    assert [(item.file_path, item.total_count) for item in result.items] == [
         (str(file_a.resolve()), 2),
         (str(file_b.resolve()), 1),
     ]

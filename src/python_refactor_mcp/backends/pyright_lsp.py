@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import PyrightError
@@ -30,6 +33,7 @@ from python_refactor_mcp.models import (
     TypeInfo,
 )
 from python_refactor_mcp.util.lsp_client import JSONDict, JSONValue, LSPClient
+from python_refactor_mcp.util.timing import timed
 from python_refactor_mcp.util.lsp_converters import (
     DOCUMENT_HIGHLIGHT_KIND,
     SEMANTIC_TOKEN_MODIFIERS,
@@ -68,20 +72,97 @@ class PyrightLSPClient:
         self._file_versions: dict[str, int] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._diagnostics_events: dict[str, asyncio.Event] = {}
+        self._startup_command: list[str] | None = None
+        self._restarting = False
 
     # ── LSP transport ─────────────────────────────────────────────────
 
     async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
-        """Send an LSP request with a bounded timeout for backend resilience."""
+        """Send an LSP request with a bounded timeout and auto-restart on crash."""
+        await self._ensure_healthy()
         try:
-            return await asyncio.wait_for(
-                self._client.send_request(method, params),
-                timeout=self._request_timeout_seconds,
-            )
+            async with timed(_LOGGER, f"pyright.{method}"):
+                return await asyncio.wait_for(
+                    self._client.send_request(method, params),
+                    timeout=self._request_timeout_seconds,
+                )
         except TimeoutError as exc:
             raise PyrightError(
                 f"{method} request timed out after {self._request_timeout_seconds:.1f}s"
             ) from exc
+        except PyrightError:
+            if self._client.is_alive():
+                raise
+            # Process died during request — attempt single restart and retry.
+            _LOGGER.warning("Pyright process died during %s request, attempting restart", method)
+            await self._restart()
+            return await asyncio.wait_for(
+                self._client.send_request(method, params),
+                timeout=self._request_timeout_seconds,
+            )
+
+    async def _ensure_healthy(self) -> None:
+        """Check if Pyright is alive and restart if it has crashed."""
+        if self._restarting or self._client.is_alive():
+            return
+        _LOGGER.warning("Pyright process detected as dead, attempting restart")
+        await self._restart()
+
+    async def _restart(self) -> None:
+        """Restart the Pyright process using the stored startup command."""
+        if self._startup_command is None:
+            raise PyrightError("Cannot restart Pyright: no startup command recorded")
+        if self._restarting:
+            return
+        self._restarting = True
+        try:
+            await self._client.shutdown()
+            # Clear stale state.
+            self._open_files.clear()
+            self._file_versions.clear()
+            self._diagnostics.clear()
+            self._diagnostics_events.clear()
+            # Create fresh client and re-run startup.
+            self._client = self._make_client()
+            root_uri = path_to_uri(str(self._config.workspace_root))
+            initialize_params: dict[str, JSONValue] = {
+                "processId": None,
+                "rootUri": root_uri,
+                "capabilities": {
+                    "textDocument": {
+                        "publishDiagnostics": {"relatedInformation": True},
+                    },
+                    "workspace": {"workspaceFolders": True},
+                },
+                "workspaceFolders": [
+                    {"uri": root_uri, "name": self._config.workspace_root.name}
+                ],
+                "clientInfo": {"name": "python-refactor-mcp"},
+            }
+            await self._client.start(self._startup_command)
+            response = await asyncio.wait_for(
+                self._client.send_request("initialize", initialize_params),
+                timeout=15,
+            )
+            if "error" in response:
+                raise PyrightError(f"Pyright re-initialize failed: {response['error']}")
+            await self._client.send_notification("initialized", {})
+            settings: dict[str, JSONValue] = {
+                "python": {
+                    "pythonPath": str(self._config.python_executable),
+                    "analysis": {
+                        "diagnosticMode": "openFilesOnly",
+                        "autoSearchPaths": True,
+                        "useLibraryCodeForTypes": True,
+                    },
+                }
+            }
+            await self._client.send_notification(
+                "workspace/didChangeConfiguration", {"settings": settings},
+            )
+            _LOGGER.info("Pyright process restarted successfully")
+        finally:
+            self._restarting = False
 
     def _make_client(self) -> LSPClient:
         """Create and configure a fresh LSP transport client."""
@@ -183,6 +264,7 @@ class PyrightLSPClient:
                     "workspace/didChangeConfiguration",
                     {"settings": settings},
                 )
+                self._startup_command = command
                 return
             except Exception as exc:
                 startup_errors.append(f"{' '.join(command)} -> {exc}")

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
 
 from python_refactor_mcp.models import (
     Location,
@@ -31,6 +34,7 @@ def _add_context_lines(locations: list[Location]) -> list[Location]:
             try:
                 cache[file_path] = Path(file_path).read_text(encoding="utf-8").splitlines()
             except Exception:
+                _LOGGER.debug("failed to read file for context lines: %s", file_path, exc_info=True)
                 cache[file_path] = []
         lines = cache[file_path]
         context: str | None = None
@@ -62,6 +66,7 @@ async def find_references(
         try:
             jedi_references = await jedi.get_references(file_path, line, character)
         except Exception:
+            _LOGGER.debug("jedi reference fallback failed for %s:%d:%d", file_path, line, character, exc_info=True)
             return ReferenceResult(
                 symbol=f"{file_path}:{line}:{character}",
                 definition=None,
@@ -105,7 +110,7 @@ async def find_references(
                 merged[key] = location
     except Exception:
         # Keep the Pyright result if Jedi enrichment fails.
-        pass
+        _LOGGER.debug("jedi reference enrichment failed for %s:%d:%d", file_path, line, character, exc_info=True)
 
     deduped = sorted(merged.values(), key=_location_key)
     if include_context:
