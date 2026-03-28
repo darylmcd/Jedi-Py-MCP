@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -75,7 +76,10 @@ class RopeBackend:
 
     def initialize(self) -> None:
         """Create rope project for the configured workspace root."""
-        self._project = Project(str(self._config.workspace_root))
+        self._project = Project(
+            str(self._config.workspace_root),
+            **self._config.rope_prefs,  # type: ignore[arg-type]  # rope prefs are runtime-configured
+        )
 
     def close(self) -> None:
         """Close rope project resources if initialized."""
@@ -97,6 +101,7 @@ class RopeBackend:
             relative = absolute.relative_to(self._config.workspace_root)
         except ValueError as exc:
             raise RopeError(f"Path is outside workspace root: {absolute}") from exc
+        # Rope expects forward-slash paths internally regardless of OS.
         return project.get_resource(str(relative).replace("\\", "/"))
 
     def _position_to_offset(self, file_path: str, line: int, character: int) -> int:
@@ -160,21 +165,33 @@ class RopeBackend:
             )
         return edits
 
-    def _apply_changes(self, changes: ChangeSet) -> list[str]:
-        """Apply rope changes to disk atomically and return changed absolute files."""
-        edits = self._changes_to_edits(changes)
-        changed_files: list[str] = []
+    def _apply_edits(self, edits: list[TextEdit]) -> list[str]:
+        """Apply pre-computed text edits to disk with rollback on failure."""
+        # Capture originals for rollback.
+        originals: dict[str, str] = {}
         for edit in edits:
-            new_content = apply_text_edits(edit.file_path, [edit])
-            write_atomic(edit.file_path, new_content)
-            changed_files.append(edit.file_path)
+            if edit.file_path not in originals:
+                originals[edit.file_path] = Path(edit.file_path).read_text(encoding="utf-8")
+
+        changed_files: list[str] = []
+        try:
+            for edit in edits:
+                new_content = apply_text_edits(edit.file_path, [edit])
+                write_atomic(edit.file_path, new_content)
+                changed_files.append(edit.file_path)
+        except Exception:
+            # Rollback already-written files on any failure.
+            for path in changed_files:
+                if path in originals:
+                    write_atomic(path, originals[path])
+            raise
         return changed_files
 
     def _build_result(self, changes: ChangeSet, description: str, apply: bool) -> RefactorResult:
         """Build a model result from rope changes and apply mode."""
         edits = self._changes_to_edits(changes)
         if apply:
-            files_affected = self._apply_changes(changes)
+            files_affected = self._apply_edits(edits)
             return RefactorResult(
                 edits=edits,
                 files_affected=files_affected,
@@ -201,10 +218,10 @@ class RopeBackend:
                     if isinstance(target, ast.Name) and target.id == symbol_name:
                         return self._position_to_offset(source_file, target.lineno - 1, target.col_offset)
 
-        marker = f"{symbol_name}"
-        index = content.find(marker)
-        if index >= 0:
-            return index
+        # Fallback: word-boundary match avoids matching substrings (e.g. "foo" inside "foobar").
+        match = re.search(r"\b" + re.escape(symbol_name) + r"\b", content)
+        if match is not None:
+            return match.start()
         raise RopeError(f"Unable to locate symbol '{symbol_name}' in {source_file}")
 
     async def rename(
@@ -434,6 +451,11 @@ class RopeBackend:
                 elif op == "normalize":
                     changers.append(ArgumentNormalizer())
                 elif op == "rename":
+                    # Note: rope has no native ArgumentRenamer.  We emulate rename via
+                    # remove+add which processes sequentially.  For parameters with keyword
+                    # arguments at call sites, the old keyword name is removed and the new
+                    # name is added; this may not correctly update keyword args if indices
+                    # shift between the remove and add operations.
                     if operation.index is None or not operation.new_name:
                         raise RopeError("change_signature rename operation requires index and new_name")
                     changers.append(ArgumentRemover(operation.index))

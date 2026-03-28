@@ -1,0 +1,110 @@
+"""Structural refactoring tools: move, module-to-package, field operations, etc."""
+
+from __future__ import annotations
+
+from python_refactor_mcp.models import RefactorResult
+
+from .helpers import (
+    _attach_post_apply_diagnostics,
+    _PyrightRefactoringBackend,
+    _RopeRefactoringBackend,
+)
+
+
+async def move_symbol(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    source_file: str,
+    symbol_name: str,
+    destination_file: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move a symbol from one file to another."""
+    result = await rope.move(source_file, symbol_name, destination_file, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def encapsulate_field(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Encapsulate a field into property accessors and optionally apply changes."""
+    result = await rope.encapsulate_field(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def use_function(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Replace similar code fragments with calls to the selected function."""
+    result = await rope.use_function(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def introduce_factory(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    factory_name: str | None = None,
+    global_factory: bool = True,
+    apply: bool = False,
+) -> RefactorResult:
+    """Introduce factory-based construction for the selected class."""
+    result = await rope.introduce_factory(
+        file_path,
+        line,
+        character,
+        factory_name,
+        global_factory,
+        apply,
+    )
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def module_to_package(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Convert a module file into a package and update references."""
+    result = await rope.module_to_package(file_path, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def local_to_field(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Promote local variable usage to class field state."""
+    result = await rope.local_to_field(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def method_object(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    classname: str | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Extract selected method into a new callable object class."""
+    result = await rope.method_object(file_path, line, character, classname, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
