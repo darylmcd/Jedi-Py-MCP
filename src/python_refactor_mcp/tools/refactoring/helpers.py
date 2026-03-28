@@ -193,6 +193,60 @@ class _RopeRefactoringBackend(Protocol):
         """Extract method logic into a method object class."""
         ...
 
+    async def inline_method(
+        self, file_path: str, line: int, character: int, apply: bool,
+    ) -> RefactorResult:
+        """Inline a method body into all call sites."""
+        ...
+
+    async def inline_parameter(
+        self, file_path: str, line: int, character: int, apply: bool,
+    ) -> RefactorResult:
+        """Inline a parameter's default value into the function body."""
+        ...
+
+    async def move_method(
+        self, file_path: str, line: int, character: int, destination_attr: str, apply: bool,
+    ) -> RefactorResult:
+        """Move a method between classes via destination attribute."""
+        ...
+
+    async def move_module(
+        self, source_path: str, destination_package: str, apply: bool,
+    ) -> RefactorResult:
+        """Move/rename a module or package."""
+        ...
+
+    async def generate_code(
+        self, file_path: str, line: int, character: int, kind: str, apply: bool,
+    ) -> RefactorResult:
+        """Generate a missing definition from a usage site."""
+        ...
+
+    async def fix_module_names(self, apply: bool) -> RefactorResult:
+        """Batch-rename modules to PEP 8 lowercase convention."""
+        ...
+
+    async def expand_star_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Replace star imports with explicit named imports."""
+        ...
+
+    async def relatives_to_absolutes(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert relative imports to absolute imports."""
+        ...
+
+    async def froms_to_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert from-imports to import statements."""
+        ...
+
+    async def handle_long_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Break long import lines."""
+        ...
+
+    async def autoimport_search(self, name: str) -> list[tuple[str, str]]:
+        """Search for importable names using AutoImport cache."""
+        ...
+
 
 def _range_contains_position(range_value: Range, line: int, character: int) -> bool:
     """Return whether a 0-based position is inside a diagnostic range."""

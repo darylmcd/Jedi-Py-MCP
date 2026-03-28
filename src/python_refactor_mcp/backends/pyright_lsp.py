@@ -1296,3 +1296,26 @@ class PyrightLSPClient:
             kind = kind_value if isinstance(kind_value, str) else None
             ranges.append(FoldingRange(start_line=start_line, end_line=end_line, kind=kind))
         return ranges
+
+    async def create_type_stub(self, package_name: str, output_dir: str | None = None) -> bool:
+        """Generate a type stub file for a third-party package using Pyright.
+
+        Returns True if the command executed successfully.
+        """
+        args: list[object] = [package_name]
+        if output_dir is not None:
+            args.append(output_dir)
+        response = await self._request(
+            "workspace/executeCommand",
+            {
+                "command": "pyright.createtypestub",
+                "arguments": args,
+            },
+        )
+        if "error" in response:
+            if is_unhandled_method_error(response):
+                raise PyrightError(
+                    f"createtypestub is not supported by this version of Pyright"
+                )
+            raise PyrightError(f"createtypestub failed: {response['error']}")
+        return True

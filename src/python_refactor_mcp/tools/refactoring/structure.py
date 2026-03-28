@@ -108,3 +108,53 @@ async def method_object(
     """Extract selected method into a new callable object class."""
     result = await rope.method_object(file_path, line, character, classname, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def move_method(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    destination_attr: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move a method from one class to another via a destination attribute name."""
+    result = await rope.move_method(file_path, line, character, destination_attr, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def move_module(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    source_path: str,
+    destination_package: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move or rename an entire module/package, updating all imports project-wide."""
+    result = await rope.move_module(source_path, destination_package, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def generate_code(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    kind: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Generate a missing class, function, variable, module, or package from a usage site."""
+    result = await rope.generate_code(file_path, line, character, kind, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def fix_module_names(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    apply: bool = False,
+) -> RefactorResult:
+    """Batch-rename modules to conform to PEP 8 lowercase naming."""
+    result = await rope.fix_module_names(apply)
+    return await _attach_post_apply_diagnostics(pyright, result)

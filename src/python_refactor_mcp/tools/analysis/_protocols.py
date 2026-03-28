@@ -9,10 +9,15 @@ from python_refactor_mcp.models import (
     Diagnostic,
     DocumentationResult,
     DocumentHighlight,
+    InferredType,
     InlayHint,
     Location,
+    NameEntry,
+    ScopeContext,
     SemanticToken,
     SignatureInfo,
+    SyntaxErrorItem,
+    TypeHintResult,
     TypeInfo,
 )
 
@@ -94,4 +99,26 @@ class JediAnalysisBackend(Protocol):
         source: str | None = None,
     ) -> DocumentationResult:
         """Return detailed help/doc entries for a source position."""
+        ...
+
+    async def deep_infer(self, file_path: str, line: int, character: int) -> list[InferredType]:
+        """Follow imports and assignments to resolve final types."""
+        ...
+
+    async def get_type_hint(self, file_path: str, line: int, character: int) -> list[TypeHintResult]:
+        """Return ready-to-use type annotation strings."""
+        ...
+
+    async def get_syntax_errors(self, file_path: str) -> list[SyntaxErrorItem]:
+        """Detect syntax errors via Jedi's parser."""
+        ...
+
+    async def get_context(self, file_path: str, line: int, character: int) -> ScopeContext | None:
+        """Return the enclosing scope at a position."""
+        ...
+
+    async def get_names(
+        self, file_path: str, all_scopes: bool = True, references: bool = False,
+    ) -> list[NameEntry]:
+        """List all defined names in a file."""
         ...
