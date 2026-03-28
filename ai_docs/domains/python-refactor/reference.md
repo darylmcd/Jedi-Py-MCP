@@ -145,4 +145,4 @@ Use the checklist in `ai_docs/domains/python-refactor/mcp-checklist.md` for all 
 
 ## Deep Historical Material
 
-- `ai_docs/archive/python-refactor-mcp-prompt.md`
+Historical implementation plans and prompts have been removed (available in git history).

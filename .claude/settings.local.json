@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Read(//c/Users/daryl/.claude/**)"
+    ]
+  }
+}
