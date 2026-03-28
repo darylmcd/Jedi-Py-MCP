@@ -202,27 +202,16 @@ def _range_contains_position(range_value: Range, line: int, character: int) -> b
     return start <= target <= end
 
 
-def _end_position_for_content(content: str) -> Position:
-    """Compute the end position for a file content string."""
-    if not content:
-        return Position(line=0, character=0)
-    lines = content.splitlines()
-    if not lines:
-        return Position(line=0, character=0)
-    if content.endswith(("\n", "\r")):
-        return Position(line=len(lines), character=0)
-    return Position(line=len(lines) - 1, character=len(lines[-1]))
-
-
 def _full_file_range(file_path: str) -> Range:
     """Build a range covering the entire current file content."""
     from python_refactor_mcp.errors import RopeError  # noqa: PLC0415
+    from python_refactor_mcp.util.shared import end_position_for_content  # noqa: PLC0415
 
     try:
         content = Path(file_path).read_text(encoding="utf-8")
     except (FileNotFoundError, OSError) as exc:
         raise RopeError(f"Cannot read file for range computation: {exc}") from exc
-    return Range(start=Position(line=0, character=0), end=_end_position_for_content(content))
+    return Range(start=Position(line=0, character=0), end=end_position_for_content(content))
 
 
 def _workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:

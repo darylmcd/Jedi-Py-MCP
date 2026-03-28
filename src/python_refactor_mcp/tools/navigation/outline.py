@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import re
 from pathlib import Path
 
@@ -78,14 +79,20 @@ async def get_symbol_outline(
     name_pattern: str | None = None,
     limit: int | None = None,
     root_path: str | None = None,
+    file_paths: list[str] | None = None,
+    offset: int = 0,
 ) -> list[SymbolOutlineItem]:
-    """Return a filtered symbol outline for one file or the full workspace."""
+    """Return a filtered symbol outline for one file, batch, or full workspace."""
+    if file_path is not None and file_paths is not None:
+        raise ValueError("file_path and file_paths are mutually exclusive")
+
     effective_root = Path(root_path).resolve() if root_path else config.workspace_root
-    candidate_files = (
-        [Path(file_path).resolve()]
-        if file_path is not None
-        else python_files(effective_root)
-    )
+    if file_paths is not None:
+        candidate_files = [Path(p).resolve() for p in file_paths]
+    elif file_path is not None:
+        candidate_files = [Path(file_path).resolve()]
+    else:
+        candidate_files = python_files(effective_root)
 
     normalized_kinds = {kind.strip().lower() for kind in kind_filter} if kind_filter else None
     compiled_pattern: re.Pattern[str] | None = None
@@ -103,18 +110,28 @@ async def get_symbol_outline(
             matches_name = compiled_pattern is None or compiled_pattern.search(item.name) is not None
             if matches_kind and matches_name:
                 result.append(item)
-            # Always recurse into children regardless of parent match.
             result.extend(_collect_matching(item.children))
         return result
 
-    outlines: list[SymbolOutlineItem] = []
-    for path in candidate_files:
+    # Parallelize with bounded concurrency for workspace-wide scans.
+    sem = asyncio.Semaphore(10)
+
+    async def _fetch(path: Path) -> list[SymbolOutlineItem]:
         if not path.is_file():
-            continue
-        symbols = await pyright.get_document_symbols(str(path))
-        outlines.extend(_collect_matching(symbols))
+            return []
+        async with sem:
+            symbols = await pyright.get_document_symbols(str(path))
+            return _collect_matching(symbols)
+
+    all_results = await asyncio.gather(*[_fetch(p) for p in candidate_files], return_exceptions=True)
+    outlines: list[SymbolOutlineItem] = []
+    for result in all_results:
+        if isinstance(result, list):
+            outlines.extend(result)
 
     sorted_items = sorted(outlines, key=_outline_key)
+    if offset > 0:
+        sorted_items = sorted_items[offset:]
     limited, _ = _apply_limit(sorted_items, limit)
     return limited
 

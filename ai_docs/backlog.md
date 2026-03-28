@@ -1,56 +1,68 @@
 # Backlog
 
 Open follow-up items only. Remove entries once verified complete.
-Ordered by severity: P0 (bug fixes) > P1 (usability) > P2 (new features) > P3 (advanced) > P4 (stretch) > Tests/Docs.
+Ordered by severity: P0 (bug fixes / security) > P1 (usability / hardening) > P2 (new features) > P3 (advanced) > P4 (stretch) > Tests/Docs.
 
-Previous implementation plan archived to `ai_docs/archive/p0_p3_findings_implementation.md`.
-Full library capability audit archived to `ai_docs/uncovered_features.md`.
+Best practices analysis: `ai_docs/mcp_best_practices.md`.
+Historical plans and audits removed — all open items consolidated here; originals preserved in git history.
 
 ---
 
-## P1 — Usability & Critical Gaps
+## P0 — Security & Bug Fixes
+
+(All items completed.)
+
+---
+
+## P1 — Usability, Hardening & Critical Gaps
 
 - Status: `open`
-  Area: usability / search
-  Item: `structural_search` needs simplified pattern shortcuts.
-  Detail: Requires raw LibCST matcher DSL. Error messages now include examples (audit Wave 5), but natural patterns like `except Exception` or `from X import *` still fail. Need a translation layer.
-  Fix: Add `_translate_simplified_pattern()` converting common shorthands to LibCST matchers. Try translation first, fall back to raw eval.
-  Files: `tools/search.py`
+  Area: reliability / timeouts
+  Item: Add timeouts to Jedi backend operations.
+  Detail: All 7 `asyncio.to_thread()` calls in `jedi_backend.py` have NO timeout wrapper (unlike rope which is properly wrapped). Jedi analysis on large files could block indefinitely.
+  Fix: Add `JEDI_OPERATION_TIMEOUT_SECONDS` env var (default 10s). Wrap all `asyncio.to_thread()` with `asyncio.wait_for()`.
+  Files: `backends/jedi_backend.py`
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-04
 
 - Status: `open`
-  Area: usability / diagnostics
-  Item: Add `suppress_codes` parameter to `get_diagnostics` and `get_workspace_diagnostics`.
-  Detail: `server.py` shows 46 `reportInvalidTypeForm` false positives on MCP SDK types. No way to filter known false-positive codes.
-  Fix: Add `suppress_codes: list[str] | None` parameter. Filter diagnostics where `diagnostic.code` is in the suppress set.
-  Files: `tools/analysis.py`, `server.py`
+  Area: usability / tool design
+  Item: Rewrite all 45 tool docstrings with workflow-oriented descriptions.
+  Detail: All tool descriptions are one-line technical descriptions. Best practices require descriptions explaining when/how to use tools in workflows, with use-case examples and relationship to other tools.
+  Fix: Rewrite all 45 docstrings with structured format: what it does, when to use it, key parameters, related tools.
+  Files: `server.py`
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-01
 
 - Status: `open`
-  Area: usability / dead code
-  Item: Add confidence scoring and test-file exclusion to `dead_code_detection`.
-  Detail: Same-file-only false positives were reduced (audit Wave 6), but no confidence scoring exists. Reports still include test functions, `logger` variables, `__all__` exports, and dunder methods.
-  Fix: Add `confidence: str` field to `DeadCodeItem`. Add `exclude_test_files: bool = True` parameter. Score by heuristics: `logger`/`_LOGGER` → low, `test_*` → low, `__all__` members → low, dunders → low, unused diagnostic → high, others → medium.
-  Files: `models.py`, `tools/search.py`, `server.py`
+  Area: usability / annotations
+  Item: Add `idempotentHint`, `_ADDITIVE` annotation, and `title` fields to tool annotations.
+  Detail: No `idempotentHint` used anywhere. All read-only tools are idempotent but not annotated as such. Some refactoring tools (organize_imports, apply_code_action) are additive, not destructive. No `title` fields on any annotations.
+  Fix: (1) Add `idempotentHint=True` to `_READONLY`. (2) Create `_ADDITIVE` annotation for non-destructive mutations. (3) Add `title` to all tool registrations.
+  Files: `server.py`
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-03
 
 - Status: `open`
-  Area: usability / transport
-  Item: Add server-side result pagination for unbounded result sets.
-  Detail: `dead_code_detection` (74K chars) and workspace `get_symbol_outline` (1.1M chars) exceed MCP client token limits.
-  Fix: Add `offset: int = 0` to workspace-wide tools. Return wrapper models with `total_count` and `truncated`. Note: changes return types for `dead_code_detection` and `get_workspace_diagnostics`.
-  Files: `models.py`, `tools/analysis.py`, `tools/search.py`, `tools/navigation.py`, `server.py`
+  Area: usability / server metadata
+  Item: Add server description, version, and instructions to FastMCP constructor.
+  Detail: Server only has name "Python Refactor". No description, version, or instructions to help LLM clients understand server purpose, capabilities, or tool organization.
+  Fix: Add `description`, `version`, and `instructions` parameters to `FastMCP()` constructor call.
+  Files: `server.py`
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-09
 
 - Status: `open`
-  Area: usability / efficiency
-  Item: Add batch/multi-file operation support.
-  Detail: Running diagnostics or organize_imports across many files requires separate tool calls per file.
-  Fix: Add `file_paths: list[str] | None` parameter to `get_diagnostics`, `dead_code_detection`, `organize_imports`, `get_symbol_outline`. Mutually exclusive with `file_path`.
-  Files: `tools/analysis.py`, `tools/search.py`, `tools/refactoring.py`, `tools/navigation.py`, `server.py`
+  Area: reliability / concurrency
+  Item: Add concurrency semaphore for workspace-wide scan operations.
+  Detail: No concurrency guards. A buggy client could fire many concurrent workspace-wide scans, exhausting system resources.
+  Fix: Add `_WORKSPACE_SCAN_SEMAPHORE = asyncio.Semaphore(2)` to guard workspace-wide operations.
+  Files: `server.py` or `util/shared.py`
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-08
 
 - Status: `open`
-  Area: usability / refactoring
-  Item: `rename_symbol(apply=false)` should optionally return unified diffs.
-  Detail: Currently shows affected locations but no full diff. `diff_preview` requires manually constructing TextEdit objects.
-  Fix: Add `include_diff: bool = False` to `rename_symbol()`. When true and `apply=False`, compute unified diffs via `build_unified_diff()`. Add `diffs: list[DiffPreview] | None` to `RefactorResult`.
-  Files: `models.py`, `tools/refactoring.py`, `server.py`
+  Area: testing / compliance
+  Item: Add MCP protocol contract tests using in-memory transport.
+  Detail: No tests verifying MCP protocol compliance. Unit + integration tests exist but don't verify correct JSON-RPC responses, capability negotiation, or tool listing shape.
+  Fix: Add contract tests verifying: initialization, tool list, tool call shapes, error boundary responses.
+  Files: `tests/contract/` (new)
+  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-11
 
 ---
 

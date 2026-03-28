@@ -96,9 +96,9 @@ async def test_dead_code_detection_marks_unreferenced_symbols(tmp_path: Path) ->
     pyright.get_diagnostics.return_value = []
     pyright.get_references.return_value = []
 
-    results = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
+    result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
 
-    names = {item.name for item in results}
+    names = {item.name for item in result.items}
     assert "dead_func" in names
     assert "DeadClass" in names
 

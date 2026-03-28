@@ -31,6 +31,9 @@ class FakeLSPClient:
         self.requests: list[tuple[str, dict[str, JSONValue]]] = []
         self.handlers: dict[str, object] = {}
 
+    def is_alive(self) -> bool:
+        return True
+
     def register_notification_handler(self, method: str, handler: object) -> None:
         self.handlers[method] = handler
 

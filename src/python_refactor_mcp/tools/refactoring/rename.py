@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
-from python_refactor_mcp.models import PrepareRenameResult, RefactorResult
+from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult
+from python_refactor_mcp.util.diff import build_unified_diff
 
 from .helpers import (
     _attach_post_apply_diagnostics,
@@ -48,11 +50,26 @@ async def rename_symbol(
     character: int,
     new_name: str,
     apply: bool = False,
+    include_diff: bool = False,
 ) -> RefactorResult:
     """Rename a symbol at the provided position."""
     await _ensure_renameable(pyright, file_path, line, character)
     result = await rope.rename(file_path, line, character, new_name, apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    result = await _attach_post_apply_diagnostics(pyright, result)
+
+    if include_diff and not result.applied and result.edits:
+        # Group edits by file and build diffs.
+        edits_by_file: dict[str, list] = defaultdict(list)
+        for edit in result.edits:
+            edits_by_file[edit.file_path].append(edit)
+        diffs: list[DiffPreview] = []
+        for fp, file_edits in sorted(edits_by_file.items()):
+            diff_text = build_unified_diff(fp, file_edits)
+            if diff_text:
+                diffs.append(DiffPreview(file_path=fp, unified_diff=diff_text))
+        result.diffs = diffs
+
+    return result
 
 
 async def prepare_rename(

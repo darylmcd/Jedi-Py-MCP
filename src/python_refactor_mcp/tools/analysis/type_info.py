@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 from python_refactor_mcp.models import (
     DocumentationResult,
     TypeInfo,
@@ -39,6 +43,7 @@ async def get_type_info(
     try:
         jedi_type = await jedi.infer_type(file_path, line, character)
     except Exception:
+        _LOGGER.debug("jedi type inference fallback failed for %s:%d:%d", file_path, line, character, exc_info=True)
         jedi_type = None
     if jedi_type is not None:
         return jedi_type

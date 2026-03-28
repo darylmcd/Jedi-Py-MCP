@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.models import Diagnostic, DiffPreview, Location, RefactorResult, TextEdit
+from python_refactor_mcp.tools.refactoring.rename import _ensure_renameable
 from python_refactor_mcp.util.diff import build_unified_diff
 from python_refactor_mcp.util.shared import attach_post_apply_diagnostics
 
@@ -69,20 +69,7 @@ async def smart_rename(
     apply: bool = False,
 ) -> RefactorResult:
     """Coordinate analysis and refactoring for a safe rename."""
-    preflight = await pyright.prepare_rename(file_path, line, character)
-    if preflight is None:
-        lines = Path(file_path).read_text(encoding="utf-8").splitlines()
-        if line < 0 or line >= len(lines):
-            raise ValueError("Rename preflight failed: line is outside file bounds.")
-        line_text = lines[line]
-        if character < 0 or character >= len(line_text):
-            raise ValueError("Rename preflight failed: character is outside line bounds.")
-        target = line_text[character]
-        if not (target.isalnum() or target == "_"):
-            raise ValueError(
-                "Rename preflight failed for the selected position. "
-                "Choose an identifier location and retry."
-            )
+    await _ensure_renameable(pyright, file_path, line, character)  # type: ignore[arg-type]
     result = await rope.rename(file_path, line, character, new_name, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
 

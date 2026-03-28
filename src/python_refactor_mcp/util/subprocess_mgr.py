@@ -20,6 +20,10 @@ class SubprocessManager:
     def process(self) -> asyncio.subprocess.Process | None:
         return self._process
 
+    def is_alive(self) -> bool:
+        """Return True if the subprocess is running."""
+        return self._process is not None and self._process.returncode is None
+
     def require_process(self) -> asyncio.subprocess.Process:
         """Return the running subprocess or raise a backend error."""
         if self._process is None:

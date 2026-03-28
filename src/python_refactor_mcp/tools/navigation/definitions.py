@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 from python_refactor_mcp.models import Location
 from python_refactor_mcp.util.shared import location_key as _location_key
 
@@ -27,6 +31,7 @@ async def goto_definition(
     try:
         jedi_locations = await jedi.goto_definition(file_path, line, character)
     except Exception:
+        _LOGGER.debug("jedi goto_definition fallback failed for %s:%d:%d", file_path, line, character, exc_info=True)
         return []
     deduped_jedi = {
         _location_key(location): location

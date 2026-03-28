@@ -54,10 +54,11 @@ async def get_inlay_hints(
 async def get_semantic_tokens(
     pyright: _PyrightAnalysisBackend,
     file_path: str,
+    limit: int | None = None,
 ) -> list[SemanticToken]:
     """Get semantic tokens for a file and return deterministic ordering."""
     tokens = await pyright.get_semantic_tokens(file_path)
-    return sorted(
+    sorted_tokens = sorted(
         tokens,
         key=lambda item: (
             item.range.start.line,
@@ -65,3 +66,6 @@ async def get_semantic_tokens(
             item.token_type,
         ),
     )
+    if limit is not None and limit > 0:
+        return sorted_tokens[:limit]
+    return sorted_tokens

@@ -67,30 +67,36 @@ async def organize_imports(
     pyright: _PyrightRefactoringBackend,
     file_path: str,
     apply: bool = False,
+    file_paths: list[str] | None = None,
 ) -> RefactorResult:
-    """Run organize imports for a file using available Pyright code actions."""
-    actions = await pyright.get_code_actions(file_path, _full_file_range(file_path), [])
-    organize_actions = [
-        action
-        for action in actions
-        if (
-            isinstance(action.get("kind"), str)
-            and action.get("kind") == "source.organizeImports"
-        )
-        or (
-            isinstance(action.get("title"), str)
-            and "organize imports" in str(action.get("title")).strip().lower()
-        )
-    ]
-    if not organize_actions:
+    """Run organize imports for one or multiple files using Pyright code actions."""
+    targets = file_paths if file_paths is not None else [file_path]
+    all_edits: list[object] = []
+    all_files: list[str] = []
+    for fp in targets:
+        actions = await pyright.get_code_actions(fp, _full_file_range(fp), [])
+        organize_actions = [
+            action
+            for action in actions
+            if (
+                isinstance(action.get("kind"), str)
+                and action.get("kind") == "source.organizeImports"
+            )
+            or (
+                isinstance(action.get("title"), str)
+                and "organize imports" in str(action.get("title")).strip().lower()
+            )
+        ]
+        if not organize_actions:
+            continue
+        selected = _pick_code_action(organize_actions, "organize imports")
+        edits = _workspace_edit_to_text_edits(selected.get("edit"))
+        all_edits.extend(edits)
+        all_files.append(fp)
+
+    if not all_edits:
         return RefactorResult(
             edits=[], files_affected=[], description="Imports already organized", applied=False,
         )
-    selected = _pick_code_action(organize_actions, "organize imports")
-    edits = _workspace_edit_to_text_edits(selected.get("edit"))
-    if not edits:
-        return RefactorResult(
-            edits=[], files_affected=[], description="Imports already organized", applied=False,
-        )
-    result = _result_from_text_edits(edits, "Organized imports", apply)
+    result = _result_from_text_edits(all_edits, f"Organized imports in {len(all_files)} file(s)", apply)
     return await _attach_post_apply_diagnostics(pyright, result)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Position(BaseModel):
@@ -228,6 +228,10 @@ class RefactorResult(BaseModel):
     description: str
     applied: bool = False
     diagnostics_after: list[Diagnostic] | None = None
+    diffs: list[DiffPreview] | None = None
+
+
+_VALID_SIGNATURE_OPS = frozenset({"add", "remove", "reorder", "inline_default", "normalize", "rename"})
 
 
 class SignatureOperation(BaseModel):
@@ -239,6 +243,13 @@ class SignatureOperation(BaseModel):
     new_name: str | None = None
     default: str | None = None
     new_order: list[int] | None = None
+
+    @field_validator("op")
+    @classmethod
+    def _validate_op(cls, value: str) -> str:
+        if value not in _VALID_SIGNATURE_OPS:
+            raise ValueError(f"Invalid operation '{value}'. Must be one of: {sorted(_VALID_SIGNATURE_OPS)}")
+        return value
 
 
 class ConstructorSite(BaseModel):
@@ -266,6 +277,7 @@ class DeadCodeItem(BaseModel):
     file_path: str
     range: Range
     reason: str
+    confidence: str = "medium"
 
 
 class ImportSuggestion(BaseModel):
@@ -285,6 +297,24 @@ class DiagnosticSummary(BaseModel):
     information_count: int
     hint_count: int
     total_count: int
+
+
+class PaginatedDiagnosticSummary(BaseModel):
+    """Paginated wrapper for workspace diagnostic summaries."""
+
+    items: list[DiagnosticSummary]
+    total_count: int
+    offset: int = 0
+    truncated: bool = False
+
+
+class PaginatedDeadCode(BaseModel):
+    """Paginated wrapper for dead code detection results."""
+
+    items: list[DeadCodeItem]
+    total_count: int
+    offset: int = 0
+    truncated: bool = False
 
 
 class DiffPreview(BaseModel):

@@ -17,13 +17,12 @@ from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
 from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
 from python_refactor_mcp.models import (
 	CallHierarchyResult,
 	CompletionItem,
 	ConstructorSite,
-	DeadCodeItem,
 	Diagnostic,
-	DiagnosticSummary,
 	DiffPreview,
 	DocumentationResult,
 	DocumentHighlight,
@@ -31,6 +30,8 @@ from python_refactor_mcp.models import (
 	ImportSuggestion,
 	InlayHint,
 	Location,
+	PaginatedDeadCode,
+	PaginatedDiagnosticSummary,
 	Position,
 	PrepareRenameResult,
 	RefactorResult,
@@ -50,6 +51,15 @@ from python_refactor_mcp.tools import analysis, composite, navigation, refactori
 
 _READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
+# Parameters that contain file paths requiring workspace boundary validation.
+_PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path"})
+_LIST_PATH_PARAMS = frozenset({"file_paths"})
+
+# Parameters that must be valid Python identifiers.
+_IDENTIFIER_PARAMS = frozenset({
+    "new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname",
+})
 
 
 # ── Application context ──────────────────────────────────────────────────
@@ -72,10 +82,47 @@ MCPContext = Context  # type: ignore[type-arg]
 def _tool_error_boundary(  # noqa: UP047
 	func: Callable[..., Awaitable[Any]],
 ) -> Callable[..., Awaitable[Any]]:
-	"""Convert backend errors into user-correctable tool errors."""
+	"""Convert backend errors into user-correctable tool errors.
+
+	Also validates workspace path boundaries on path parameters and
+	ensures identifier parameters are valid Python identifiers.
+	"""
 
 	@wraps(func)
 	async def _wrapped(*args: Any, **kwargs: Any) -> Any:
+		# Extract workspace root for path validation.
+		workspace_root: Path | None = None
+		ctx = args[0] if args else kwargs.get("ctx")
+		if ctx is not None:
+			try:
+				app = _get_app_context(ctx)
+				workspace_root = app.config.workspace_root
+			except RuntimeError:
+				pass
+
+		# Validate & resolve single-value path parameters.
+		if workspace_root is not None:
+			for param_name in _PATH_PARAMS:
+				value = kwargs.get(param_name)
+				if isinstance(value, str):
+					kwargs[param_name] = validate_workspace_path(value, workspace_root)
+
+			# Validate list-of-path parameters.
+			for param_name in _LIST_PATH_PARAMS:
+				values = kwargs.get(param_name)
+				if isinstance(values, list):
+					kwargs[param_name] = [
+						validate_workspace_path(v, workspace_root)
+						for v in values
+						if isinstance(v, str)
+					]
+
+		# Validate identifier parameters.
+		for param_name in _IDENTIFIER_PARAMS:
+			value = kwargs.get(param_name)
+			if isinstance(value, str):
+				validate_identifier(value, param_name)
+
 		try:
 			return await func(*args, **kwargs)
 		except BackendError as exc:
@@ -209,7 +256,7 @@ async def get_documentation(
 async def get_signature_help(ctx: MCPContext, file_path: str, line: int, character: int) -> SignatureInfo | None:
 	"""Get active signature help for a call site."""
 	app = _get_app_context(ctx)
-	result = await analysis.get_signature_help(app.pyright, file_path, line, character)
+	result = await analysis.get_signature_help(app.pyright, file_path, line, character, jedi=app.jedi)
 	await ctx.debug(f"get_signature_help found={result is not None}")
 	return result
 
@@ -265,10 +312,10 @@ async def get_inlay_hints(
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
-async def get_semantic_tokens(ctx: MCPContext, file_path: str) -> list[SemanticToken]:
+async def get_semantic_tokens(ctx: MCPContext, file_path: str, limit: int | None = None) -> list[SemanticToken]:
 	"""Get semantic token classifications for a file."""
 	app = _get_app_context(ctx)
-	result = await analysis.get_semantic_tokens(app.pyright, file_path)
+	result = await analysis.get_semantic_tokens(app.pyright, file_path, limit)
 	await ctx.debug(f"get_semantic_tokens count={len(result)}")
 	return result
 
@@ -276,22 +323,31 @@ async def get_semantic_tokens(ctx: MCPContext, file_path: str) -> list[SemanticT
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_diagnostics(
-	ctx: MCPContext, file_path: str | None = None, severity_filter: str | None = None, limit: int | None = None,
+	ctx: MCPContext, file_path: str | None = None, severity_filter: str | None = None,
+	limit: int | None = None, suppress_codes: list[str] | None = None,
+	file_paths: list[str] | None = None,
 ) -> list[Diagnostic]:
 	"""Get diagnostics for a file or for the full workspace."""
 	app = _get_app_context(ctx)
-	result = await analysis.get_diagnostics(app.pyright, file_path, severity_filter, limit)
+	result = await analysis.get_diagnostics(
+		app.pyright, file_path, severity_filter, limit, suppress_codes, file_paths,
+	)
 	await ctx.debug(f"get_diagnostics count={len(result)} severity_filter={severity_filter}")
 	return result
 
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
-async def get_workspace_diagnostics(ctx: MCPContext, root_path: str | None = None) -> list[DiagnosticSummary]:
+async def get_workspace_diagnostics(
+	ctx: MCPContext, root_path: str | None = None, suppress_codes: list[str] | None = None,
+	file_paths: list[str] | None = None, offset: int = 0, limit: int | None = None,
+) -> PaginatedDiagnosticSummary:
 	"""Get aggregated diagnostic counts for the full workspace."""
 	app = _get_app_context(ctx)
-	result = await analysis.get_workspace_diagnostics(app.pyright, app.config, root_path)
-	await ctx.debug(f"get_workspace_diagnostics files={len(result)}")
+	result = await analysis.get_workspace_diagnostics(
+		app.pyright, app.config, root_path, suppress_codes, file_paths, offset, limit,
+	)
+	await ctx.debug(f"get_workspace_diagnostics files={len(result.items)} total={result.total_count}")
 	return result
 
 
@@ -340,11 +396,14 @@ async def get_symbol_outline(
 	name_pattern: str | None = None,
 	limit: int | None = None,
 	root_path: str | None = None,
+	file_paths: list[str] | None = None,
+	offset: int = 0,
 ) -> list[SymbolOutlineItem]:
 	"""Get hierarchical symbol outline for a file or the full workspace."""
 	app = _get_app_context(ctx)
 	result = await navigation.get_symbol_outline(
 		app.pyright, app.config, file_path, kind_filter, name_pattern, limit, root_path,
+		file_paths, offset,
 	)
 	await ctx.debug(f"get_symbol_outline count={len(result)}")
 	return result
@@ -432,11 +491,14 @@ async def get_folding_ranges(ctx: MCPContext, file_path: str) -> list[FoldingRan
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def rename_symbol(
-	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str, apply: bool = False,
+	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str,
+	apply: bool = False, include_diff: bool = False,
 ) -> RefactorResult:
 	"""Rename a symbol and optionally apply edits to disk."""
 	app = _get_app_context(ctx)
-	result = await refactoring.rename_symbol(app.pyright, app.rope, file_path, line, character, new_name, apply)
+	result = await refactoring.rename_symbol(
+		app.pyright, app.rope, file_path, line, character, new_name, apply, include_diff,
+	)
 	await ctx.debug(f"rename_symbol edits={len(result.edits)} applied={result.applied}")
 	return result
 
@@ -523,10 +585,12 @@ async def apply_code_action(
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
-async def organize_imports(ctx: MCPContext, file_path: str, apply: bool = False) -> RefactorResult:
+async def organize_imports(
+	ctx: MCPContext, file_path: str, apply: bool = False, file_paths: list[str] | None = None,
+) -> RefactorResult:
 	"""Organize imports for a file and optionally apply the edits."""
 	app = _get_app_context(ctx)
-	result = await refactoring.organize_imports(app.pyright, file_path, apply)
+	result = await refactoring.organize_imports(app.pyright, file_path, apply, file_paths)
 	await ctx.debug(f"organize_imports edits={len(result.edits)} applied={result.applied}")
 	return result
 
@@ -723,11 +787,16 @@ async def structural_search(
 async def dead_code_detection(
 	ctx: MCPContext, file_path: str | None = None,
 	exclude_patterns: list[str] | None = None, root_path: str | None = None,
-) -> list[DeadCodeItem]:
+	exclude_test_files: bool = True, file_paths: list[str] | None = None,
+	offset: int = 0, limit: int | None = None,
+) -> PaginatedDeadCode:
 	"""Detect dead code candidates in a file or workspace."""
 	app = _get_app_context(ctx)
-	result = await search.dead_code_detection(app.pyright, app.config, file_path, exclude_patterns, root_path)
-	await ctx.debug(f"dead_code_detection count={len(result)}")
+	result = await search.dead_code_detection(
+		app.pyright, app.config, file_path, exclude_patterns, root_path,
+		exclude_test_files, file_paths, offset, limit,
+	)
+	await ctx.debug(f"dead_code_detection count={len(result.items)} total={result.total_count}")
 	return result
 
 

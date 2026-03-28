@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import re
 from pathlib import Path
 
 import libcst as cst
@@ -23,6 +24,33 @@ from ._helpers import (
     _range_sort_key,
 )
 
+# Simplified pattern shortcuts → LibCST matcher DSL translations.
+_SIMPLIFIED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^call:(\w+)$", re.IGNORECASE), r"m.Call(func=m.Name('\1'))"),
+    (re.compile(r"^attr_call:(\w+)\.(\w+)$", re.IGNORECASE), r"m.Call(func=m.Attribute(attr=m.Name('\2')))"),
+    (re.compile(r"^star_import$", re.IGNORECASE), "m.ImportFrom(names=m.ImportStar())"),
+    (re.compile(r"^except:(\w+)$", re.IGNORECASE), r"m.ExceptHandler(type=m.Name('\1'))"),
+    (re.compile(r"^except$", re.IGNORECASE), "m.ExceptHandler()"),
+    (re.compile(r"^decorator:(\w+)$", re.IGNORECASE), r"m.Decorator(decorator=m.Name('\1'))"),
+    (re.compile(r"^assert$", re.IGNORECASE), "m.Assert()"),
+    (re.compile(r"^global$", re.IGNORECASE), "m.Global()"),
+    (re.compile(r"^raise$", re.IGNORECASE), "m.Raise()"),
+    (re.compile(r"^yield$", re.IGNORECASE), "m.Yield()"),
+]
+
+
+def _translate_simplified_pattern(pattern: str) -> str | None:
+    """Try to translate a simplified shorthand into a LibCST matcher expression.
+
+    Returns the translated pattern string on match, or None if no shorthand applies.
+    """
+    stripped = pattern.strip()
+    for regex, replacement in _SIMPLIFIED_PATTERNS:
+        match = regex.match(stripped)
+        if match:
+            return match.expand(replacement)
+    return None
+
 
 async def structural_search(
     config: ServerConfig,
@@ -35,9 +63,13 @@ async def structural_search(
     if language.strip().lower() != "python":
         raise ValueError("Only language='python' is supported.")
 
+    # Try simplified pattern shorthand first.
+    translated = _translate_simplified_pattern(pattern)
+    effective_pattern = translated if translated is not None else pattern
+
     # Validate pattern AST before eval to prevent sandbox escape via attribute chains.
     try:
-        pattern_ast = ast.parse(pattern, mode="eval")
+        pattern_ast = ast.parse(effective_pattern, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"Invalid pattern syntax: {exc}") from exc
     _ALLOWED_NAMES = {"m", "cst", "True", "False", "None"}
@@ -49,7 +81,7 @@ async def structural_search(
             )
 
     try:
-        matcher = eval(pattern, {"__builtins__": {}}, {"m": m, "cst": cst})  # noqa: S307
+        matcher = eval(effective_pattern, {"__builtins__": {}}, {"m": m, "cst": cst})  # noqa: S307
     except Exception as exc:
         raise ValueError(
             "Invalid LibCST matcher pattern. Use matcher syntax, e.g.:\n"

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import keyword
 from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, Location
+from python_refactor_mcp.models import Diagnostic, Location, Position
 
 
 class _DiagnosticsBackend(Protocol):
@@ -85,6 +86,33 @@ async def attach_post_apply_diagnostics(
 
     result.diagnostics_after = sorted(diagnostics.values(), key=diagnostic_key)
     return result
+
+
+def end_position_for_content(content: str) -> Position:
+    """Compute the end position of an entire file content string.
+
+    Shared helper used by rope_backend and refactoring helpers.
+    """
+    if not content:
+        return Position(line=0, character=0)
+    lines = content.splitlines()
+    if not lines:
+        return Position(line=0, character=0)
+    if content.endswith(("\n", "\r")):
+        return Position(line=len(lines), character=0)
+    return Position(line=len(lines) - 1, character=len(lines[-1]))
+
+
+def validate_identifier(name: str, param_label: str) -> str:
+    """Validate that *name* is a legal Python identifier and not a keyword.
+
+    Returns *name* unchanged.  Raises ``ValueError`` on failure.
+    """
+    if not name.isidentifier():
+        raise ValueError(f"'{name}' is not a valid Python identifier (parameter: {param_label})")
+    if keyword.iskeyword(name):
+        raise ValueError(f"'{name}' is a Python keyword and cannot be used as an identifier (parameter: {param_label})")
+    return name
 
 
 def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
