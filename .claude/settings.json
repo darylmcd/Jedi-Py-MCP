@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "python-refactor-mcp": {
+      "command": "python-refactor-mcp",
+      "args": ["C:\\Code-Repo\\Jedi-Py-MCP"]
+    }
+  }
+}

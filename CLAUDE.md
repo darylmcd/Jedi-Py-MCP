@@ -18,5 +18,5 @@ Purpose: keep Claude-style sessions aligned with this repository's canonical AI 
 - Treat the files above as canonical and stable.
 - Keep active AI-facing docs current-state only.
 - Put unfinished work in `ai_docs/backlog.md` only.
-- Put deep historical rationale and one-off investigations in `ai_docs/archive/`.
+- Historical rationale and one-off investigations are preserved in git history only.
 - Do not duplicate workflow, runtime, or CI policy across multiple docs.
