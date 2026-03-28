@@ -37,7 +37,7 @@ def test_discover_config_detects_pyrightconfig(tmp_path: Path, monkeypatch: pyte
             return str(fake_python)
         return None
 
-    monkeypatch.setattr("python_refactor_mcp.config.shutil.which", which_override)
+    monkeypatch.setattr("python_refactor_mcp.util.python_detect.shutil.which", which_override)
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
 
     config = discover_config(workspace)

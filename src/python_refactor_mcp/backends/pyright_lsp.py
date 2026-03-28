@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import PyrightError
@@ -30,150 +30,26 @@ from python_refactor_mcp.models import (
     TypeInfo,
 )
 from python_refactor_mcp.util.lsp_client import JSONDict, JSONValue, LSPClient
-
-_SYMBOL_KIND: dict[int, str] = {
-    1: "file",
-    2: "module",
-    3: "namespace",
-    4: "package",
-    5: "class",
-    6: "method",
-    7: "property",
-    8: "field",
-    9: "constructor",
-    10: "enum",
-    11: "interface",
-    12: "function",
-    13: "variable",
-    14: "constant",
-    15: "string",
-    16: "number",
-    17: "boolean",
-    18: "array",
-    19: "object",
-    20: "key",
-    21: "null",
-    22: "enumMember",
-    23: "struct",
-    24: "event",
-    25: "operator",
-    26: "typeParameter",
-}
-
-_DOCUMENT_HIGHLIGHT_KIND: dict[int, str] = {1: "text", 2: "read", 3: "write"}
-_SEMANTIC_TOKEN_TYPES: list[str] = [
-    "namespace",
-    "type",
-    "class",
-    "enum",
-    "interface",
-    "struct",
-    "typeParameter",
-    "parameter",
-    "variable",
-    "property",
-    "enumMember",
-    "event",
-    "function",
-    "method",
-    "macro",
-    "keyword",
-    "modifier",
-    "comment",
-    "string",
-    "number",
-    "regexp",
-    "operator",
-    "decorator",
-]
-_SEMANTIC_TOKEN_MODIFIERS: list[str] = [
-    "declaration",
-    "definition",
-    "readonly",
-    "static",
-    "deprecated",
-    "abstract",
-    "async",
-    "modification",
-    "documentation",
-    "defaultLibrary",
-]
-
-
-def _normalize_path(file_path: str) -> str:
-    """Return a normalized absolute path with stable Windows drive casing."""
-    absolute = os.path.abspath(file_path)
-    if os.name == "nt" and len(absolute) >= 2 and absolute[1] == ":":
-        absolute = absolute[0].upper() + absolute[1:]
-    return absolute
-
-
-def path_to_uri(path: str) -> str:
-    """Convert an OS-native path into a file URI."""
-    return Path(_normalize_path(path)).as_uri()
-
-
-def uri_to_path(uri: str) -> str:
-    """Convert a file URI to an OS-native absolute path."""
-    parsed = urlparse(uri)
-    if parsed.scheme != "file":
-        raise PyrightError(f"Unsupported URI scheme for path conversion: {uri}")
-
-    decoded_path = unquote(parsed.path)
-    if os.name == "nt":
-        if decoded_path.startswith("/") and len(decoded_path) >= 3 and decoded_path[2] == ":":
-            decoded_path = decoded_path[1:]
-        decoded_path = decoded_path.replace("/", "\\")
-    return _normalize_path(decoded_path)
-
-
-def _as_int(value: JSONValue, fallback: int = 0) -> int:
-    """Convert a JSON value to int when possible, otherwise return fallback."""
-    if isinstance(value, int):
-        return value
-    return fallback
-
-
-def _as_str(value: JSONValue, fallback: str = "") -> str:
-    """Convert a JSON value to str when possible, otherwise return fallback."""
-    if isinstance(value, str):
-        return value
-    return fallback
-
-
-def _model_position(value: JSONDict) -> Position:
-    """Convert an LSP position dict into a Position model."""
-    return Position(
-        line=_as_int(value.get("line", 0), 0),
-        character=_as_int(value.get("character", 0), 0),
-    )
-
-
-def _model_range(value: JSONDict) -> Range:
-    """Convert an LSP range dict into a Range model."""
-    start = value.get("start")
-    end = value.get("end")
-    if not isinstance(start, dict) or not isinstance(end, dict):
-        return Range(start=Position(line=0, character=0), end=Position(line=0, character=0))
-    return Range(start=_model_position(start), end=_model_position(end))
-
-
-def _severity_to_string(value: int) -> str:
-    """Map LSP diagnostic severity numbers to string labels."""
-    mapping = {1: "error", 2: "warning", 3: "information", 4: "hint"}
-    return mapping.get(value, "information")
-
-
-def _is_unhandled_method_error(response: JSONDict) -> bool:
-    """Return True when server reports an unsupported/unhandled LSP method."""
-    error_value = response.get("error")
-    if not isinstance(error_value, dict):
-        return False
-    code = error_value.get("code")
-    message = error_value.get("message")
-    if code == -32601:
-        return True
-    return isinstance(message, str) and "Unhandled method" in message
+from python_refactor_mcp.util.lsp_converters import (
+    DOCUMENT_HIGHLIGHT_KIND,
+    SEMANTIC_TOKEN_MODIFIERS,
+    SEMANTIC_TOKEN_TYPES,
+    SYMBOL_KIND,
+    as_int,
+    as_str,
+    call_hierarchy_item_to_lsp,
+    call_hierarchy_item_to_model,
+    convert_publish_diagnostics,
+    definition_entry_to_locations,
+    extract_hover_text,
+    is_unhandled_method_error,
+    model_position,
+    model_range,
+    severity_from_string,
+    type_hierarchy_item_to_lsp,
+    type_hierarchy_item_to_model,
+)
+from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_path
 
 
 class PyrightLSPClient:
@@ -191,6 +67,9 @@ class PyrightLSPClient:
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
+        self._diagnostics_events: dict[str, asyncio.Event] = {}
+
+    # ── LSP transport ─────────────────────────────────────────────────
 
     async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
         """Send an LSP request with a bounded timeout for backend resilience."""
@@ -255,6 +134,8 @@ class PyrightLSPClient:
             deduped.append(command)
         return deduped
 
+    # ── Lifecycle ─────────────────────────────────────────────────────
+
     async def start(self) -> None:
         """Start the Pyright language server and initialize the LSP session."""
         root_uri = path_to_uri(str(self._config.workspace_root))
@@ -310,14 +191,25 @@ class PyrightLSPClient:
         joined_errors = " | ".join(startup_errors)
         raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
 
+    async def shutdown(self) -> None:
+        """Shutdown backend resources."""
+        await self._client.shutdown()
+
+    # ── File tracking ─────────────────────────────────────────────────
+
     async def ensure_file_open(self, file_path: str) -> None:
         """Ensure a file is opened and tracked in the language server session."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         if absolute_path in self._open_files:
             return
 
         file_uri = path_to_uri(absolute_path)
-        text = Path(absolute_path).read_text(encoding="utf-8")
+        try:
+            text = Path(absolute_path).read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise PyrightError(f"File not found: {absolute_path}") from exc
+        except (UnicodeDecodeError, OSError) as exc:
+            raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
         version = 1
 
         params: dict[str, JSONValue] = {
@@ -334,10 +226,15 @@ class PyrightLSPClient:
 
     async def notify_file_changed(self, file_path: str) -> None:
         """Notify Pyright that a file's full contents changed."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
-        text = Path(absolute_path).read_text(encoding="utf-8")
+        try:
+            text = Path(absolute_path).read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise PyrightError(f"File not found: {absolute_path}") from exc
+        except (UnicodeDecodeError, OSError) as exc:
+            raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
         version = self._file_versions.get(absolute_path, 1) + 1
         self._file_versions[absolute_path] = version
 
@@ -350,9 +247,46 @@ class PyrightLSPClient:
         }
         await self._client.send_notification("textDocument/didChange", params)
 
+    # ── Diagnostics ───────────────────────────────────────────────────
+
+    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
+        """Return diagnostics for one file or the whole project."""
+        if file_path is not None:
+            normalized = normalize_path(file_path)
+            await self.ensure_file_open(normalized)
+            if normalized not in self._diagnostics:
+                event = self._diagnostics_events.setdefault(normalized, asyncio.Event())
+                event.clear()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(event.wait(), timeout=2.0)
+            diagnostics = self._diagnostics.get(normalized, [])
+        else:
+            diagnostics = [item for items in self._diagnostics.values() for item in items]
+
+        return sorted(
+            diagnostics,
+            key=lambda item: (
+                item.file_path,
+                item.range.start.line,
+                item.range.start.character,
+            ),
+        )
+
+    async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
+        """Handle textDocument/publishDiagnostics notifications from Pyright."""
+        file_path, converted = convert_publish_diagnostics(params)
+        if not file_path:
+            return
+        self._diagnostics[file_path] = converted
+        event = self._diagnostics_events.get(file_path)
+        if event is not None:
+            event.set()
+
+    # ── Analysis features ─────────────────────────────────────────────
+
     async def get_hover(self, file_path: str, line: int, char: int) -> TypeInfo | None:
         """Get hover type information at a source position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -369,7 +303,7 @@ class PyrightLSPClient:
         if not isinstance(result, dict):
             return None
 
-        contents_text = self._extract_hover_text(result.get("contents"))
+        contents_text = extract_hover_text(result.get("contents"))
         if not contents_text:
             return None
 
@@ -383,7 +317,7 @@ class PyrightLSPClient:
 
     async def get_document_symbols(self, file_path: str) -> list[SymbolOutlineItem]:
         """Return hierarchical document symbols for a file."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -400,11 +334,11 @@ class PyrightLSPClient:
             return []
 
         def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
-            name = _as_str(entry.get("name"), "")
+            name = as_str(entry.get("name"), "")
             if not name:
                 return None
 
-            kind_value = _as_int(entry.get("kind", 13), 13)
+            kind_value = as_int(entry.get("kind", 13), 13)
             range_value = entry.get("range")
             selection_value = entry.get("selectionRange")
 
@@ -437,11 +371,11 @@ class PyrightLSPClient:
             container = entry.get("containerName")
             return SymbolOutlineItem(
                 name=name,
-                kind=_SYMBOL_KIND.get(kind_value, "symbol"),
+                kind=SYMBOL_KIND.get(kind_value, "symbol"),
                 file_path=resolved_path,
-                range=_model_range(range_value),
-                selection_range=_model_range(selection_value),
-                detail=_as_str(entry.get("detail"), "") or None,
+                range=model_range(range_value),
+                selection_range=model_range(selection_value),
+                detail=as_str(entry.get("detail"), "") or None,
                 container=container if isinstance(container, str) else None,
                 children=children,
             )
@@ -453,11 +387,30 @@ class PyrightLSPClient:
             converted = _convert_document_symbol(entry, absolute_path)
             if converted is not None:
                 symbols.append(converted)
+
+        # Reconstruct hierarchy from flat SymbolInformation format.
+        has_containers = any(s.container for s in symbols)
+        has_children = any(s.children for s in symbols)
+        if has_containers and not has_children:
+            by_name: dict[str, list[SymbolOutlineItem]] = {}
+            for sym in symbols:
+                by_name.setdefault(sym.name, []).append(sym)
+
+            roots: list[SymbolOutlineItem] = []
+            for sym in symbols:
+                if sym.container and sym.container in by_name:
+                    parent = by_name[sym.container][0]
+                    if parent is not sym:
+                        parent.children.append(sym)
+                        continue
+                roots.append(sym)
+            symbols = roots
+
         return symbols
 
     async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:
         """Return completion candidates for a source position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -480,13 +433,13 @@ class PyrightLSPClient:
         for entry in items_value:
             if not isinstance(entry, dict):
                 continue
-            label = _as_str(entry.get("label"), "")
+            label = as_str(entry.get("label"), "")
             if not label:
                 continue
-            kind_value = _as_int(entry.get("kind", 1), 1)
-            detail = _as_str(entry.get("detail"), "") or None
-            insert_text = _as_str(entry.get("insertText"), "") or label
-            documentation = self._extract_hover_text(entry.get("documentation")) or None
+            kind_value = as_int(entry.get("kind", 1), 1)
+            detail = as_str(entry.get("detail"), "") or None
+            insert_text = as_str(entry.get("insertText"), "") or label
+            documentation = extract_hover_text(entry.get("documentation")) or None
             key = (label, detail or "", insert_text)
             if key in seen:
                 continue
@@ -494,7 +447,7 @@ class PyrightLSPClient:
             completions.append(
                 CompletionItem(
                     label=label,
-                    kind=_SYMBOL_KIND.get(kind_value, "text"),
+                    kind=SYMBOL_KIND.get(kind_value, "text"),
                     detail=detail,
                     insert_text=insert_text,
                     documentation=documentation,
@@ -510,7 +463,7 @@ class PyrightLSPClient:
         include_declaration: bool,
     ) -> list[Location]:
         """Get symbol references from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -539,14 +492,14 @@ class PyrightLSPClient:
             locations.append(
                 Location(
                     file_path=uri_to_path(uri_value),
-                    range=_model_range(range_value),
+                    range=model_range(range_value),
                 )
             )
         return locations
 
     async def get_definition(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get symbol definitions from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -561,18 +514,18 @@ class PyrightLSPClient:
 
         result = response.get("result")
         if isinstance(result, dict):
-            return self._definition_entry_to_locations(result)
+            return definition_entry_to_locations(result)
         if isinstance(result, list):
             resolved: list[Location] = []
             for entry in result:
                 if isinstance(entry, dict):
-                    resolved.extend(self._definition_entry_to_locations(entry))
+                    resolved.extend(definition_entry_to_locations(entry))
             return resolved
         return []
 
     async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get symbol implementation locations from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -587,18 +540,18 @@ class PyrightLSPClient:
 
         result = response.get("result")
         if isinstance(result, dict):
-            return self._definition_entry_to_locations(result)
+            return definition_entry_to_locations(result)
         if isinstance(result, list):
             resolved: list[Location] = []
             for entry in result:
                 if isinstance(entry, dict):
-                    resolved.extend(self._definition_entry_to_locations(entry))
+                    resolved.extend(definition_entry_to_locations(entry))
             return resolved
         return []
 
     async def get_signature_help(self, file_path: str, line: int, char: int) -> SignatureInfo | None:
         """Return signature help for a call position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -619,7 +572,7 @@ class PyrightLSPClient:
         if not isinstance(signatures, list) or not signatures:
             return None
 
-        active_signature = _as_int(result.get("activeSignature", 0), 0)
+        active_signature = as_int(result.get("activeSignature", 0), 0)
         if active_signature < 0 or active_signature >= len(signatures):
             active_signature = 0
 
@@ -627,7 +580,7 @@ class PyrightLSPClient:
         if not isinstance(selected, dict):
             return None
 
-        label = _as_str(selected.get("label"), "")
+        label = as_str(selected.get("label"), "")
         if not label:
             return None
 
@@ -642,8 +595,8 @@ class PyrightLSPClient:
                 if isinstance(raw_label, str):
                     parameter_label = raw_label
                 elif isinstance(raw_label, list) and len(raw_label) == 2:
-                    start = _as_int(raw_label[0], 0)
-                    end = _as_int(raw_label[1], 0)
+                    start = as_int(raw_label[0], 0)
+                    end = as_int(raw_label[1], 0)
                     if 0 <= start <= end <= len(label):
                         parameter_label = label[start:end]
                 if not parameter_label:
@@ -651,18 +604,18 @@ class PyrightLSPClient:
                 parameters.append(
                     ParameterInfo(
                         label=parameter_label,
-                        documentation=self._extract_hover_text(parameter.get("documentation")) or None,
+                        documentation=extract_hover_text(parameter.get("documentation")) or None,
                     )
                 )
 
         active_parameter = result.get("activeParameter")
-        active_parameter_value = _as_int(active_parameter, 0) if isinstance(active_parameter, int) else None
+        active_parameter_value = as_int(active_parameter, 0) if isinstance(active_parameter, int) else None
         return SignatureInfo(
             label=label,
             parameters=parameters,
             active_parameter=active_parameter_value,
             active_signature=active_signature,
-            documentation=self._extract_hover_text(selected.get("documentation")) or None,
+            documentation=extract_hover_text(selected.get("documentation")) or None,
         )
 
     async def workspace_symbol(self, query: str) -> list[SymbolInfo]:
@@ -684,43 +637,48 @@ class PyrightLSPClient:
             if not isinstance(entry, dict):
                 continue
 
-            name = _as_str(entry.get("name"), "")
+            name = as_str(entry.get("name"), "")
             if not name:
                 continue
 
             location_value = entry.get("location")
-            file_path = ""
+            entry_file_path = ""
             range_value: JSONValue | None = None
             if isinstance(location_value, dict):
                 uri_value = location_value.get("uri")
                 range_value = location_value.get("range")
                 if isinstance(uri_value, str):
-                    file_path = uri_to_path(uri_value)
+                    entry_file_path = uri_to_path(uri_value)
             else:
                 uri_value = entry.get("uri")
                 range_value = entry.get("range")
                 if isinstance(uri_value, str):
-                    file_path = uri_to_path(uri_value)
+                    entry_file_path = uri_to_path(uri_value)
 
-            if not file_path or not isinstance(range_value, dict):
+            if not entry_file_path or not isinstance(range_value, dict):
                 continue
 
-            model_range = _model_range(range_value)
+            entry_range = model_range(range_value)
             container_name = entry.get("containerName")
-            key = (name, file_path, model_range.start.line, model_range.start.character, _as_str(container_name, ""))
+            key = (
+                name, entry_file_path, entry_range.start.line,
+                entry_range.start.character, as_str(container_name, ""),
+            )
             if key in seen:
                 continue
             seen.add(key)
             symbols.append(
                 SymbolInfo(
                     name=name,
-                    kind=_SYMBOL_KIND.get(_as_int(entry.get("kind", 13), 13), "symbol"),
-                    file_path=file_path,
-                    range=model_range,
+                    kind=SYMBOL_KIND.get(as_int(entry.get("kind", 13), 13), "symbol"),
+                    file_path=entry_file_path,
+                    range=entry_range,
                     container=container_name if isinstance(container_name, str) else None,
                 )
             )
         return symbols
+
+    # ── Hierarchy features ────────────────────────────────────────────
 
     async def prepare_call_hierarchy(
         self,
@@ -729,7 +687,7 @@ class PyrightLSPClient:
         char: int,
     ) -> list[CallHierarchyItem]:
         """Prepare call hierarchy item(s) for a position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -745,13 +703,13 @@ class PyrightLSPClient:
         result = response.get("result")
         if not isinstance(result, list):
             return []
-        return [self._call_hierarchy_item_to_model(item) for item in result if isinstance(item, dict)]
+        return [call_hierarchy_item_to_model(item) for item in result if isinstance(item, dict)]
 
     async def get_incoming_calls(self, item: CallHierarchyItem) -> list[CallHierarchyItem]:
         """Return incoming call hierarchy items."""
         response = await self._request(
             "callHierarchy/incomingCalls",
-            {"item": self._call_hierarchy_item_to_lsp(item)},
+            {"item": call_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
             raise PyrightError(f"incomingCalls failed: {response['error']}")
@@ -766,14 +724,14 @@ class PyrightLSPClient:
                 continue
             source_item = entry.get("from")
             if isinstance(source_item, dict):
-                items.append(self._call_hierarchy_item_to_model(source_item))
+                items.append(call_hierarchy_item_to_model(source_item))
         return items
 
     async def get_outgoing_calls(self, item: CallHierarchyItem) -> list[CallHierarchyItem]:
         """Return outgoing call hierarchy items."""
         response = await self._request(
             "callHierarchy/outgoingCalls",
-            {"item": self._call_hierarchy_item_to_lsp(item)},
+            {"item": call_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
             raise PyrightError(f"outgoingCalls failed: {response['error']}")
@@ -788,12 +746,12 @@ class PyrightLSPClient:
                 continue
             target_item = entry.get("to")
             if isinstance(target_item, dict):
-                items.append(self._call_hierarchy_item_to_model(target_item))
+                items.append(call_hierarchy_item_to_model(target_item))
         return items
 
     async def prepare_type_hierarchy(self, file_path: str, line: int, char: int) -> list[TypeHierarchyItem]:
         """Prepare type hierarchy item(s) for a source position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -804,50 +762,52 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"prepareTypeHierarchy failed: {response['error']}")
 
         result = response.get("result")
         if not isinstance(result, list):
             return []
-        return [self._type_hierarchy_item_to_model(item) for item in result if isinstance(item, dict)]
+        return [type_hierarchy_item_to_model(item) for item in result if isinstance(item, dict)]
 
     async def get_supertypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
         """Return direct supertypes for a type hierarchy item."""
         response = await self._request(
             "typeHierarchy/supertypes",
-            {"item": self._type_hierarchy_item_to_lsp(item)},
+            {"item": type_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"typeHierarchy/supertypes failed: {response['error']}")
 
         result = response.get("result")
         if not isinstance(result, list):
             return []
-        return [self._type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
+        return [type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
 
     async def get_subtypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
         """Return direct subtypes for a type hierarchy item."""
         response = await self._request(
             "typeHierarchy/subtypes",
-            {"item": self._type_hierarchy_item_to_lsp(item)},
+            {"item": type_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"typeHierarchy/subtypes failed: {response['error']}")
 
         result = response.get("result")
         if not isinstance(result, list):
             return []
-        return [self._type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
+        return [type_hierarchy_item_to_model(entry) for entry in result if isinstance(entry, dict)]
+
+    # ── Selection / folding / highlights ──────────────────────────────
 
     async def get_selection_range(self, file_path: str, positions: list[Position]) -> list[SelectionRangeResult]:
         """Return nested selection ranges for one or more positions."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -861,7 +821,7 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"selectionRange request failed: {response['error']}")
 
@@ -875,7 +835,7 @@ class PyrightLSPClient:
             while isinstance(current, dict):
                 range_value = current.get("range")
                 if isinstance(range_value, dict):
-                    flattened.append(_model_range(range_value))
+                    flattened.append(model_range(range_value))
                 current = current.get("parent")
             return flattened
 
@@ -900,7 +860,7 @@ class PyrightLSPClient:
         diagnostics: list[Diagnostic],
     ) -> list[dict[str, object]]:
         """Return code action candidates for a range."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         lsp_diagnostics: list[JSONValue] = []
@@ -916,7 +876,7 @@ class PyrightLSPClient:
                         "character": diagnostic.range.end.character,
                     },
                 },
-                "severity": self._severity_from_string(diagnostic.severity),
+                "severity": severity_from_string(diagnostic.severity),
                 "message": diagnostic.message,
                 "code": diagnostic.code if diagnostic.code is not None else "",
             }
@@ -953,7 +913,7 @@ class PyrightLSPClient:
 
     async def get_declaration(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get declaration locations for a symbol from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -964,24 +924,24 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return await self.get_definition(file_path, line, char)
             raise PyrightError(f"Declaration request failed: {response['error']}")
 
         result = response.get("result")
         if isinstance(result, dict):
-            return self._definition_entry_to_locations(result)
+            return definition_entry_to_locations(result)
         if isinstance(result, list):
             resolved: list[Location] = []
             for entry in result:
                 if isinstance(entry, dict):
-                    resolved.extend(self._definition_entry_to_locations(entry))
+                    resolved.extend(definition_entry_to_locations(entry))
             return resolved
         return []
 
     async def get_type_definition(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get type-definition locations for a symbol from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -992,24 +952,24 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"typeDefinition request failed: {response['error']}")
 
         result = response.get("result")
         if isinstance(result, dict):
-            return self._definition_entry_to_locations(result)
+            return definition_entry_to_locations(result)
         if isinstance(result, list):
             resolved: list[Location] = []
             for entry in result:
                 if isinstance(entry, dict):
-                    resolved.extend(self._definition_entry_to_locations(entry))
+                    resolved.extend(definition_entry_to_locations(entry))
             return resolved
         return []
 
     async def get_document_highlights(self, file_path: str, line: int, char: int) -> list[DocumentHighlight]:
         """Get in-file highlights for a symbol at the provided position."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -1033,13 +993,13 @@ class PyrightLSPClient:
             range_value = entry.get("range")
             if not isinstance(range_value, dict):
                 continue
-            kind = _DOCUMENT_HIGHLIGHT_KIND.get(_as_int(entry.get("kind", 1), 1), "text")
-            highlights.append(DocumentHighlight(range=_model_range(range_value), kind=kind))
+            kind = DOCUMENT_HIGHLIGHT_KIND.get(as_int(entry.get("kind", 1), 1), "text")
+            highlights.append(DocumentHighlight(range=model_range(range_value), kind=kind))
         return highlights
 
     async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
         """Run LSP rename preflight and return editable range metadata if valid."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -1050,7 +1010,7 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return None
             raise PyrightError(f"prepareRename request failed: {response['error']}")
 
@@ -1063,7 +1023,7 @@ class PyrightLSPClient:
 
         if isinstance(result, dict):
             range_value = result.get("range")
-            placeholder = _as_str(result.get("placeholder"), "")
+            placeholder = as_str(result.get("placeholder"), "")
         else:
             range_value = result
             placeholder = ""
@@ -1072,9 +1032,21 @@ class PyrightLSPClient:
             return None
 
         if not placeholder:
-            placeholder = Path(absolute_path).stem
+            try:
+                source_lines = Path(absolute_path).read_text(encoding="utf-8").splitlines()
+                mr = model_range(range_value)
+                start_line = mr.start.line
+                if 0 <= start_line < len(source_lines):
+                    line_text = source_lines[start_line]
+                    start_char = mr.start.character
+                    end_char = mr.end.character if mr.end.line == start_line else len(line_text)
+                    placeholder = line_text[start_char:end_char].strip() or Path(absolute_path).stem
+                else:
+                    placeholder = Path(absolute_path).stem
+            except Exception:
+                placeholder = Path(absolute_path).stem
 
-        return PrepareRenameResult(range=_model_range(range_value), placeholder=placeholder)
+        return PrepareRenameResult(range=model_range(range_value), placeholder=placeholder)
 
     async def get_inlay_hints(
         self,
@@ -1085,7 +1057,7 @@ class PyrightLSPClient:
         end_character: int,
     ) -> list[InlayHint]:
         """Get inlay hints for the provided file range."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -1099,7 +1071,7 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"inlayHint request failed: {response['error']}")
 
@@ -1137,7 +1109,7 @@ class PyrightLSPClient:
                 hint_kind = {1: "type", 2: "parameter"}.get(kind_value, "unknown")
             hints.append(
                 InlayHint(
-                    position=_model_position(position_value),
+                    position=model_position(position_value),
                     label=label,
                     kind=hint_kind,
                     padding_left=bool(entry.get("paddingLeft", False)),
@@ -1148,7 +1120,7 @@ class PyrightLSPClient:
 
     async def get_semantic_tokens(self, file_path: str) -> list[SemanticToken]:
         """Get and decode full-document semantic tokens from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -1158,7 +1130,7 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"semanticTokens/full request failed: {response['error']}")
 
@@ -1189,12 +1161,12 @@ class PyrightLSPClient:
                 character = delta_char
 
             token_type = (
-                _SEMANTIC_TOKEN_TYPES[token_type_idx]
-                if 0 <= token_type_idx < len(_SEMANTIC_TOKEN_TYPES)
+                SEMANTIC_TOKEN_TYPES[token_type_idx]
+                if 0 <= token_type_idx < len(SEMANTIC_TOKEN_TYPES)
                 else "unknown"
             )
             modifiers: list[str] = []
-            for bit, modifier_name in enumerate(_SEMANTIC_TOKEN_MODIFIERS):
+            for bit, modifier_name in enumerate(SEMANTIC_TOKEN_MODIFIERS):
                 if modifiers_bits & (1 << bit):
                     modifiers.append(modifier_name)
 
@@ -1212,7 +1184,7 @@ class PyrightLSPClient:
 
     async def get_folding_ranges(self, file_path: str) -> list[FoldingRange]:
         """Get foldable regions for a file from Pyright."""
-        absolute_path = _normalize_path(file_path)
+        absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
         response = await self._request(
@@ -1222,7 +1194,7 @@ class PyrightLSPClient:
             },
         )
         if "error" in response:
-            if _is_unhandled_method_error(response):
+            if is_unhandled_method_error(response):
                 return []
             raise PyrightError(f"foldingRange request failed: {response['error']}")
 
@@ -1242,208 +1214,3 @@ class PyrightLSPClient:
             kind = kind_value if isinstance(kind_value, str) else None
             ranges.append(FoldingRange(start_line=start_line, end_line=end_line, kind=kind))
         return ranges
-
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return diagnostics for one file or the whole project."""
-        if file_path is not None:
-            normalized = _normalize_path(file_path)
-            await self.ensure_file_open(normalized)
-            if normalized not in self._diagnostics:
-                for _ in range(10):
-                    await asyncio.sleep(0.05)
-                    if normalized in self._diagnostics:
-                        break
-            diagnostics = self._diagnostics.get(normalized, [])
-        else:
-            diagnostics = [item for items in self._diagnostics.values() for item in items]
-
-        return sorted(
-            diagnostics,
-            key=lambda item: (
-                item.file_path,
-                item.range.start.line,
-                item.range.start.character,
-            ),
-        )
-
-    async def shutdown(self) -> None:
-        """Shutdown backend resources."""
-        await self._client.shutdown()
-
-    async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
-        """Handle textDocument/publishDiagnostics notifications from Pyright."""
-        uri_value = params.get("uri")
-        diagnostics_value = params.get("diagnostics")
-        if not isinstance(uri_value, str) or not isinstance(diagnostics_value, list):
-            return
-
-        file_path = uri_to_path(uri_value)
-        converted: list[Diagnostic] = []
-        for entry in diagnostics_value:
-            if not isinstance(entry, dict):
-                continue
-
-            range_value = entry.get("range")
-            message_value = entry.get("message")
-            severity_value = entry.get("severity")
-            code_value = entry.get("code")
-
-            if not isinstance(range_value, dict) or not isinstance(message_value, str):
-                continue
-
-            code: str | None = None
-            if isinstance(code_value, str):
-                code = code_value
-            elif isinstance(code_value, int):
-                code = str(code_value)
-
-            tags_value = entry.get("tags")
-            tags: list[int] = []
-            if isinstance(tags_value, list):
-                tags = [tag for tag in tags_value if isinstance(tag, int)]
-
-            converted.append(
-                Diagnostic(
-                    file_path=file_path,
-                    range=_model_range(range_value),
-                    severity=_severity_to_string(_as_int(severity_value, 3)),
-                    message=message_value,
-                    code=code,
-                    tags=tags,
-                )
-            )
-
-        self._diagnostics[file_path] = converted
-
-    @staticmethod
-    def _extract_hover_text(contents: JSONValue) -> str:
-        """Flatten hover contents into a single text blob."""
-        if isinstance(contents, str):
-            return contents
-        if isinstance(contents, dict):
-            value = contents.get("value")
-            if isinstance(value, str):
-                return value
-            return ""
-        if isinstance(contents, list):
-            chunks: list[str] = []
-            for item in contents:
-                flattened = PyrightLSPClient._extract_hover_text(item)
-                if flattened:
-                    chunks.append(flattened)
-            return "\n".join(chunks)
-        return ""
-
-    @staticmethod
-    def _definition_entry_to_locations(entry: JSONDict) -> list[Location]:
-        """Convert definition response entries (Location/LocationLink) into models."""
-        if "uri" in entry and "range" in entry:
-            uri_value = entry.get("uri")
-            range_value = entry.get("range")
-            if isinstance(uri_value, str) and isinstance(range_value, dict):
-                return [Location(file_path=uri_to_path(uri_value), range=_model_range(range_value))]
-
-        target_uri = entry.get("targetUri")
-        target_range = entry.get("targetSelectionRange")
-        if not isinstance(target_range, dict):
-            target_range = entry.get("targetRange")
-        if isinstance(target_uri, str) and isinstance(target_range, dict):
-            return [Location(file_path=uri_to_path(target_uri), range=_model_range(target_range))]
-
-        return []
-
-    @staticmethod
-    def _call_hierarchy_item_to_model(item: JSONDict) -> CallHierarchyItem:
-        """Convert an LSP call hierarchy item payload to the project model."""
-        uri = _as_str(item.get("uri"), "")
-        range_value = item.get("selectionRange")
-        if not isinstance(range_value, dict):
-            range_value = item.get("range")
-
-        model_range = _model_range(range_value) if isinstance(range_value, dict) else Range(
-            start=Position(line=0, character=0),
-            end=Position(line=0, character=0),
-        )
-
-        kind_number = _as_int(item.get("kind"), 13)
-        return CallHierarchyItem(
-            name=_as_str(item.get("name"), ""),
-            kind=_SYMBOL_KIND.get(kind_number, "symbol"),
-            file_path=uri_to_path(uri) if uri else "",
-            range=model_range,
-            detail=_as_str(item.get("detail"), "") or None,
-        )
-
-    @staticmethod
-    def _call_hierarchy_item_to_lsp(item: CallHierarchyItem) -> dict[str, JSONValue]:
-        """Convert project call hierarchy model to LSP item payload."""
-        return {
-            "name": item.name,
-            "kind": 12,
-            "uri": path_to_uri(item.file_path),
-            "range": {
-                "start": {
-                    "line": item.range.start.line,
-                    "character": item.range.start.character,
-                },
-                "end": {
-                    "line": item.range.end.line,
-                    "character": item.range.end.character,
-                },
-            },
-            "selectionRange": {
-                "start": {
-                    "line": item.range.start.line,
-                    "character": item.range.start.character,
-                },
-                "end": {
-                    "line": item.range.end.line,
-                    "character": item.range.end.character,
-                },
-            },
-            "detail": item.detail or "",
-        }
-
-    @staticmethod
-    def _type_hierarchy_item_to_model(item: JSONDict) -> TypeHierarchyItem:
-        """Convert an LSP type hierarchy payload to the project model."""
-        uri = _as_str(item.get("uri"), "")
-        range_value = item.get("selectionRange")
-        if not isinstance(range_value, dict):
-            range_value = item.get("range")
-        model_range = _model_range(range_value) if isinstance(range_value, dict) else Range(
-            start=Position(line=0, character=0),
-            end=Position(line=0, character=0),
-        )
-        kind_number = _as_int(item.get("kind"), 5)
-        return TypeHierarchyItem(
-            name=_as_str(item.get("name"), ""),
-            kind=_SYMBOL_KIND.get(kind_number, "class"),
-            file_path=uri_to_path(uri) if uri else "",
-            range=model_range,
-            detail=_as_str(item.get("detail"), "") or None,
-        )
-
-    @staticmethod
-    def _type_hierarchy_item_to_lsp(item: TypeHierarchyItem) -> dict[str, JSONValue]:
-        """Convert type hierarchy model to LSP TypeHierarchyItem payload."""
-        return {
-            "name": item.name,
-            "kind": 5,
-            "uri": path_to_uri(item.file_path),
-            "range": {
-                "start": {"line": item.range.start.line, "character": item.range.start.character},
-                "end": {"line": item.range.end.line, "character": item.range.end.character},
-            },
-            "selectionRange": {
-                "start": {"line": item.range.start.line, "character": item.range.start.character},
-                "end": {"line": item.range.end.line, "character": item.range.end.character},
-            },
-            "detail": item.detail or "",
-        }
-
-    @staticmethod
-    def _severity_from_string(severity: str) -> int:
-        """Convert string severity labels into LSP numeric severity."""
-        mapping = {"error": 1, "warning": 2, "information": 3, "hint": 4}
-        return mapping.get(severity.lower(), 3)

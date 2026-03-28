@@ -17,5 +17,5 @@ class RopeError(BackendError):
     """Raised when rope backend operations fail."""
 
 
-class ConfigError(Exception):
+class ConfigError(BackendError):
     """Raised when server configuration discovery fails."""

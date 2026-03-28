@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 class Position(BaseModel):
     """0-based line and character offset."""
 
-    line: int
-    character: int
+    line: int = Field(ge=0)
+    character: int = Field(ge=0)
 
 
 class Range(BaseModel):

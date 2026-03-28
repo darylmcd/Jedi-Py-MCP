@@ -1,0 +1,315 @@
+"""Shared helpers and protocols for refactoring submodules."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Protocol
+
+from python_refactor_mcp.models import (
+    Diagnostic,
+    Position,
+    PrepareRenameResult,
+    Range,
+    RefactorResult,
+    SignatureOperation,
+    TextEdit,
+)
+from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
+from python_refactor_mcp.util.paths import uri_to_path
+from python_refactor_mcp.util.shared import (
+    attach_post_apply_diagnostics,
+)
+
+
+class _PyrightRefactoringBackend(Protocol):
+    """Protocol describing Pyright methods used in apply validation paths."""
+
+    async def notify_file_changed(self, file_path: str) -> None:
+        """Notify backend that file contents changed on disk."""
+        ...
+
+    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
+        """Return diagnostics for one file or the full workspace."""
+        ...
+
+    async def get_code_actions(
+        self,
+        file_path: str,
+        range_value: Range,
+        diagnostics: list[Diagnostic],
+    ) -> list[dict[str, object]]:
+        """Return code actions for a range."""
+        ...
+
+    async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
+        """Return rename preflight metadata for a source position."""
+        ...
+
+
+class _RopeRefactoringBackend(Protocol):
+    """Protocol describing rope refactoring methods used by this module."""
+
+    async def rename(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        new_name: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Rename symbol and return computed edits/result."""
+        ...
+
+    async def extract_method(
+        self,
+        file_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+        method_name: str,
+        similar: bool,
+        apply: bool,
+    ) -> RefactorResult:
+        """Extract selected code into a method."""
+        ...
+
+    async def extract_variable(
+        self,
+        file_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+        variable_name: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Extract selected code into a variable."""
+        ...
+
+    async def inline(self, file_path: str, line: int, character: int, apply: bool) -> RefactorResult:
+        """Inline symbol and return computed edits/result."""
+        ...
+
+    async def move(
+        self,
+        source_file: str,
+        symbol_name: str,
+        destination_file: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Move symbol and return computed edits/result."""
+        ...
+
+    async def introduce_parameter(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        parameter_name: str,
+        default_value: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a new parameter on a function and update call sites."""
+        ...
+
+    async def encapsulate_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Encapsulate a field using property accessors."""
+        ...
+
+    async def change_signature(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        operations: list[SignatureOperation],
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply signature operation list and update call sites."""
+        ...
+
+    async def restructure(
+        self,
+        pattern: str,
+        goal: str,
+        checks: dict[str, str] | None,
+        imports: list[str] | None,
+        file_path: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Apply structural replace patterns to matching code."""
+        ...
+
+    async def use_function(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Replace duplicate code with calls to selected function."""
+        ...
+
+    async def introduce_factory(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        factory_name: str | None,
+        global_factory: bool,
+        apply: bool,
+    ) -> RefactorResult:
+        """Introduce a factory function for a class constructor."""
+        ...
+
+    async def module_to_package(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert module to package and adjust imports."""
+        ...
+
+    async def local_to_field(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Promote a local variable to class field."""
+        ...
+
+    async def method_object(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        classname: str | None,
+        apply: bool,
+    ) -> RefactorResult:
+        """Extract method logic into a method object class."""
+        ...
+
+
+def _range_contains_position(range_value: Range, line: int, character: int) -> bool:
+    """Return whether a 0-based position is inside a diagnostic range."""
+    start = (range_value.start.line, range_value.start.character)
+    end = (range_value.end.line, range_value.end.character)
+    target = (line, character)
+    return start <= target <= end
+
+
+def _end_position_for_content(content: str) -> Position:
+    """Compute the end position for a file content string."""
+    if not content:
+        return Position(line=0, character=0)
+    lines = content.splitlines()
+    if not lines:
+        return Position(line=0, character=0)
+    if content.endswith(("\n", "\r")):
+        return Position(line=len(lines), character=0)
+    return Position(line=len(lines) - 1, character=len(lines[-1]))
+
+
+def _full_file_range(file_path: str) -> Range:
+    """Build a range covering the entire current file content."""
+    from python_refactor_mcp.errors import RopeError  # noqa: PLC0415
+
+    try:
+        content = Path(file_path).read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError) as exc:
+        raise RopeError(f"Cannot read file for range computation: {exc}") from exc
+    return Range(start=Position(line=0, character=0), end=_end_position_for_content(content))
+
+
+def _workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
+    """Convert an LSP workspace edit payload into project TextEdit models."""
+    if not isinstance(workspace_edit, dict):
+        return []
+
+    edits: list[TextEdit] = []
+    changes = workspace_edit.get("changes")
+    if isinstance(changes, dict):
+        for uri, file_edits in changes.items():
+            if not isinstance(uri, str) or not isinstance(file_edits, list):
+                continue
+            file_path = uri_to_path(uri)
+            for edit in file_edits:
+                if not isinstance(edit, dict):
+                    continue
+                range_value = edit.get("range")
+                new_text = edit.get("newText")
+                if not isinstance(range_value, dict) or not isinstance(new_text, str):
+                    continue
+                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+
+    document_changes = workspace_edit.get("documentChanges")
+    if isinstance(document_changes, list):
+        for change in document_changes:
+            if not isinstance(change, dict):
+                continue
+            text_document = change.get("textDocument")
+            edits_value = change.get("edits")
+            if not isinstance(text_document, dict) or not isinstance(edits_value, list):
+                continue
+            uri = text_document.get("uri")
+            if not isinstance(uri, str):
+                continue
+            file_path = uri_to_path(uri)
+            for edit in edits_value:
+                if not isinstance(edit, dict):
+                    continue
+                range_value = edit.get("range")
+                new_text = edit.get("newText")
+                if not isinstance(range_value, dict) or not isinstance(new_text, str):
+                    continue
+                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+
+    deduped: dict[tuple[str, int, int, int, int, str], TextEdit] = {}
+    for edit in edits:
+        key = (
+            edit.file_path,
+            edit.range.start.line,
+            edit.range.start.character,
+            edit.range.end.line,
+            edit.range.end.character,
+            edit.new_text,
+        )
+        deduped[key] = edit
+    return sorted(
+        deduped.values(),
+        key=lambda item: (
+            item.file_path,
+            item.range.start.line,
+            item.range.start.character,
+            item.range.end.line,
+            item.range.end.character,
+        ),
+    )
+
+
+def _result_from_text_edits(edits: list[TextEdit], description: str, apply: bool) -> RefactorResult:
+    """Build a refactor result from LSP-style text edits and optionally apply them."""
+    files_affected = sorted({edit.file_path for edit in edits})
+    if not apply:
+        return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=False)
+
+    edits_by_file: dict[str, list[TextEdit]] = {}
+    for edit in edits:
+        edits_by_file.setdefault(edit.file_path, []).append(edit)
+    for file_path, file_edits in edits_by_file.items():
+        updated = apply_text_edits(file_path, file_edits)
+        write_atomic(file_path, updated)
+
+    return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=True)
+
+
+async def _attach_post_apply_diagnostics(
+    pyright: _PyrightRefactoringBackend,
+    result: RefactorResult,
+) -> RefactorResult:
+    """Notify Pyright of changed files and append refreshed diagnostics."""
+    return await attach_post_apply_diagnostics(pyright, result)  # type: ignore[return-value]

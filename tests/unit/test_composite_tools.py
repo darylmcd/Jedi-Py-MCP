@@ -30,12 +30,12 @@ def _diag(path: str, line: int) -> Diagnostic:
 
 
 @pytest.mark.asyncio
-async def test_smart_rename_calls_reference_scan_before_rename() -> None:
-    """Ensure smart_rename gathers references then delegates to rope."""
+async def test_smart_rename_calls_preflight_before_rename() -> None:
+    """Ensure smart_rename runs prepare_rename preflight then delegates to rope."""
     pyright = AsyncMock()
     rope = AsyncMock()
 
-    pyright.get_references.return_value = []
+    pyright.prepare_rename.return_value = object()  # non-None = valid rename target
     rope.rename.return_value = RefactorResult(
         edits=[_edit("/repo/a.py")],
         files_affected=["/repo/a.py"],
@@ -46,7 +46,7 @@ async def test_smart_rename_calls_reference_scan_before_rename() -> None:
     result = await composite.smart_rename(pyright, rope, "/repo/a.py", 1, 2, "new_name", apply=False)
 
     assert result.applied is False
-    pyright.get_references.assert_awaited_once_with("/repo/a.py", 1, 2, True)
+    pyright.prepare_rename.assert_awaited_once_with("/repo/a.py", 1, 2)
     rope.rename.assert_awaited_once_with("/repo/a.py", 1, 2, "new_name", False)
 
 
@@ -56,7 +56,7 @@ async def test_smart_rename_apply_refreshes_diagnostics() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
 
-    pyright.get_references.return_value = []
+    pyright.prepare_rename.return_value = object()  # non-None = valid rename target
     rope.rename.return_value = RefactorResult(
         edits=[_edit("/repo/a.py"), _edit("/repo/b.py")],
         files_affected=["/repo/a.py", "/repo/b.py"],

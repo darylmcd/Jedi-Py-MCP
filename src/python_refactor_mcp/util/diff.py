@@ -37,10 +37,14 @@ def _position_to_index(content: str, position: Position) -> int:
 	return sum(len(part) for part in prefix) + position.character
 
 
-def apply_text_edits(file_path: str, edits: list[TextEdit]) -> str:
-	"""Apply a list of text edits to a file's current content and return new content."""
-	path = Path(file_path).resolve()
-	content = path.read_text(encoding="utf-8")
+def apply_text_edits(file_path: str, edits: list[TextEdit], content: str | None = None) -> str:
+	"""Apply a list of text edits to a file's current content and return new content.
+
+	When *content* is provided it is used directly, avoiding an extra disk read.
+	"""
+	if content is None:
+		path = Path(file_path).resolve()
+		content = path.read_text(encoding="utf-8")
 	if not edits:
 		return content
 
@@ -75,7 +79,7 @@ def build_unified_diff(file_path: str, edits: list[TextEdit]) -> str:
 	"""Build a unified diff preview for the provided edits against current disk content."""
 	path = Path(file_path).resolve()
 	original = path.read_text(encoding="utf-8")
-	updated = apply_text_edits(str(path), edits)
+	updated = apply_text_edits(str(path), edits, content=original)
 	diff_lines = difflib.unified_diff(
 		original.splitlines(keepends=True),
 		updated.splitlines(keepends=True),
