@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 import jedi  # type: ignore[import-untyped]
@@ -22,6 +23,8 @@ from python_refactor_mcp.models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_JEDI_TIMEOUT = 10.0
 
 
 def _to_absolute_path(path: str | Path | None) -> str | None:
@@ -78,6 +81,11 @@ class JediBackend:
         """Initialize backend config and deferred project state."""
         self._config = config
         self._project: jedi.Project | None = None
+        timeout_env = os.getenv("JEDI_OPERATION_TIMEOUT_SECONDS", "")
+        try:
+            self._timeout = max(float(timeout_env), 1.0) if timeout_env else _DEFAULT_JEDI_TIMEOUT
+        except ValueError:
+            self._timeout = _DEFAULT_JEDI_TIMEOUT
 
     def initialize(self) -> None:
         """Create a Jedi project for the configured workspace root."""
@@ -118,7 +126,7 @@ class JediBackend:
             return locations
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi get_references resolved %d locations for %s", len(result), file_path)
             return result
         except Exception as exc:
@@ -138,7 +146,7 @@ class JediBackend:
             return locations
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi goto_definition resolved %d locations for %s", len(result), file_path)
             return result
         except Exception as exc:
@@ -168,7 +176,7 @@ class JediBackend:
             )
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi infer_type returned %s for %s", "value" if result else "none", file_path)
             return result
         except Exception as exc:
@@ -206,7 +214,7 @@ class JediBackend:
             return suggestions
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi search_names returned %d suggestions for %s", len(result), symbol)
             return result
         except Exception as exc:
@@ -255,7 +263,7 @@ class JediBackend:
             return symbols
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi search_symbols returned %d results for %s", len(result), query)
             return result
         except Exception as exc:
@@ -300,7 +308,7 @@ class JediBackend:
             )
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi get_signatures returned %s for %s", "value" if result else "none", file_path)
             return result
         except Exception as exc:
@@ -364,7 +372,7 @@ class JediBackend:
             )
 
         try:
-            result = await asyncio.to_thread(_work)
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             _LOGGER.debug("Jedi get_help returned %d entries for %s", len(result.entries), file_path)
             return result
         except Exception as exc:
