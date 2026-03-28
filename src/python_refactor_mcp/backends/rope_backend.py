@@ -35,6 +35,12 @@ from rope.refactor.rename import Rename  # type: ignore[import-untyped]
 from rope.refactor.restructure import Restructure  # type: ignore[import-untyped]
 from rope.refactor.topackage import ModuleToPackage  # type: ignore[import-untyped]
 from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped]
+from rope.contrib.findit import find_definition  # type: ignore[import-untyped]
+from rope.contrib import generate as rope_generate  # type: ignore[import-untyped]
+from rope.contrib.finderrors import find_errors as _rope_find_errors  # type: ignore[import-untyped]
+from rope.contrib.fixmodnames import FixModuleNames  # type: ignore[import-untyped]
+from rope.refactor.importutils import ImportOrganizer  # type: ignore[import-untyped]
+from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
@@ -617,3 +623,272 @@ class RopeBackend:
             return result
         except Exception as exc:
             raise RopeError(f"rope method_object failed for {file_path}:{line}:{character}") from exc
+
+    async def inline_method(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Inline a method/function body into all call sites and remove the definition."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = create_inline(project, resource, offset).get_changes()
+            return self._build_result(changes, "Inlined method", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.inline_method"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope inline_method failed for {file_path}:{line}:{character}") from exc
+
+    async def inline_parameter(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        apply: bool,
+    ) -> RefactorResult:
+        """Inline a parameter's default value into the function body and remove it from the signature."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            changes = create_inline(project, resource, offset).get_changes()
+            return self._build_result(changes, "Inlined parameter", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.inline_parameter"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope inline_parameter failed for {file_path}:{line}:{character}") from exc
+
+    async def move_method(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        destination_attr: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Move a method from one class to another via a destination attribute name."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            mover = create_move(project, resource, offset)
+            changes = mover.get_changes(destination_attr)
+            return self._build_result(changes, f"Moved method to '{destination_attr}'", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.move_method"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope move_method failed for {file_path}:{line}:{character}") from exc
+
+    async def move_module(
+        self,
+        source_path: str,
+        destination_package: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Move/rename a module or package, updating all imports project-wide."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            source_resource = self._resource_for_path(source_path)
+            dest_resource = self._resource_for_path(destination_package)
+            mover = create_move(project, source_resource, None)
+            changes = mover.get_changes(dest_resource)
+            return self._build_result(
+                changes,
+                f"Moved module '{source_path}' to '{destination_package}'",
+                apply,
+            )
+
+        try:
+            async with timed(_LOGGER, "rope.move_module"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope move_module failed for {source_path}") from exc
+
+    async def generate_code(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        kind: str,
+        apply: bool,
+    ) -> RefactorResult:
+        """Generate a missing class, function, variable, module, or package from a usage site."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            offset = self._position_to_offset(file_path, line, character)
+            kind_lower = kind.strip().lower()
+            generators = {
+                "class": rope_generate.create_class,
+                "function": rope_generate.create_function,
+                "variable": rope_generate.create_variable,
+                "module": rope_generate.create_module,
+                "package": rope_generate.create_package,
+            }
+            creator = generators.get(kind_lower)
+            if creator is None:
+                raise RopeError(f"Unsupported generation kind: {kind}. Use: {', '.join(generators)}")
+            changes = creator(project, resource, offset)
+            return self._build_result(changes, f"Generated {kind_lower}", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.generate_code"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError(f"rope generate_code failed for {file_path}:{line}:{character}") from exc
+
+    async def fix_module_names(self, apply: bool) -> RefactorResult:
+        """Batch-rename modules to conform to PEP 8 lowercase naming."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            fixer = FixModuleNames(project)
+            changes = fixer.get_changes()
+            return self._build_result(changes, "Fixed module names to PEP 8 convention", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.fix_module_names"):
+                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            return result
+        except Exception as exc:
+            raise RopeError("rope fix_module_names failed") from exc
+
+    # ── Import organizer methods ──────────────────────────────────────────
+
+    async def expand_star_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Replace ``from x import *`` with explicit named imports."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            organizer = ImportOrganizer(project, resource)
+            changes = organizer.expand_star_imports()
+            return self._build_result(changes, "Expanded star imports", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.expand_star_imports"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope expand_star_imports failed for {file_path}") from exc
+
+    async def relatives_to_absolutes(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert all relative imports to absolute imports."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            organizer = ImportOrganizer(project, resource)
+            changes = organizer.relatives_to_absolutes()
+            return self._build_result(changes, "Converted relative imports to absolute", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.relatives_to_absolutes"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope relatives_to_absolutes failed for {file_path}") from exc
+
+    async def froms_to_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Convert ``from module import name`` to ``import module`` style."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            organizer = ImportOrganizer(project, resource)
+            changes = organizer.froms_to_imports()
+            return self._build_result(changes, "Converted from-imports to import statements", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.froms_to_imports"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope froms_to_imports failed for {file_path}") from exc
+
+    async def handle_long_imports(self, file_path: str, apply: bool) -> RefactorResult:
+        """Break long import lines per project preferences."""
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            resource = self._resource_for_path(file_path)
+            organizer = ImportOrganizer(project, resource)
+            changes = organizer.handle_long_imports()
+            return self._build_result(changes, "Handled long imports", apply)
+
+        try:
+            async with timed(_LOGGER, "rope.handle_long_imports"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope handle_long_imports failed for {file_path}") from exc
+
+    # ── AutoImport cache ──────────────────────────────────────────────────
+
+    async def autoimport_search(self, name: str) -> list[tuple[str, str]]:
+        """Search for importable names using rope's AutoImport SQLite cache.
+
+        Returns a list of (name, module) tuples.
+        """
+
+        def _work() -> list[tuple[str, str]]:
+            project = self._require_project()
+            with AutoImport(project) as ai:
+                ai.generate_cache()
+                return ai.search(name)
+
+        try:
+            async with timed(_LOGGER, "rope.autoimport_search"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope autoimport_search failed for '{name}'") from exc
+
+    async def find_errors(self, file_path: str) -> list[dict[str, object]]:
+        """Run rope's static analysis for bad name/attribute accesses."""
+
+        def _work() -> list[dict[str, object]]:
+            project = self._require_project()
+            resource = self._resource_for_path(file_path)
+            errors = _rope_find_errors(project, resource)
+            results: list[dict[str, object]] = []
+            for err in errors:
+                lineno = getattr(err, "lineno", None)
+                error_msg = getattr(err, "error", str(err))
+                results.append({
+                    "file_path": str(Path(file_path).resolve()),
+                    "line": (lineno - 1) if isinstance(lineno, int) else 0,
+                    "message": str(error_msg),
+                })
+            return results
+
+        try:
+            async with timed(_LOGGER, "rope.find_errors"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope find_errors failed for {file_path}") from exc

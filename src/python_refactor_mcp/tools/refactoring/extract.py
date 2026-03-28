@@ -72,3 +72,29 @@ async def inline_variable(
     """Inline a variable at the provided position."""
     result = await rope.inline(file_path, line, character, apply)
     return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def inline_method(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Inline a function/method body into all call sites and remove the original definition."""
+    result = await rope.inline_method(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)
+
+
+async def inline_parameter(
+    pyright: _PyrightRefactoringBackend,
+    rope: _RopeRefactoringBackend,
+    file_path: str,
+    line: int,
+    character: int,
+    apply: bool = False,
+) -> RefactorResult:
+    """Remove a parameter by inlining its default value into the function body."""
+    result = await rope.inline_parameter(file_path, line, character, apply)
+    return await _attach_post_apply_diagnostics(pyright, result)

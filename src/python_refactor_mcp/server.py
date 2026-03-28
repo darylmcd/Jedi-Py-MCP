@@ -30,14 +30,17 @@ from python_refactor_mcp.models import (
 	DocumentHighlight,
 	FoldingRange,
 	ImportSuggestion,
+	InferredType,
 	InlayHint,
 	Location,
+	NameEntry,
 	PaginatedDeadCode,
 	PaginatedDiagnosticSummary,
 	Position,
 	PrepareRenameResult,
 	RefactorResult,
 	ReferenceResult,
+	ScopeContext,
 	SelectionRangeResult,
 	SemanticToken,
 	SignatureInfo,
@@ -45,18 +48,31 @@ from python_refactor_mcp.models import (
 	StructuralMatch,
 	SymbolInfo,
 	SymbolOutlineItem,
+	SyntaxErrorItem,
 	TextEdit,
+	TypeCoverageReport,
 	TypeHierarchyResult,
+	TypeHintResult,
 	TypeInfo,
+	CodeMetricsResult,
+	CouplingMetrics,
+	DependencyGraph,
+	DuplicateGroup,
+	InterfaceComparison,
+	LayerViolation,
+	ProtocolSource,
+	PublicAPIItem,
+	StaticError,
+	UnusedImport,
 )
-from python_refactor_mcp.tools import analysis, composite, navigation, refactoring, search
+from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
 
 _READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 _ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Parameters that contain file paths requiring workspace boundary validation.
-_PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path"})
+_PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"})
 _LIST_PATH_PARAMS = frozenset({"file_paths"})
 
 # Parameters that must be valid Python identifiers.
@@ -384,6 +400,74 @@ async def get_workspace_diagnostics(
 	return result
 
 
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def deep_type_inference(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> list[InferredType]:
+	"""Follow imports and statements to resolve final types at a position. Goes deeper than get_type_info by tracing through assignments and imports to their ultimate definitions. Use when get_type_info returns 'Unknown' for dynamic code. Related: get_type_info, get_type_hint_string."""
+	app = _get_app_context(ctx)
+	result = await analysis.deep_type_inference(app.jedi, file_path, line, character)
+	await ctx.debug(f"deep_type_inference count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_type_hint_string(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> list[TypeHintResult]:
+	"""Return ready-to-use type annotation strings like ``Iterable[int]`` for a symbol. Use when adding missing type hints — provides copy-paste-ready annotations. Related: deep_type_inference, get_type_info."""
+	app = _get_app_context(ctx)
+	result = await analysis.get_type_hint_string(app.jedi, file_path, line, character)
+	await ctx.debug(f"get_type_hint_string count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_syntax_errors(ctx: MCPContext, file_path: str) -> list[SyntaxErrorItem]:
+	"""Detect syntax errors via Jedi's parser. Complements Pyright diagnostics with an independent syntax check. Use to quickly find parse errors before running full type analysis. Related: get_diagnostics."""
+	app = _get_app_context(ctx)
+	result = await analysis.get_syntax_errors(app.jedi, file_path)
+	await ctx.debug(f"get_syntax_errors count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_context(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> ScopeContext | None:
+	"""Return the enclosing function, class, or module scope at a position. Use to understand code structure and what scope a given line belongs to. Related: get_symbol_outline, call_hierarchy."""
+	app = _get_app_context(ctx)
+	result = await analysis.get_context(app.jedi, file_path, line, character)
+	await ctx.debug(f"get_context kind={result.kind if result else 'none'}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_all_names(
+	ctx: MCPContext, file_path: str, all_scopes: bool = True, references: bool = False,
+) -> list[NameEntry]:
+	"""List all defined names in a file with optional nested scopes. Broader than get_symbol_outline — includes references and nested scopes when enabled. Use to audit all names used in a file. Related: get_symbol_outline, search_symbols."""
+	app = _get_app_context(ctx)
+	result = await analysis.get_all_names(app.jedi, file_path, all_scopes, references)
+	await ctx.debug(f"get_all_names count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def create_type_stubs(ctx: MCPContext, package_name: str, output_dir: str | None = None) -> bool:
+	"""Generate .pyi type stub files for a third-party package lacking type information. Use to improve type checking for untyped dependencies. The package_name is the import name (e.g., 'requests'). Optional output_dir specifies where to write stubs. Related: get_diagnostics, get_type_info."""
+	app = _get_app_context(ctx)
+	result = await analysis.create_type_stubs(app.pyright, package_name, output_dir)
+	await ctx.debug(f"create_type_stubs package={package_name} success={result}")
+	return result
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Navigation tools
 # ═══════════════════════════════════════════════════════════════════════════
@@ -628,6 +712,66 @@ async def organize_imports(
 	return result
 
 
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def expand_star_imports(
+	ctx: MCPContext, file_path: str, apply: bool = False,
+) -> RefactorResult:
+	"""Replace ``from x import *`` with explicit named imports. Use to improve code quality and make dependencies explicit. Critical for large codebases where star imports hide the origin of names. Defaults to preview mode. Related: organize_imports, find_unused_imports."""
+	app = _get_app_context(ctx)
+	result = await refactoring.expand_star_imports(app.pyright, app.rope, file_path, apply)
+	await ctx.debug(f"expand_star_imports edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def relatives_to_absolutes(
+	ctx: MCPContext, file_path: str, apply: bool = False,
+) -> RefactorResult:
+	"""Convert all relative imports to absolute imports in a file. Use when migrating modules or enforcing absolute import style. Defaults to preview mode. Related: froms_to_imports, organize_imports."""
+	app = _get_app_context(ctx)
+	result = await refactoring.relatives_to_absolutes(app.pyright, app.rope, file_path, apply)
+	await ctx.debug(f"relatives_to_absolutes edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def froms_to_imports(
+	ctx: MCPContext, file_path: str, apply: bool = False,
+) -> RefactorResult:
+	"""Convert ``from module import name`` to ``import module`` style. Use to switch import convention or reduce namespace pollution. Defaults to preview mode. Related: relatives_to_absolutes, organize_imports."""
+	app = _get_app_context(ctx)
+	result = await refactoring.froms_to_imports(app.pyright, app.rope, file_path, apply)
+	await ctx.debug(f"froms_to_imports edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def handle_long_imports(
+	ctx: MCPContext, file_path: str, apply: bool = False,
+) -> RefactorResult:
+	"""Break long import lines per project preferences (maxdots, maxlength). Use to enforce line length limits in import sections. Defaults to preview mode. Related: organize_imports, expand_star_imports."""
+	app = _get_app_context(ctx)
+	result = await refactoring.handle_long_imports(app.pyright, app.rope, file_path, apply)
+	await ctx.debug(f"handle_long_imports edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def autoimport_search(
+	ctx: MCPContext, name: str,
+) -> list[ImportSuggestion]:
+	"""Search for importable names using rope's SQLite-backed AutoImport cache. Use for fast project-wide auto-import suggestions, especially in large projects. Complements suggest_imports with cached lookups. Related: suggest_imports, expand_star_imports."""
+	app = _get_app_context(ctx)
+	result = await refactoring.autoimport_search(app.rope, name)
+	await ctx.debug(f"autoimport_search name={name} count={len(result)}")
+	return result
+
+
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def prepare_rename(ctx: MCPContext, file_path: str, line: int, character: int) -> PrepareRenameResult | None:
@@ -776,6 +920,102 @@ async def method_object(
 	return result
 
 
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def inline_method(
+	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
+) -> RefactorResult:
+	"""Inline a function/method body into all call sites and remove the original definition. Use when a method is trivial or called in only one place and adds unnecessary indirection. The inverse of extract_method. Defaults to preview mode. Related: inline_variable, extract_method."""
+	app = _get_app_context(ctx)
+	result = await refactoring.inline_method(app.pyright, app.rope, file_path, line, character, apply)
+	await ctx.debug(f"inline_method edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def inline_parameter(
+	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
+) -> RefactorResult:
+	"""Remove a parameter by inlining its default value into the function body. Use when a parameter is always called with the same value and can be replaced with a constant. Position cursor on the parameter name in the function definition. Defaults to preview mode. Related: change_signature, introduce_parameter."""
+	app = _get_app_context(ctx)
+	result = await refactoring.inline_parameter(app.pyright, app.rope, file_path, line, character, apply)
+	await ctx.debug(f"inline_parameter edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def move_method(
+	ctx: MCPContext, file_path: str, line: int, character: int, destination_attr: str, apply: bool = False,
+) -> RefactorResult:
+	"""Move a method from one class to another, creating a delegate in the original class. Use when a method uses another class's data more than its own. The destination_attr is the attribute name on the source class that references the target class instance. Defaults to preview mode. Related: move_symbol, extract_method."""
+	app = _get_app_context(ctx)
+	result = await refactoring.move_method(app.pyright, app.rope, file_path, line, character, destination_attr, apply)
+	await ctx.debug(f"move_method edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def move_module(
+	ctx: MCPContext, source_path: str, destination_package: str, apply: bool = False,
+) -> RefactorResult:
+	"""Move or rename an entire module or package, updating all imports across the project. Use when reorganizing package structure. The source_path is the module file to move; destination_package is the target package directory. Defaults to preview mode. Related: move_symbol, module_to_package."""
+	app = _get_app_context(ctx)
+	result = await refactoring.move_module(app.pyright, app.rope, source_path, destination_package, apply)
+	await ctx.debug(f"move_module edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def generate_code(
+	ctx: MCPContext, file_path: str, line: int, character: int, kind: str, apply: bool = False,
+) -> RefactorResult:
+	"""Generate a missing class, function, variable, module, or package from a usage site. Use when code references a name that doesn't exist yet — rope creates a skeleton definition. The kind parameter must be one of: 'class', 'function', 'variable', 'module', 'package'. Defaults to preview mode. Related: extract_method, introduce_factory."""
+	app = _get_app_context(ctx)
+	result = await refactoring.generate_code(app.pyright, app.rope, file_path, line, character, kind, apply)
+	await ctx.debug(f"generate_code kind={kind} edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def fix_module_names(ctx: MCPContext, apply: bool = False) -> RefactorResult:
+	"""Batch-rename modules to conform to PEP 8 lowercase naming conventions, updating all imports. Use to enforce consistent module naming across the project. Defaults to preview mode. Related: rename_symbol, move_module."""
+	app = _get_app_context(ctx)
+	result = await refactoring.fix_module_names(app.pyright, app.rope, apply)
+	await ctx.debug(f"fix_module_names edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def argument_normalizer(
+	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
+) -> RefactorResult:
+	"""Normalize call-site arguments to match the function definition's parameter order. Use to clean up keyword arguments that are passed in a different order than the signature defines. Convenience wrapper over change_signature with op='normalize'. Defaults to preview mode. Related: change_signature, argument_default_inliner."""
+	app = _get_app_context(ctx)
+	ops = [SignatureOperation(op="normalize")]
+	result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
+	await ctx.debug(f"argument_normalizer edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def argument_default_inliner(
+	ctx: MCPContext, file_path: str, line: int, character: int, index: int, apply: bool = False,
+) -> RefactorResult:
+	"""Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer."""
+	app = _get_app_context(ctx)
+	ops = [SignatureOperation(op="inline_default", index=index)]
+	result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
+	await ctx.debug(f"argument_default_inliner edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Search tools
 # ═══════════════════════════════════════════════════════════════════════════
@@ -840,6 +1080,139 @@ async def suggest_imports(ctx: MCPContext, symbol: str, file_path: str) -> list[
 	app = _get_app_context(ctx)
 	result = await search.suggest_imports(app.pyright, app.jedi, symbol, file_path)
 	await ctx.debug(f"suggest_imports symbol={symbol} count={len(result)}")
+	return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Metrics & Architecture tools
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def code_metrics(
+	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None,
+) -> CodeMetricsResult:
+	"""Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
+	_ = _get_app_context(ctx)
+	result = await metrics.code_metrics(file_path, file_paths)
+	await ctx.debug(f"code_metrics functions={result.total_functions} max_cc={result.max_cyclomatic}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_module_dependencies(
+	ctx: MCPContext, file_path: str | None = None, file_paths: list[str] | None = None,
+) -> DependencyGraph:
+	"""Build an import dependency graph with circular dependency detection. Parses ast.Import/ImportFrom nodes, resolves to file paths, and detects cycles via DFS. Related: get_coupling_metrics, check_layer_violations."""
+	app = _get_app_context(ctx)
+	result = await metrics.get_module_dependencies(app.config, file_path, file_paths)
+	await ctx.debug(f"get_module_dependencies modules={len(result.modules)} deps={len(result.dependencies)} cycles={len(result.circular_dependencies)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def find_unused_imports(
+	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None,
+) -> list[UnusedImport]:
+	"""Find unused imports using Pyright reportUnusedImport diagnostics with AST fallback. Use to clean up import sections before committing. Related: organize_imports, expand_star_imports."""
+	app = _get_app_context(ctx)
+	result = await metrics.find_unused_imports(app.pyright, file_path, file_paths)
+	await ctx.debug(f"find_unused_imports count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def find_duplicated_code(
+	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None, min_lines: int = 3,
+) -> list[DuplicateGroup]:
+	"""Detect duplicated function bodies by normalizing AST and comparing hashes. Use to find copy-paste code that should be refactored into shared functions. The min_lines parameter filters out trivially small functions. Related: use_function, extract_method."""
+	_ = _get_app_context(ctx)
+	result = await metrics.find_duplicated_code(file_path, file_paths, min_lines)
+	await ctx.debug(f"find_duplicated_code groups={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_type_coverage(
+	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None,
+) -> TypeCoverageReport:
+	"""Report type annotation completeness for function parameters and return types. Use to audit type coverage and identify unannotated symbols. Related: get_type_hint_string, deep_type_inference."""
+	_ = _get_app_context(ctx)
+	result = await metrics.get_type_coverage(file_path, file_paths)
+	await ctx.debug(f"get_type_coverage functions={result.total_functions} return_pct={result.return_coverage_pct} param_pct={result.param_coverage_pct}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_coupling_metrics(
+	ctx: MCPContext, file_paths: list[str] | None = None,
+) -> list[CouplingMetrics]:
+	"""Compute afferent/efferent coupling and instability per module. Ca = importers count, Ce = imports count, I = Ce/(Ca+Ce). Use to identify modules that are too coupled or too unstable. Related: get_module_dependencies, check_layer_violations."""
+	app = _get_app_context(ctx)
+	result = await metrics.get_coupling_metrics(app.config, file_paths=file_paths)
+	await ctx.debug(f"get_coupling_metrics modules={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def check_layer_violations(
+	ctx: MCPContext, layers: list[list[str]], file_paths: list[str] | None = None,
+) -> list[LayerViolation]:
+	"""Check import directions against declared layering rules. The layers parameter is ordered from highest (e.g., presentation) to lowest (e.g., domain). Flags imports from lower layers to higher layers. Related: get_module_dependencies, get_coupling_metrics."""
+	app = _get_app_context(ctx)
+	result = await metrics.check_layer_violations(app.config, layers, file_paths)
+	await ctx.debug(f"check_layer_violations violations={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def find_errors_static(ctx: MCPContext, file_path: str) -> list[StaticError]:
+	"""Run rope's static analysis for bad name/attribute accesses. Complements Pyright diagnostics with rope's own analysis using finderrors. Use for an independent check of name resolution issues. Related: get_diagnostics, get_syntax_errors."""
+	app = _get_app_context(ctx)
+	result = await analysis.find_errors_static(app.rope, file_path)
+	await ctx.debug(f"find_errors_static count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def interface_conformance(
+	ctx: MCPContext, file_path: str, class_names: list[str],
+) -> InterfaceComparison:
+	"""Compare class interfaces to detect implicit protocol conformance. Given class names in a file, extracts method signatures and reports common methods, unique methods, and signature mismatches. Use before extract_protocol to preview what the protocol will contain. Related: extract_protocol, type_hierarchy."""
+	_ = _get_app_context(ctx)
+	result = await metrics.interface_conformance(file_path, class_names)
+	await ctx.debug(f"interface_conformance classes={len(class_names)} common={len(result.common_methods)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def extract_protocol(
+	ctx: MCPContext, file_path: str, class_names: list[str], protocol_name: str = "GeneratedProtocol",
+) -> ProtocolSource:
+	"""Generate a Protocol class from common methods of given classes. Reuses interface_conformance logic to find shared methods, then generates a copy-paste-ready Protocol definition. Related: interface_conformance, type_hierarchy."""
+	_ = _get_app_context(ctx)
+	result = await metrics.extract_protocol(file_path, class_names, protocol_name)
+	await ctx.debug(f"extract_protocol methods={len(result.methods)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_module_public_api(ctx: MCPContext, file_path: str) -> list[PublicAPIItem]:
+	"""Return only exported symbols from a module. Filters out _-prefixed names and respects __all__ if present. Use to understand a module's public interface without internal details. Related: get_symbol_outline, get_all_names."""
+	_ = _get_app_context(ctx)
+	result = await navigation.get_module_public_api(file_path)
+	await ctx.debug(f"get_module_public_api count={len(result)}")
 	return result
 
 

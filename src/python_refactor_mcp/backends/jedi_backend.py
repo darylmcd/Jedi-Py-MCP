@@ -15,10 +15,15 @@ from python_refactor_mcp.models import (
     DocumentationEntry,
     DocumentationResult,
     ImportSuggestion,
+    InferredType,
     Location,
+    NameEntry,
     ParameterInfo,
+    ScopeContext,
     SignatureInfo,
     SymbolInfo,
+    SyntaxErrorItem,
+    TypeHintResult,
     TypeInfo,
 )
 
@@ -377,3 +382,173 @@ class JediBackend:
             return result
         except Exception as exc:
             raise JediError(f"Jedi get_help failed for {file_path}:{line}:{character}") from exc
+
+    async def deep_infer(self, file_path: str, line: int, character: int) -> list[InferredType]:
+        """Follow imports and assignments to resolve final types via ``Script.infer()``."""
+
+        def _work() -> list[InferredType]:
+            script = self._make_script(file_path)
+            names = script.infer(line=line + 1, column=character)
+            results: list[InferredType] = []
+            for name in names:
+                entry_name = getattr(name, "name", "")
+                if not isinstance(entry_name, str):
+                    entry_name = ""
+                full_name = getattr(name, "full_name", None)
+                full_name = full_name if isinstance(full_name, str) else None
+                type_string = str(getattr(name, "type", "unknown"))
+                module_path = _to_absolute_path(getattr(name, "module_path", None))
+                description = getattr(name, "description", None)
+                description = description if isinstance(description, str) else None
+                results.append(InferredType(
+                    name=entry_name,
+                    full_name=full_name,
+                    type_string=type_string,
+                    module_path=module_path,
+                    line=_jedi_start_line(name),
+                    character=_jedi_start_character(name),
+                    description=description,
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi deep_infer returned %d types for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi deep_infer failed for {file_path}:{line}:{character}") from exc
+
+    async def get_type_hint(self, file_path: str, line: int, character: int) -> list[TypeHintResult]:
+        """Return ready-to-use type annotation strings via ``Name.get_type_hint()``."""
+
+        def _work() -> list[TypeHintResult]:
+            script = self._make_script(file_path)
+            names = script.infer(line=line + 1, column=character)
+            results: list[TypeHintResult] = []
+            for name in names:
+                entry_name = getattr(name, "name", "")
+                if not isinstance(entry_name, str):
+                    entry_name = ""
+                full_name = getattr(name, "full_name", None)
+                full_name = full_name if isinstance(full_name, str) else None
+                hint: str | None = None
+                get_type_hint_fn = getattr(name, "get_type_hint", None)
+                if callable(get_type_hint_fn):
+                    try:
+                        hint = get_type_hint_fn()
+                        if not isinstance(hint, str) or not hint:
+                            hint = None
+                    except Exception:
+                        pass
+                results.append(TypeHintResult(
+                    name=entry_name,
+                    type_hint=hint,
+                    full_name=full_name,
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_type_hint returned %d results for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_type_hint failed for {file_path}:{line}:{character}") from exc
+
+    async def get_syntax_errors(self, file_path: str) -> list[SyntaxErrorItem]:
+        """Detect syntax errors via Jedi's parser."""
+
+        def _work() -> list[SyntaxErrorItem]:
+            script = self._make_script(file_path)
+            errors = script.get_syntax_errors()
+            results: list[SyntaxErrorItem] = []
+            for err in errors:
+                msg = getattr(err, "message", "syntax error")
+                if not isinstance(msg, str):
+                    msg = "syntax error"
+                line_val = getattr(err, "line", 1)
+                col_val = getattr(err, "column", 0)
+                until_line = getattr(err, "until_line", None)
+                until_col = getattr(err, "until_column", None)
+                results.append(SyntaxErrorItem(
+                    file_path=str(Path(file_path).resolve()),
+                    message=msg,
+                    line=max((line_val if isinstance(line_val, int) else 1) - 1, 0),
+                    character=max(col_val if isinstance(col_val, int) else 0, 0),
+                    until_line=max(until_line - 1, 0) if isinstance(until_line, int) else None,
+                    until_character=max(until_col, 0) if isinstance(until_col, int) else None,
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_syntax_errors returned %d errors for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_syntax_errors failed for {file_path}") from exc
+
+    async def get_context(self, file_path: str, line: int, character: int) -> ScopeContext | None:
+        """Return the enclosing function/class/module scope at a position."""
+
+        def _work() -> ScopeContext | None:
+            script = self._make_script(file_path)
+            ctx = script.get_context(line=line + 1, column=character)
+            if ctx is None:
+                return None
+            name = getattr(ctx, "name", "")
+            if not isinstance(name, str):
+                name = ""
+            kind = str(getattr(ctx, "type", "module"))
+            full_name = getattr(ctx, "full_name", None)
+            full_name = full_name if isinstance(full_name, str) else None
+            return ScopeContext(
+                name=name,
+                kind=kind,
+                file_path=str(Path(file_path).resolve()),
+                line=_jedi_start_line(ctx),
+                character=_jedi_start_character(ctx),
+                full_name=full_name,
+            )
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_context returned %s for %s", result.kind if result else "none", file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_context failed for {file_path}:{line}:{character}") from exc
+
+    async def get_names(
+        self, file_path: str, all_scopes: bool = True, references: bool = False,
+    ) -> list[NameEntry]:
+        """List all defined names in a file, optionally including nested scopes."""
+
+        def _work() -> list[NameEntry]:
+            script = self._make_script(file_path)
+            names = script.get_names(all_scopes=all_scopes, references=references)
+            results: list[NameEntry] = []
+            for name in names:
+                entry_name = getattr(name, "name", "")
+                if not isinstance(entry_name, str) or not entry_name:
+                    continue
+                kind = str(getattr(name, "type", "statement"))
+                full_name = getattr(name, "full_name", None)
+                full_name = full_name if isinstance(full_name, str) else None
+                description = getattr(name, "description", None)
+                description = description if isinstance(description, str) else None
+                module_path = _to_absolute_path(getattr(name, "module_path", None))
+                results.append(NameEntry(
+                    name=entry_name,
+                    kind=kind,
+                    file_path=module_path,
+                    line=_jedi_start_line(name),
+                    character=_jedi_start_character(name),
+                    full_name=full_name,
+                    description=description,
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_names returned %d names for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_names failed for {file_path}") from exc

@@ -20,12 +20,14 @@ from python_refactor_mcp.tools.navigation.outline import (
     get_symbol_outline,
     selection_range,
 )
+from python_refactor_mcp.tools.navigation.public_api import get_module_public_api
 
 __all__ = [
     "call_hierarchy",
     "find_implementations",
     "get_declaration",
     "get_folding_ranges",
+    "get_module_public_api",
     "get_symbol_outline",
     "get_type_definition",
     "goto_definition",

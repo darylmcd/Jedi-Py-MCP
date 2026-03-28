@@ -322,3 +322,189 @@ class DiffPreview(BaseModel):
 
     file_path: str
     unified_diff: str
+
+
+class InferredType(BaseModel):
+    """Deep type inference result following imports and assignments."""
+
+    name: str
+    full_name: str | None = None
+    type_string: str
+    module_path: str | None = None
+    line: int | None = None
+    character: int | None = None
+    description: str | None = None
+
+
+class TypeHintResult(BaseModel):
+    """Type hint annotation string for a symbol."""
+
+    name: str
+    type_hint: str | None = None
+    full_name: str | None = None
+
+
+class SyntaxErrorItem(BaseModel):
+    """A syntax error detected by Jedi's parser."""
+
+    file_path: str
+    message: str
+    line: int
+    character: int
+    until_line: int | None = None
+    until_character: int | None = None
+
+
+class ScopeContext(BaseModel):
+    """Enclosing scope at a source position."""
+
+    name: str
+    kind: str
+    file_path: str
+    line: int
+    character: int
+    full_name: str | None = None
+
+
+class NameEntry(BaseModel):
+    """A defined name in a file (broader than symbol outline)."""
+
+    name: str
+    kind: str
+    file_path: str | None = None
+    line: int
+    character: int
+    full_name: str | None = None
+    description: str | None = None
+
+
+class FunctionMetrics(BaseModel):
+    """Complexity metrics for a single function."""
+
+    name: str
+    file_path: str
+    line: int
+    cyclomatic_complexity: int
+    cognitive_complexity: int
+    nesting_depth: int
+    loc: int
+    parameter_count: int
+
+
+class CodeMetricsResult(BaseModel):
+    """Code metrics for one or more files."""
+
+    functions: list[FunctionMetrics]
+    total_functions: int
+    avg_cyclomatic: float
+    max_cyclomatic: int
+
+
+class ModuleDependency(BaseModel):
+    """An import dependency between two modules."""
+
+    source: str
+    target: str
+    import_name: str
+    line: int
+
+
+class DependencyGraph(BaseModel):
+    """Module dependency graph with optional circular dependency detection."""
+
+    dependencies: list[ModuleDependency]
+    modules: list[str]
+    circular_dependencies: list[list[str]]
+
+
+class UnusedImport(BaseModel):
+    """An unused import found in a file."""
+
+    file_path: str
+    module: str
+    name: str | None = None
+    line: int
+    message: str
+
+
+class DuplicateGroup(BaseModel):
+    """A group of duplicated code fragments."""
+
+    hash: str
+    function_name: str
+    occurrences: list[dict[str, object]]
+    count: int
+
+
+class TypeCoverageReport(BaseModel):
+    """Type annotation coverage report for a file or project."""
+
+    file_path: str | None = None
+    total_functions: int
+    annotated_return: int
+    annotated_params: int
+    total_params: int
+    return_coverage_pct: float
+    param_coverage_pct: float
+    unannotated: list[dict[str, object]]
+
+
+class CouplingMetrics(BaseModel):
+    """Afferent/efferent coupling and instability for a module."""
+
+    module: str
+    afferent_coupling: int
+    efferent_coupling: int
+    instability: float
+
+
+class LayerViolation(BaseModel):
+    """An import that violates declared layer ordering."""
+
+    source_module: str
+    target_module: str
+    source_layer: int
+    target_layer: int
+    import_line: int
+
+
+class StaticError(BaseModel):
+    """A static analysis error from rope's finderrors."""
+
+    file_path: str
+    line: int
+    message: str
+
+
+class MethodSignature(BaseModel):
+    """A method signature extracted for interface comparison."""
+
+    name: str
+    params: list[str]
+    return_annotation: str | None = None
+
+
+class InterfaceComparison(BaseModel):
+    """Result of comparing class interfaces for protocol conformance."""
+
+    classes: list[str]
+    common_methods: list[str]
+    unique_methods: dict[str, list[str]]
+    signature_mismatches: list[dict[str, object]]
+
+
+class ProtocolSource(BaseModel):
+    """Generated Protocol class source code."""
+
+    protocol_name: str
+    source_code: str
+    methods: list[str]
+
+
+class PublicAPIItem(BaseModel):
+    """A public symbol in a module's API."""
+
+    name: str
+    kind: str
+    line: int
+    file_path: str
