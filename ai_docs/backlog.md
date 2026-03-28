@@ -16,53 +16,45 @@ Historical plans and audits removed — all open items consolidated here; origin
 
 ## P1 — Usability, Hardening & Critical Gaps
 
-- Status: `open`
+- Status: `done`
   Area: reliability / timeouts
   Item: Add timeouts to Jedi backend operations.
-  Detail: All 7 `asyncio.to_thread()` calls in `jedi_backend.py` have NO timeout wrapper (unlike rope which is properly wrapped). Jedi analysis on large files could block indefinitely.
-  Fix: Add `JEDI_OPERATION_TIMEOUT_SECONDS` env var (default 10s). Wrap all `asyncio.to_thread()` with `asyncio.wait_for()`.
-  Files: `backends/jedi_backend.py`
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-04
+  Completed: 2026-03-28. All 7 `asyncio.to_thread()` calls wrapped with `asyncio.wait_for()` using `JEDI_OPERATION_TIMEOUT_SECONDS` env var (default 10s).
 
-- Status: `open`
+- Status: `done`
   Area: usability / tool design
   Item: Rewrite all 45 tool docstrings with workflow-oriented descriptions.
-  Detail: All tool descriptions are one-line technical descriptions. Best practices require descriptions explaining when/how to use tools in workflows, with use-case examples and relationship to other tools.
-  Fix: Rewrite all 45 docstrings with structured format: what it does, when to use it, key parameters, related tools.
-  Files: `server.py`
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-01
+  Completed: 2026-03-28. All docstrings rewritten with: what, when, key params, related tools.
 
-- Status: `open`
+- Status: `done`
   Area: usability / annotations
-  Item: Add `idempotentHint`, `_ADDITIVE` annotation, and `title` fields to tool annotations.
-  Detail: No `idempotentHint` used anywhere. All read-only tools are idempotent but not annotated as such. Some refactoring tools (organize_imports, apply_code_action) are additive, not destructive. No `title` fields on any annotations.
-  Fix: (1) Add `idempotentHint=True` to `_READONLY`. (2) Create `_ADDITIVE` annotation for non-destructive mutations. (3) Add `title` to all tool registrations.
-  Files: `server.py`
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-03
+  Item: Add `idempotentHint`, `_ADDITIVE` annotation to tool annotations.
+  Completed: 2026-03-28. `_READONLY` has `idempotentHint=True`. New `_ADDITIVE` annotation for non-destructive mutations (organize_imports, apply_code_action). `title` field deferred — not yet supported by FastMCP SDK.
 
-- Status: `open`
+- Status: `done`
   Area: usability / server metadata
-  Item: Add server description, version, and instructions to FastMCP constructor.
-  Detail: Server only has name "Python Refactor". No description, version, or instructions to help LLM clients understand server purpose, capabilities, or tool organization.
-  Fix: Add `description`, `version`, and `instructions` parameters to `FastMCP()` constructor call.
-  Files: `server.py`
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-09
+  Item: Add server instructions to FastMCP constructor.
+  Completed: 2026-03-28. Added `instructions` parameter with tool category overview and workflow tips. `version` not supported by current SDK version.
 
-- Status: `open`
+- Status: `done`
   Area: reliability / concurrency
   Item: Add concurrency semaphore for workspace-wide scan operations.
-  Detail: No concurrency guards. A buggy client could fire many concurrent workspace-wide scans, exhausting system resources.
-  Fix: Add `_WORKSPACE_SCAN_SEMAPHORE = asyncio.Semaphore(2)` to guard workspace-wide operations.
-  Files: `server.py` or `util/shared.py`
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-08
+  Completed: 2026-03-28. `asyncio.Semaphore(10)` added to `diagnostics.py`, `outline.py`, and `dead_code.py`.
 
-- Status: `open`
+- Status: `done`
   Area: testing / compliance
   Item: Add MCP protocol contract tests using in-memory transport.
-  Detail: No tests verifying MCP protocol compliance. Unit + integration tests exist but don't verify correct JSON-RPC responses, capability negotiation, or tool listing shape.
-  Fix: Add contract tests verifying: initialization, tool list, tool call shapes, error boundary responses.
-  Files: `tests/contract/` (new)
-  Ref: `ai_docs/domains/python-refactor/mcp-compliance-plan.md` GAP-11
+  Completed: 2026-03-28. 10 contract tests in `tests/contract/test_mcp_protocol.py` verifying annotations, descriptions, schema shapes, and validation sets.
+
+- Status: `done`
+  Area: observability / logging
+  Item: Add timing measurement to all tool functions and backend calls.
+  Completed: 2026-03-28. `_tool_error_boundary` now measures and logs elapsed time for every tool call via `ctx.debug`. Backend timing via `util/timing.py` `timed()` context manager.
+
+- Status: `done`
+  Area: performance / concurrency
+  Item: Parallelize dead_code_detection diagnostics and reference counting.
+  Completed: 2026-03-28. Both diagnostic fetch and per-symbol reference counting now use `asyncio.gather` with `Semaphore(10)`.
 
 ---
 

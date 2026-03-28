@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import re
 from pathlib import Path
 
@@ -131,15 +132,21 @@ async def dead_code_detection(
 
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
-    # Collect diagnostics per target file to ensure scope matches the symbol scan.
-    all_diagnostics: list[Diagnostic] = []
-    for path in target_files:
+    # Collect diagnostics per target file with bounded concurrency.
+    sem = asyncio.Semaphore(10)
+
+    async def _fetch_diags(path: Path) -> list[Diagnostic]:
         if not path.exists():
-            continue
-        file_diags = await pyright.get_diagnostics(str(path))
-        all_diagnostics.extend(
-            d for d in file_diags if d.file_path in target_paths
-        )
+            return []
+        async with sem:
+            file_diags = await pyright.get_diagnostics(str(path))
+            return [d for d in file_diags if d.file_path in target_paths]
+
+    diag_results = await asyncio.gather(*[_fetch_diags(p) for p in target_files], return_exceptions=True)
+    all_diagnostics: list[Diagnostic] = []
+    for diag_result in diag_results:
+        if isinstance(diag_result, list):
+            all_diagnostics.extend(diag_result)
 
     for diagnostic in all_diagnostics:
         lowered = diagnostic.message.lower()
@@ -161,46 +168,56 @@ async def dead_code_detection(
         key = (item.file_path, item.name, item.range.start.line, item.range.start.character)
         dead_items[key] = item
 
+    # Collect all symbols to check, then check references with bounded concurrency.
+    symbols_to_check: list[tuple[Path, str, str, Range]] = []
     for path in target_files:
         if not path.exists():
             continue
         for name, kind, symbol_range in _iter_module_level_symbols(path):
             if any(pattern.search(name) for pattern in compiled_excludes):
                 continue
+            symbols_to_check.append((path, name, kind, symbol_range))
+
+    async def _check_symbol(path: Path, name: str, kind: str, symbol_range: Range) -> DeadCodeItem | None:
+        async with sem:
             references = await pyright.get_references(
                 str(path),
                 symbol_range.start.line,
                 symbol_range.start.character,
                 False,
             )
-            same_file_refs = []
-            external_refs = []
-            for ref in references:
-                ref_path = getattr(ref, "file_path", None)
-                if not isinstance(ref_path, str):
-                    continue
-                if ref_path == str(path.resolve()):
-                    same_file_refs.append(ref)
-                else:
-                    external_refs.append(ref)
-            if external_refs:
+        resolved_path = str(path.resolve())
+        same_file_count = 0
+        has_external = False
+        for ref in references:
+            ref_path = getattr(ref, "file_path", None)
+            if not isinstance(ref_path, str):
                 continue
-            # If there are same-file usages beyond just the definition, the symbol
-            # is an internal helper and not truly dead.
-            if len(same_file_refs) > 1:
-                continue
+            if ref_path == resolved_path:
+                same_file_count += 1
+            else:
+                has_external = True
+                break
+        if has_external or same_file_count > 1:
+            return None
+        reason = "no references"
+        return DeadCodeItem(
+            name=name,
+            kind=kind,
+            file_path=resolved_path,
+            range=symbol_range,
+            reason=reason,
+            confidence=_score_confidence(name, reason),
+        )
 
-            reason = "no references"
-            item = DeadCodeItem(
-                name=name,
-                kind=kind,
-                file_path=str(path.resolve()),
-                range=symbol_range,
-                reason=reason,
-                confidence=_score_confidence(name, reason),
-            )
-            key = (item.file_path, item.name, item.range.start.line, item.range.start.character)
-            dead_items[key] = item
+    ref_results = await asyncio.gather(
+        *[_check_symbol(p, n, k, r) for p, n, k, r in symbols_to_check],
+        return_exceptions=True,
+    )
+    for ref_result in ref_results:
+        if isinstance(ref_result, DeadCodeItem):
+            key = (ref_result.file_path, ref_result.name, ref_result.range.start.line, ref_result.range.start.character)
+            dead_items[key] = ref_result
 
     all_items = sorted(
         dead_items.values(),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
+from python_refactor_mcp import __version__
 from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.backends.rope_backend import RopeBackend
@@ -49,8 +51,9 @@ from python_refactor_mcp.models import (
 )
 from python_refactor_mcp.tools import analysis, composite, navigation, refactoring, search
 
-_READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
-_DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+_READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+_DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
+_ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Parameters that contain file paths requiring workspace boundary validation.
 _PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path"})
@@ -123,10 +126,18 @@ def _tool_error_boundary(  # noqa: UP047
 			if isinstance(value, str):
 				validate_identifier(value, param_name)
 
+		start = time.perf_counter()
 		try:
 			return await func(*args, **kwargs)
 		except BackendError as exc:
 			raise ValueError(str(exc)) from exc
+		finally:
+			elapsed_ms = (time.perf_counter() - start) * 1000
+			if ctx is not None:
+				try:
+					await ctx.debug(f"{func.__name__} completed in {elapsed_ms:.1f}ms")
+				except Exception:
+					pass
 
 	return _wrapped
 
@@ -179,7 +190,29 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 		rope_backend.close()
 
 
-mcp = FastMCP("Python Refactor", lifespan=app_lifespan)
+_SERVER_INSTRUCTIONS = """\
+Python Refactor MCP provides semantic code analysis and automated refactoring for Python projects.
+
+Tool categories:
+- **Analysis** (find_references, get_type_info, get_diagnostics, ...): Inspect code without modifying it.
+- **Navigation** (goto_definition, call_hierarchy, get_symbol_outline, ...): Navigate code structure.
+- **Refactoring** (rename_symbol, extract_method, move_symbol, ...): Transform code safely with preview support.
+  All refactoring tools default to preview mode (apply=False). Set apply=True to write changes to disk.
+- **Search** (search_symbols, dead_code_detection, structural_search, ...): Find patterns and issues.
+
+Workflow tips:
+- Use find_references before rename_symbol to understand impact scope.
+- Use prepare_rename before rename_symbol to verify the symbol is renameable.
+- Use get_diagnostics after applying refactorings to check for introduced errors.
+- Use diff_preview to visualize pending TextEdit lists before applying them.
+- Prefer get_type_info over get_hover_info unless you need hover-style formatting.
+"""
+
+mcp = FastMCP(
+	"Python Refactor",
+	instructions=_SERVER_INSTRUCTIONS,
+	lifespan=app_lifespan,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -198,7 +231,7 @@ async def find_references(
 	include_context: bool = False,
 	limit: int | None = None,
 ) -> ReferenceResult:
-	"""Find symbol references for the provided source location."""
+	"""Find all references to a symbol across the workspace. Use when you need to understand how widely a function, class, or variable is used before renaming, moving, or deleting it. Returns locations from both Pyright and Jedi for comprehensive coverage. Set include_context=True to get surrounding source lines. Related: prepare_rename, rename_symbol."""
 	app = _get_app_context(ctx)
 	result = await analysis.find_references(
 		app.pyright, app.jedi, file_path, line, character, include_declaration, include_context, limit,
@@ -210,7 +243,7 @@ async def find_references(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
-	"""Get type information for the provided source location."""
+	"""Infer the type of a symbol or expression at a source position. Use when you need to understand what type a variable holds, what a function returns, or what class an object is. Tries Pyright first with Jedi fallback for dynamic code. Related: get_hover_info (same data, hover-style format), get_documentation."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_type_info(app.pyright, app.jedi, file_path, line, character)
 	await ctx.debug(f"get_type_info source={result.source} type={result.type_string}")
@@ -220,7 +253,7 @@ async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: i
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
-	"""Get hover-style type and documentation information for a source location."""
+	"""Get hover-style type and documentation for a symbol. Returns the same data as get_type_info but intended for IDE hover display. Prefer get_type_info for programmatic type checking. Related: get_type_info, get_documentation."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_hover_info(app.pyright, app.jedi, file_path, line, character)
 	await ctx.debug(f"get_hover_info source={result.source} type={result.type_string}")
@@ -232,7 +265,7 @@ async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: 
 async def get_completions(
 	ctx: MCPContext, file_path: str, line: int, character: int, limit: int | None = None,
 ) -> list[CompletionItem]:
-	"""Get completion candidates for a source location."""
+	"""Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Related: get_signature_help (for call-site parameter info)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
 	await ctx.debug(f"get_completions count={len(result)}")
@@ -244,7 +277,7 @@ async def get_completions(
 async def get_documentation(
 	ctx: MCPContext, file_path: str, line: int, character: int, source: str | None = None,
 ) -> DocumentationResult:
-	"""Get detailed symbol documentation/help for a source location."""
+	"""Get detailed documentation and docstrings for a symbol. Use when you need full API docs, function signatures, or module-level help. Powered by Jedi for rich dynamic analysis. Pass source to analyze in-memory content. Related: get_type_info (for type only), get_signature_help (for call-site params)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_documentation(app.jedi, file_path, line, character, source)
 	await ctx.debug(f"get_documentation entries={len(result.entries)}")
@@ -254,7 +287,7 @@ async def get_documentation(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_signature_help(ctx: MCPContext, file_path: str, line: int, character: int) -> SignatureInfo | None:
-	"""Get active signature help for a call site."""
+	"""Get function signature help at a call site. Use when the cursor is inside a function call's parentheses to see parameter names, types, and which parameter is active. Tries Pyright first, falls back to Jedi for dynamic code. Related: get_completions, get_documentation."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_signature_help(app.pyright, file_path, line, character, jedi=app.jedi)
 	await ctx.debug(f"get_signature_help found={result is not None}")
@@ -266,7 +299,7 @@ async def get_signature_help(ctx: MCPContext, file_path: str, line: int, charact
 async def get_call_signatures_fallback(
 	ctx: MCPContext, file_path: str, line: int, character: int,
 ) -> SignatureInfo | None:
-	"""Get Jedi signature-help fallback for dynamic call sites."""
+	"""Get Jedi-only signature help for dynamic call sites where Pyright returns nothing. Use only when get_signature_help returned None and you suspect dynamic typing is the cause. Related: get_signature_help (preferred, tries both backends)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_call_signatures_fallback(app.jedi, file_path, line, character)
 	await ctx.debug(f"get_call_signatures_fallback found={result is not None}")
@@ -278,7 +311,7 @@ async def get_call_signatures_fallback(
 async def get_document_highlights(
 	ctx: MCPContext, file_path: str, line: int, character: int,
 ) -> list[DocumentHighlight]:
-	"""Get read/write highlights for a symbol within a single file."""
+	"""Highlight all read and write accesses of a symbol within a single file. Use to understand how a variable is used locally — which lines read it vs. which lines assign to it. Related: find_references (cross-file)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_document_highlights(app.pyright, file_path, line, character)
 	await ctx.debug(f"get_document_highlights count={len(result)}")
@@ -295,7 +328,7 @@ async def get_inlay_hints(
 	end_line: int | None = None,
 	end_character: int = 0,
 ) -> list[InlayHint]:
-	"""Get inlay hints for a file range; defaults to full file when end_line is omitted."""
+	"""Get inlay hints (inline type annotations, parameter names) for a file range. Use to visualize inferred types and parameter labels that aren't written in the source. Defaults to the full file when end_line is omitted. Related: get_type_info, get_semantic_tokens."""
 	app = _get_app_context(ctx)
 	if end_line is None:
 		try:
@@ -313,7 +346,7 @@ async def get_inlay_hints(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_semantic_tokens(ctx: MCPContext, file_path: str, limit: int | None = None) -> list[SemanticToken]:
-	"""Get semantic token classifications for a file."""
+	"""Get semantic token classifications for a file. Returns token type and modifier info for every symbol. Use for syntax-aware highlighting or to understand which tokens are namespaces, types, functions, etc. Can return large payloads — use limit to cap results. Related: get_inlay_hints."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_semantic_tokens(app.pyright, file_path, limit)
 	await ctx.debug(f"get_semantic_tokens count={len(result)}")
@@ -327,7 +360,7 @@ async def get_diagnostics(
 	limit: int | None = None, suppress_codes: list[str] | None = None,
 	file_paths: list[str] | None = None,
 ) -> list[Diagnostic]:
-	"""Get diagnostics for a file or for the full workspace."""
+	"""Get type-checking diagnostics (errors, warnings, hints) for one file, a batch of files, or the full project. Use after refactoring to verify no errors were introduced, or to audit code quality. Filter by severity_filter and suppress_codes to reduce noise. Related: get_workspace_diagnostics (aggregated counts)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_diagnostics(
 		app.pyright, file_path, severity_filter, limit, suppress_codes, file_paths,
@@ -342,7 +375,7 @@ async def get_workspace_diagnostics(
 	ctx: MCPContext, root_path: str | None = None, suppress_codes: list[str] | None = None,
 	file_paths: list[str] | None = None, offset: int = 0, limit: int | None = None,
 ) -> PaginatedDiagnosticSummary:
-	"""Get aggregated diagnostic counts for the full workspace."""
+	"""Get aggregated diagnostic counts (errors, warnings, hints) per file across the workspace. Use for a high-level health overview of the codebase. Supports pagination via offset/limit. Related: get_diagnostics (detailed per-file diagnostics)."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_workspace_diagnostics(
 		app.pyright, app.config, root_path, suppress_codes, file_paths, offset, limit,
@@ -367,7 +400,7 @@ async def call_hierarchy(
 	depth: int = 1,
 	max_items: int | None = 200,
 ) -> CallHierarchyResult:
-	"""Get call hierarchy data for callers and/or callees."""
+	"""Discover which functions call a given function (callers) and which functions it calls (callees). Use to understand call chains before refactoring. Set direction to 'callers', 'callees', or 'both'. Increase depth for deeper traversal. Related: type_hierarchy, find_references."""
 	app = _get_app_context(ctx)
 	result = await navigation.call_hierarchy(app.pyright, file_path, line, character, direction, depth, max_items)
 	await ctx.debug(
@@ -380,7 +413,7 @@ async def call_hierarchy(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def goto_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-	"""Navigate to symbol definitions for the provided source location."""
+	"""Jump to where a symbol is defined. Use when you encounter a function call, variable, or import and want to see its implementation. Follows imports to their source. Combines Pyright and Jedi for best coverage. Related: get_declaration, get_type_definition, find_implementations."""
 	app = _get_app_context(ctx)
 	result = await navigation.goto_definition(app.pyright, app.jedi, file_path, line, character)
 	await ctx.debug(f"goto_definition count={len(result)}")
@@ -399,7 +432,7 @@ async def get_symbol_outline(
 	file_paths: list[str] | None = None,
 	offset: int = 0,
 ) -> list[SymbolOutlineItem]:
-	"""Get hierarchical symbol outline for a file or the full workspace."""
+	"""Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Supports pagination via offset/limit. Related: search_symbols (name-based search), get_folding_ranges."""
 	app = _get_app_context(ctx)
 	result = await navigation.get_symbol_outline(
 		app.pyright, app.config, file_path, kind_filter, name_pattern, limit, root_path,
@@ -421,7 +454,7 @@ async def type_hierarchy(
 	max_items: int | None = 200,
 	class_name: str | None = None,
 ) -> TypeHierarchyResult:
-	"""Get type hierarchy data for supertypes/subtypes from a source position."""
+	"""Discover class inheritance — supertypes (parents) and subtypes (children) of a class. Use to understand class hierarchies before refactoring or to find all implementations of a base class. Set direction to 'supertypes', 'subtypes', or 'both'. Related: call_hierarchy, find_implementations."""
 	app = _get_app_context(ctx)
 	result = await navigation.type_hierarchy(
 		app.pyright, file_path, line, character, direction, depth, max_items, class_name,
@@ -436,7 +469,7 @@ async def type_hierarchy(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def selection_range(ctx: MCPContext, file_path: str, positions: list[Position]) -> list[SelectionRangeResult]:
-	"""Get nested selection ranges for one or more positions in a file."""
+	"""Get nested selection ranges (inner-most to outer-most scope) at source positions. Use for smart expand/shrink selection — progressively selects expression, statement, block, function, class, module. Related: get_folding_ranges."""
 	app = _get_app_context(ctx)
 	result = await navigation.selection_range(app.pyright, file_path, positions)
 	await ctx.debug(f"selection_range count={len(result)}")
@@ -446,7 +479,7 @@ async def selection_range(ctx: MCPContext, file_path: str, positions: list[Posit
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def find_implementations(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-	"""Find implementation locations for the symbol at the source position."""
+	"""Find concrete implementations of an abstract method or protocol. Use when you have a base class method and need to find all classes that implement it. Related: type_hierarchy, goto_definition."""
 	app = _get_app_context(ctx)
 	result = await navigation.find_implementations(app.pyright, file_path, line, character)
 	await ctx.debug(f"find_implementations count={len(result)}")
@@ -456,7 +489,7 @@ async def find_implementations(ctx: MCPContext, file_path: str, line: int, chara
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_declaration(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-	"""Navigate to declaration sites for the symbol at the source location."""
+	"""Navigate to the declaration site of a symbol (where it is first declared, not necessarily defined). For most Python code, this is equivalent to goto_definition. Related: goto_definition, get_type_definition."""
 	app = _get_app_context(ctx)
 	result = await navigation.get_declaration(app.pyright, file_path, line, character)
 	await ctx.debug(f"get_declaration count={len(result)}")
@@ -466,7 +499,7 @@ async def get_declaration(ctx: MCPContext, file_path: str, line: int, character:
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_type_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-	"""Navigate to type definitions for the symbol at the source location."""
+	"""Navigate to the type definition of a symbol (e.g., from a variable to its class definition). Use when you want to see the class behind an instance, not just where the instance was assigned. Related: goto_definition, get_type_info."""
 	app = _get_app_context(ctx)
 	result = await navigation.get_type_definition(app.pyright, file_path, line, character)
 	await ctx.debug(f"get_type_definition count={len(result)}")
@@ -476,7 +509,7 @@ async def get_type_definition(ctx: MCPContext, file_path: str, line: int, charac
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_folding_ranges(ctx: MCPContext, file_path: str) -> list[FoldingRange]:
-	"""Return foldable regions to support chunked file analysis workflows."""
+	"""Get foldable code regions (functions, classes, if blocks, import groups) in a file. Use for chunked file analysis, generating table-of-contents views, or understanding file structure. Falls back to AST-based detection when LSP ranges are unavailable. Related: get_symbol_outline, selection_range."""
 	app = _get_app_context(ctx)
 	result = await navigation.get_folding_ranges(app.pyright, file_path)
 	await ctx.debug(f"get_folding_ranges count={len(result)}")
@@ -494,7 +527,7 @@ async def rename_symbol(
 	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str,
 	apply: bool = False, include_diff: bool = False,
 ) -> RefactorResult:
-	"""Rename a symbol and optionally apply edits to disk."""
+	"""Rename a symbol across the entire project — updates all references, imports, and usages. Use prepare_rename first to verify the symbol is renameable. Defaults to preview mode (apply=False); set apply=True to write changes. Set include_diff=True to get unified diffs in preview. Uses Pyright validation + rope execution. Related: prepare_rename, smart_rename, find_references."""
 	app = _get_app_context(ctx)
 	result = await refactoring.rename_symbol(
 		app.pyright, app.rope, file_path, line, character, new_name, apply, include_diff,
@@ -516,7 +549,7 @@ async def extract_method(
 	similar: bool = False,
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Extract selected code into a new method."""
+	"""Extract a code selection into a new method, automatically detecting parameters and return values. Use when a block of code is too long or does a distinct subtask. Set similar=True to also replace other identical code fragments. Defaults to preview mode. Related: extract_variable, inline_variable."""
 	app = _get_app_context(ctx)
 	result = await refactoring.extract_method(
 		app.pyright, app.rope, file_path, start_line, start_character,
@@ -538,7 +571,7 @@ async def extract_variable(
 	variable_name: str,
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Extract selected expression into a variable."""
+	"""Extract an expression into a named variable, replacing the original expression with the variable name. Use when a complex expression appears multiple times or needs a descriptive name for clarity. Defaults to preview mode. Related: extract_method, inline_variable."""
 	app = _get_app_context(ctx)
 	result = await refactoring.extract_variable(
 		app.pyright, app.rope, file_path, start_line, start_character, end_line, end_character, variable_name, apply,
@@ -552,7 +585,7 @@ async def extract_variable(
 async def inline_variable(
 	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
 ) -> RefactorResult:
-	"""Inline variable usage at a source position."""
+	"""Inline a variable — replace all usages with its assigned value and remove the assignment. Use when a variable adds no clarity and is only used to hold a temporary value. The inverse of extract_variable. Defaults to preview mode. Related: extract_variable, extract_method."""
 	app = _get_app_context(ctx)
 	result = await refactoring.inline_variable(app.pyright, app.rope, file_path, line, character, apply)
 	await ctx.debug(f"inline_variable edits={len(result.edits)} applied={result.applied}")
@@ -564,31 +597,31 @@ async def inline_variable(
 async def move_symbol(
 	ctx: MCPContext, source_file: str, symbol_name: str, destination_file: str, apply: bool = False,
 ) -> RefactorResult:
-	"""Move a symbol from one file to another."""
+	"""Move a top-level symbol (function, class, variable) from one file to another, updating all imports across the project. Use when reorganizing module structure. Defaults to preview mode. Related: rename_symbol, module_to_package."""
 	app = _get_app_context(ctx)
 	result = await refactoring.move_symbol(app.pyright, app.rope, source_file, symbol_name, destination_file, apply)
 	await ctx.debug(f"move_symbol edits={len(result.edits)} applied={result.applied}")
 	return result
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
+@mcp.tool(annotations=_ADDITIVE)
 @_tool_error_boundary
 async def apply_code_action(
 	ctx: MCPContext, file_path: str, line: int, character: int, action_title: str | None = None, apply: bool = False,
 ) -> RefactorResult:
-	"""Apply or preview a Pyright code action at the provided location."""
+	"""Apply a Pyright code action (quick fix, refactoring suggestion) at a location. Use when Pyright diagnostics suggest a fix — pass the action_title to select a specific action, or omit it to list available actions. Defaults to preview mode. Related: organize_imports, get_diagnostics."""
 	app = _get_app_context(ctx)
 	result = await refactoring.apply_code_action(app.pyright, file_path, line, character, action_title, apply)
 	await ctx.debug(f"apply_code_action edits={len(result.edits)} applied={result.applied}")
 	return result
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
+@mcp.tool(annotations=_ADDITIVE)
 @_tool_error_boundary
 async def organize_imports(
 	ctx: MCPContext, file_path: str, apply: bool = False, file_paths: list[str] | None = None,
 ) -> RefactorResult:
-	"""Organize imports for a file and optionally apply the edits."""
+	"""Sort and group imports according to PEP 8 conventions. Use to clean up messy import sections or as a post-refactoring step. Non-destructive — only reorders, never removes needed imports. Defaults to preview mode. Related: apply_code_action, get_diagnostics."""
 	app = _get_app_context(ctx)
 	result = await refactoring.organize_imports(app.pyright, file_path, apply, file_paths)
 	await ctx.debug(f"organize_imports edits={len(result.edits)} applied={result.applied}")
@@ -598,7 +631,7 @@ async def organize_imports(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def prepare_rename(ctx: MCPContext, file_path: str, line: int, character: int) -> PrepareRenameResult | None:
-	"""Run rename preflight checks and return editable range metadata when valid."""
+	"""Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, smart_rename."""
 	app = _get_app_context(ctx)
 	result = await refactoring.prepare_rename(app.pyright, file_path, line, character)
 	await ctx.debug(f"prepare_rename valid={result is not None}")
@@ -616,7 +649,7 @@ async def introduce_parameter(
 	default_value: str = "",
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Introduce a parameter and optionally apply updates to call sites."""
+	"""Convert a local expression into a function parameter, adding it to the signature and updating all call sites with a default value. Use when you want to make a hardcoded value configurable. Defaults to preview mode. Related: change_signature, encapsulate_field."""
 	app = _get_app_context(ctx)
 	result = await refactoring.introduce_parameter(
 		app.pyright, app.rope, file_path, line, character, parameter_name, default_value, apply,
@@ -630,7 +663,7 @@ async def introduce_parameter(
 async def encapsulate_field(
 	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
 ) -> RefactorResult:
-	"""Encapsulate a field using property accessors and optional apply mode."""
+	"""Wrap a class field with property getter/setter accessors, updating all direct field accesses. Use to add validation, logging, or lazy initialization to field access without changing callers. Defaults to preview mode. Related: introduce_parameter, local_to_field."""
 	app = _get_app_context(ctx)
 	result = await refactoring.encapsulate_field(app.pyright, app.rope, file_path, line, character, apply)
 	await ctx.debug(f"encapsulate_field edits={len(result.edits)} applied={result.applied}")
@@ -647,7 +680,7 @@ async def change_signature(
 	operations: list[SignatureOperation],
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Change function signature and update call sites."""
+	"""Modify a function's signature — add, remove, reorder, or rename parameters — and update all call sites. Operations: 'add', 'remove', 'reorder', 'rename', 'inline_default', 'normalize'. Defaults to preview mode. Related: introduce_parameter, rename_symbol."""
 	app = _get_app_context(ctx)
 	result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, operations, apply)
 	await ctx.debug(f"change_signature edits={len(result.edits)} applied={result.applied}")
@@ -665,7 +698,7 @@ async def restructure(
 	file_path: str | None = None,
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Apply structural replace pattern transformations."""
+	"""Apply pattern-based code transformations using rope's structural replace engine. Define a source pattern and a goal pattern to find-and-replace code structures. Use checks to constrain matches and imports to add needed imports. Defaults to preview mode. Related: structural_search (find without replace)."""
 	app = _get_app_context(ctx)
 	result = await refactoring.restructure(app.pyright, app.rope, pattern, goal, checks, imports, file_path, apply)
 	await ctx.debug(f"restructure edits={len(result.edits)} applied={result.applied}")
@@ -677,7 +710,7 @@ async def restructure(
 async def use_function(
 	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
 ) -> RefactorResult:
-	"""Replace duplicated code with calls to selected function."""
+	"""Find code blocks duplicating a function's body and replace them with calls to that function. Use to eliminate copy-paste duplication. Point to the function definition, and rope will find matching patterns across the project. Defaults to preview mode. Related: extract_method, restructure."""
 	app = _get_app_context(ctx)
 	result = await refactoring.use_function(app.pyright, app.rope, file_path, line, character, apply)
 	await ctx.debug(f"use_function edits={len(result.edits)} applied={result.applied}")
@@ -695,7 +728,7 @@ async def introduce_factory(
 	global_factory: bool = True,
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Introduce a factory function for selected class constructor."""
+	"""Create a factory function that wraps a class constructor, updating all direct instantiations to use the factory. Use when you need to add indirection for dependency injection or when subclass selection logic is needed. Defaults to preview mode. Related: extract_method, method_object."""
 	app = _get_app_context(ctx)
 	result = await refactoring.introduce_factory(
 		app.pyright, app.rope, file_path, line, character, factory_name, global_factory, apply,
@@ -707,7 +740,7 @@ async def introduce_factory(
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def module_to_package(ctx: MCPContext, file_path: str, apply: bool = False) -> RefactorResult:
-	"""Convert a module file into a package directory structure."""
+	"""Convert a single-file module into a package (directory with __init__.py), preserving all imports. Use when a module grows too large and needs to be split into submodules. Defaults to preview mode. Related: move_symbol."""
 	app = _get_app_context(ctx)
 	result = await refactoring.module_to_package(app.pyright, app.rope, file_path, apply)
 	await ctx.debug(f"module_to_package edits={len(result.edits)} applied={result.applied}")
@@ -719,7 +752,7 @@ async def module_to_package(ctx: MCPContext, file_path: str, apply: bool = False
 async def local_to_field(
 	ctx: MCPContext, file_path: str, line: int, character: int, apply: bool = False,
 ) -> RefactorResult:
-	"""Promote a local variable to instance field usage."""
+	"""Promote a local variable inside a method to an instance field (self.name), updating all usages within the class. Use when a computed value needs to be shared across methods. Defaults to preview mode. Related: encapsulate_field, extract_variable."""
 	app = _get_app_context(ctx)
 	result = await refactoring.local_to_field(app.pyright, app.rope, file_path, line, character, apply)
 	await ctx.debug(f"local_to_field edits={len(result.edits)} applied={result.applied}")
@@ -736,7 +769,7 @@ async def method_object(
 	classname: str | None = None,
 	apply: bool = False,
 ) -> RefactorResult:
-	"""Extract selected method into a new callable object class."""
+	"""Convert a method with complex logic into a callable object (functor class) with __call__. Use when a method has many local variables and would benefit from being its own class with fields. Defaults to preview mode. Related: extract_method, introduce_factory."""
 	app = _get_app_context(ctx)
 	result = await refactoring.method_object(app.pyright, app.rope, file_path, line, character, classname, apply)
 	await ctx.debug(f"method_object edits={len(result.edits)} applied={result.applied}")
@@ -753,7 +786,7 @@ async def method_object(
 async def find_constructors(
 	ctx: MCPContext, class_name: str, file_path: str | None = None, limit: int | None = None,
 ) -> list[ConstructorSite]:
-	"""Find constructor call sites for a class."""
+	"""Find all places where a class is instantiated (constructor calls). Use before refactoring a class to understand how it's created and with what arguments. Optionally scope to a single file. Related: find_references, type_hierarchy."""
 	app = _get_app_context(ctx)
 	result = await search.find_constructors(app.pyright, app.config, class_name, file_path, limit)
 	await ctx.debug(f"find_constructors class={class_name} count={len(result)}")
@@ -763,7 +796,7 @@ async def find_constructors(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def search_symbols(ctx: MCPContext, query: str, limit: int | None = None) -> list[SymbolInfo]:
-	"""Search workspace symbols by name across semantic backends."""
+	"""Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi for comprehensive results. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
 	app = _get_app_context(ctx)
 	result = await search.search_symbols(app.pyright, app.jedi, query, limit)
 	await ctx.debug(f"search_symbols query={query} count={len(result)}")
@@ -775,7 +808,7 @@ async def search_symbols(ctx: MCPContext, query: str, limit: int | None = None) 
 async def structural_search(
 	ctx: MCPContext, pattern: str, file_path: str | None = None, language: str = "python", limit: int | None = None,
 ) -> list[StructuralMatch]:
-	"""Search code structurally using a pattern expression."""
+	"""Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Related: restructure (pattern-based replace), dead_code_detection."""
 	app = _get_app_context(ctx)
 	result = await search.structural_search(app.config, pattern, file_path, language, limit)
 	await ctx.debug(f"structural_search language={language} count={len(result)}")
@@ -790,7 +823,7 @@ async def dead_code_detection(
 	exclude_test_files: bool = True, file_paths: list[str] | None = None,
 	offset: int = 0, limit: int | None = None,
 ) -> PaginatedDeadCode:
-	"""Detect dead code candidates in a file or workspace."""
+	"""Find unreferenced functions, classes, and variables that may be dead code. Combines Pyright diagnostics (unused/not-accessed) with reference counting for module-level symbols. Set exclude_test_files=True to skip test files. Supports pagination via offset/limit. Returns confidence scores (high/medium/low). Related: get_diagnostics, find_references."""
 	app = _get_app_context(ctx)
 	result = await search.dead_code_detection(
 		app.pyright, app.config, file_path, exclude_patterns, root_path,
@@ -803,7 +836,7 @@ async def dead_code_detection(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def suggest_imports(ctx: MCPContext, symbol: str, file_path: str) -> list[ImportSuggestion]:
-	"""Suggest import statements for an unresolved symbol."""
+	"""Suggest import statements for an unresolved symbol name. Use when a symbol is referenced but not imported — returns possible import statements from project and installed packages. Combines Pyright quick-fix suggestions with Jedi name search. Related: organize_imports, apply_code_action."""
 	app = _get_app_context(ctx)
 	result = await search.suggest_imports(app.pyright, app.jedi, symbol, file_path)
 	await ctx.debug(f"suggest_imports symbol={symbol} count={len(result)}")
@@ -820,7 +853,7 @@ async def suggest_imports(ctx: MCPContext, symbol: str, file_path: str) -> list[
 async def smart_rename(
 	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str, apply: bool = False,
 ) -> RefactorResult:
-	"""Perform a coordinated rename workflow across backends."""
+	"""Coordinated rename using Pyright reference discovery + rope execution. Functionally equivalent to rename_symbol but uses a different internal workflow. Prefer rename_symbol for most cases. Defaults to preview mode. Related: rename_symbol, prepare_rename."""
 	app = _get_app_context(ctx)
 	result = await composite.smart_rename(app.pyright, app.rope, file_path, line, character, new_name, apply)
 	await ctx.debug(f"smart_rename edits={len(result.edits)} applied={result.applied}")
@@ -830,7 +863,7 @@ async def smart_rename(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPreview]:
-	"""Build unified diff previews for pending text edits."""
+	"""Generate unified diff previews for a list of TextEdit objects. Use to visualize what changes will look like before applying them. Pass edits from any refactoring tool's preview output. Related: rename_symbol, extract_method (any tool returning TextEdit lists)."""
 	_ = _get_app_context(ctx)
 	result = await composite.diff_preview(edits)
 	await ctx.debug(f"diff_preview files={len(result)}")

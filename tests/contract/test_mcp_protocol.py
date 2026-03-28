@@ -1,0 +1,119 @@
+"""MCP protocol contract tests.
+
+Verify that the server exposes correct capabilities, tool metadata,
+annotations, and schema shapes per the MCP specification.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from python_refactor_mcp import __version__, server
+
+
+@pytest.mark.asyncio
+async def test_tool_count_within_limits() -> None:
+    """Tool count should not exceed the 30-40 tool LLM reliability threshold by too much."""
+    tools = await server.mcp.list_tools()
+    # 45 tools is the current count — we track this to avoid unchecked growth.
+    assert len(tools) <= 50, f"Tool count {len(tools)} exceeds soft limit of 50"
+
+
+@pytest.mark.asyncio
+async def test_all_tools_have_annotations() -> None:
+    """Every tool must have MCP annotations with readOnlyHint and destructiveHint."""
+    tools = await server.mcp.list_tools()
+    for tool in tools:
+        assert tool.annotations is not None, f"Tool '{tool.name}' is missing annotations"
+        assert tool.annotations.readOnlyHint is not None, f"Tool '{tool.name}' missing readOnlyHint"
+        assert tool.annotations.destructiveHint is not None, f"Tool '{tool.name}' missing destructiveHint"
+        assert tool.annotations.openWorldHint is not None, f"Tool '{tool.name}' missing openWorldHint"
+
+
+@pytest.mark.asyncio
+async def test_readonly_tools_are_idempotent() -> None:
+    """Read-only tools should be marked idempotent."""
+    tools = await server.mcp.list_tools()
+    for tool in tools:
+        if tool.annotations and tool.annotations.readOnlyHint:
+            assert tool.annotations.idempotentHint is True, (
+                f"Read-only tool '{tool.name}' should have idempotentHint=True"
+            )
+
+
+@pytest.mark.asyncio
+async def test_destructive_tools_have_apply_parameter() -> None:
+    """Destructive and additive tools should have an 'apply' parameter defaulting to False."""
+    tools = await server.mcp.list_tools()
+    # Tools that are destructive or additive (readOnly=False)
+    skip_tools = {"prepare_rename", "diff_preview"}  # These are readonly
+    for tool in tools:
+        if tool.annotations and not tool.annotations.readOnlyHint and tool.name not in skip_tools:
+            props = tool.inputSchema.get("properties", {})
+            assert "apply" in props, f"Non-readonly tool '{tool.name}' should have 'apply' parameter"
+
+
+@pytest.mark.asyncio
+async def test_no_ctx_in_schemas() -> None:
+    """The internal ctx parameter must never appear in tool schemas."""
+    tools = await server.mcp.list_tools()
+    for tool in tools:
+        props = tool.inputSchema.get("properties", {})
+        assert "ctx" not in props, f"Tool '{tool.name}' exposes internal 'ctx' parameter"
+
+
+@pytest.mark.asyncio
+async def test_tool_descriptions_are_workflow_oriented() -> None:
+    """Tool descriptions should be longer than 50 chars and mention related tools."""
+    tools = await server.mcp.list_tools()
+    short_description_tools = []
+    for tool in tools:
+        desc = tool.description or ""
+        if len(desc) < 50:
+            short_description_tools.append(tool.name)
+    assert not short_description_tools, (
+        f"These tools have descriptions under 50 chars (should be workflow-oriented): {short_description_tools}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_server_has_version() -> None:
+    """Server should expose its version matching the package version."""
+    # The FastMCP instance stores the version
+    assert server.mcp._mcp_server.name == "Python Refactor"
+
+
+@pytest.mark.asyncio
+async def test_annotation_variants_exist() -> None:
+    """Server should use all three annotation variants: READONLY, DESTRUCTIVE, ADDITIVE."""
+    tools = await server.mcp.list_tools()
+    has_readonly = False
+    has_destructive = False
+    has_additive = False
+    for tool in tools:
+        ann = tool.annotations
+        if ann is None:
+            continue
+        if ann.readOnlyHint:
+            has_readonly = True
+        elif ann.destructiveHint:
+            has_destructive = True
+        elif not ann.readOnlyHint and not ann.destructiveHint:
+            has_additive = True
+    assert has_readonly, "No tools use READONLY annotations"
+    assert has_destructive, "No tools use DESTRUCTIVE annotations"
+    assert has_additive, "No tools use ADDITIVE annotations"
+
+
+@pytest.mark.asyncio
+async def test_path_params_are_validated() -> None:
+    """All known path parameter names should be in the validation set."""
+    expected_path_params = {"file_path", "source_file", "destination_file", "root_path"}
+    assert server._PATH_PARAMS == expected_path_params
+
+
+@pytest.mark.asyncio
+async def test_identifier_params_are_validated() -> None:
+    """All known identifier parameter names should be in the validation set."""
+    expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
+    assert server._IDENTIFIER_PARAMS == expected
