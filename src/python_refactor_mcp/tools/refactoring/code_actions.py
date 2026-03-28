@@ -5,12 +5,12 @@ from __future__ import annotations
 from python_refactor_mcp.models import Position, Range, RefactorResult
 
 from .helpers import (
-    _attach_post_apply_diagnostics,
-    _full_file_range,
-    _PyrightRefactoringBackend,
-    _range_contains_position,
-    _result_from_text_edits,
-    _workspace_edit_to_text_edits,
+    post_apply_diagnostics,
+    full_file_range,
+    PyrightRefactoringBackend,
+    range_contains_position,
+    result_from_text_edits,
+    workspace_edit_to_text_edits,
 )
 
 
@@ -34,7 +34,7 @@ def _pick_code_action(actions: list[dict[str, object]], action_title: str | None
 
 
 async def apply_code_action(
-    pyright: _PyrightRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -46,7 +46,7 @@ async def apply_code_action(
     selected_diagnostics = [
         diagnostic
         for diagnostic in diagnostics
-        if _range_contains_position(diagnostic.range, line, character)
+        if range_contains_position(diagnostic.range, line, character)
     ]
     request_range = Range(
         start=Position(line=line, character=character),
@@ -56,15 +56,15 @@ async def apply_code_action(
     selected = _pick_code_action(actions, action_title)
     title = selected.get("title")
     description = title if isinstance(title, str) and title else "Applied code action"
-    edits = _workspace_edit_to_text_edits(selected.get("edit"))
+    edits = workspace_edit_to_text_edits(selected.get("edit"))
     if not edits:
         raise ValueError("Selected code action does not provide editable workspace changes.")
-    result = _result_from_text_edits(edits, description, apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    result = result_from_text_edits(edits, description, apply)
+    return await post_apply_diagnostics(pyright, result)
 
 
 async def organize_imports(
-    pyright: _PyrightRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
     file_path: str,
     apply: bool = False,
     file_paths: list[str] | None = None,
@@ -74,7 +74,7 @@ async def organize_imports(
     all_edits: list[object] = []
     all_files: list[str] = []
     for fp in targets:
-        actions = await pyright.get_code_actions(fp, _full_file_range(fp), [])
+        actions = await pyright.get_code_actions(fp, full_file_range(fp), [])
         organize_actions = [
             action
             for action in actions
@@ -90,7 +90,7 @@ async def organize_imports(
         if not organize_actions:
             continue
         selected = _pick_code_action(organize_actions, "organize imports")
-        edits = _workspace_edit_to_text_edits(selected.get("edit"))
+        edits = workspace_edit_to_text_edits(selected.get("edit"))
         all_edits.extend(edits)
         all_files.append(fp)
 
@@ -98,5 +98,5 @@ async def organize_imports(
         return RefactorResult(
             edits=[], files_affected=[], description="Imports already organized", applied=False,
         )
-    result = _result_from_text_edits(all_edits, f"Organized imports in {len(all_files)} file(s)", apply)
-    return await _attach_post_apply_diagnostics(pyright, result)
+    result = result_from_text_edits(all_edits, f"Organized imports in {len(all_files)} file(s)", apply)
+    return await post_apply_diagnostics(pyright, result)

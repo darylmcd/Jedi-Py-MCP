@@ -69,8 +69,8 @@ def test_position_offset_round_trip(rope_backend: tuple[RopeBackend, Path]) -> N
     """Position and offset conversions round-trip correctly."""
     backend, module = rope_backend
 
-    offset = backend._position_to_offset(str(module), 1, 4)
-    position = backend._offset_to_position(str(module), offset)
+    offset = backend._position_to_offset(str(module), 1, 4)  # pyright: ignore[reportPrivateUsage]
+    position = backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
 
     assert position.line == 1
     assert position.character == 4

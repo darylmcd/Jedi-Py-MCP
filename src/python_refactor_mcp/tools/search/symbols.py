@@ -9,9 +9,9 @@ _LOGGER = logging.getLogger(__name__)
 from python_refactor_mcp.models import SymbolInfo
 
 from ._helpers import (
-    _apply_limit,
-    _JediSearchBackend,
-    _PyrightSearchBackend,
+    apply_limit_items,
+    JediSearchBackend,
+    PyrightSearchBackend,
 )
 
 
@@ -27,8 +27,8 @@ def _symbol_sort_key(symbol: SymbolInfo) -> tuple[str, str, int, int, str]:
 
 
 async def search_symbols(
-    pyright: _PyrightSearchBackend,
-    jedi: _JediSearchBackend,
+    pyright: PyrightSearchBackend,
+    jedi: JediSearchBackend,
     query: str,
     limit: int | None = None,
 ) -> list[SymbolInfo]:
@@ -52,4 +52,4 @@ async def search_symbols(
         merged.setdefault(_symbol_sort_key(symbol), symbol)
 
     sorted_items = sorted(merged.values(), key=_symbol_sort_key)
-    return _apply_limit(sorted_items, limit)
+    return apply_limit_items(sorted_items, limit)

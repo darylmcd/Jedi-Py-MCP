@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 
 _DEFAULT_ROPE_TIMEOUT = 30.0
 
@@ -52,17 +52,43 @@ from python_refactor_mcp.util.timing import timed
 _LOGGER = logging.getLogger(__name__)
 
 
-class _MoveRefactoring(Protocol):
-    """Protocol for rope move refactoring instances with dynamic runtime type."""
-
-    def get_changes(self, dest: object, resources: object | None = None) -> ChangeSet:
-        """Return rope change set for move operation."""
-        ...
-
 
 def _absolute_path(path: str) -> str:
     """Return normalized absolute path string."""
     return str(Path(path).resolve())
+
+
+def _build_signature_changers(operations: list[SignatureOperation]) -> list[object]:
+    """Map signature operation descriptors to rope changer objects."""
+    changers: list[object] = []
+    for operation in operations:
+        op = operation.op.strip().lower()
+        if op == "add":
+            if operation.index is None or not operation.name:
+                raise RopeError("change_signature add operation requires index and name")
+            changers.append(ArgumentAdder(operation.index, operation.name, default=operation.default))
+        elif op == "remove":
+            if operation.index is None:
+                raise RopeError("change_signature remove operation requires index")
+            changers.append(ArgumentRemover(operation.index))
+        elif op == "reorder":
+            if not operation.new_order:
+                raise RopeError("change_signature reorder operation requires new_order")
+            changers.append(ArgumentReorderer(operation.new_order))
+        elif op == "inline_default":
+            if operation.index is None:
+                raise RopeError("change_signature inline_default operation requires index")
+            changers.append(ArgumentDefaultInliner(operation.index))
+        elif op == "normalize":
+            changers.append(ArgumentNormalizer())
+        elif op == "rename":
+            if operation.index is None or not operation.new_name:
+                raise RopeError("change_signature rename operation requires index and new_name")
+            changers.append(ArgumentRemover(operation.index))
+            changers.append(ArgumentAdder(operation.index, operation.new_name, default=operation.default))
+        else:
+            raise RopeError(f"Unsupported change_signature operation: {operation.op}")
+    return changers
 
 
 class RopeBackend:
@@ -434,40 +460,7 @@ class RopeBackend:
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
 
-            changers: list[object] = []
-            for operation in operations:
-                op = operation.op.strip().lower()
-                if op == "add":
-                    if operation.index is None or not operation.name:
-                        raise RopeError("change_signature add operation requires index and name")
-                    changers.append(ArgumentAdder(operation.index, operation.name, default=operation.default))
-                elif op == "remove":
-                    if operation.index is None:
-                        raise RopeError("change_signature remove operation requires index")
-                    changers.append(ArgumentRemover(operation.index))
-                elif op == "reorder":
-                    if not operation.new_order:
-                        raise RopeError("change_signature reorder operation requires new_order")
-                    changers.append(ArgumentReorderer(operation.new_order))
-                elif op == "inline_default":
-                    if operation.index is None:
-                        raise RopeError("change_signature inline_default operation requires index")
-                    changers.append(ArgumentDefaultInliner(operation.index))
-                elif op == "normalize":
-                    changers.append(ArgumentNormalizer())
-                elif op == "rename":
-                    # Note: rope has no native ArgumentRenamer.  We emulate rename via
-                    # remove+add which processes sequentially.  For parameters with keyword
-                    # arguments at call sites, the old keyword name is removed and the new
-                    # name is added; this may not correctly update keyword args if indices
-                    # shift between the remove and add operations.
-                    if operation.index is None or not operation.new_name:
-                        raise RopeError("change_signature rename operation requires index and new_name")
-                    changers.append(ArgumentRemover(operation.index))
-                    changers.append(ArgumentAdder(operation.index, operation.new_name, default=operation.default))
-                else:
-                    raise RopeError(f"Unsupported change_signature operation: {operation.op}")
-
+            changers = _build_signature_changers(operations)
             changes = ChangeSignature(project, resource, offset).get_changes(changers)
             return self._build_result(changes, "Changed function signature", apply)
 

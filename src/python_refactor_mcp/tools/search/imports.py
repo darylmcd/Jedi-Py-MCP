@@ -7,8 +7,8 @@ import re
 from python_refactor_mcp.models import ImportSuggestion
 
 from ._helpers import (
-    _JediSearchBackend,
-    _PyrightSearchBackend,
+    JediSearchBackend,
+    PyrightSearchBackend,
 )
 
 _UNRESOLVED_PATTERNS = (
@@ -77,8 +77,8 @@ def _extract_import_lines_from_action(action: dict[str, object], symbol: str) ->
 
 
 async def suggest_imports(
-    pyright: _PyrightSearchBackend,
-    jedi: _JediSearchBackend,
+    pyright: PyrightSearchBackend,
+    jedi: JediSearchBackend,
     symbol: str,
     file_path: str,
 ) -> list[ImportSuggestion]:

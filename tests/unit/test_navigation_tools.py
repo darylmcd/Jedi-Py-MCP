@@ -7,11 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     FoldingRange,
-    Location,
     Position,
     Range,
     SelectionRangeResult,
@@ -19,6 +17,7 @@ from python_refactor_mcp.models import (
     TypeHierarchyItem,
 )
 from python_refactor_mcp.tools import navigation
+from tests.helpers import make_config as _config, make_location as _location
 
 
 def _item(name: str, path: str, line: int) -> CallHierarchyItem:
@@ -29,16 +28,6 @@ def _item(name: str, path: str, line: int) -> CallHierarchyItem:
         range=Range(
             start=Position(line=line, character=0),
             end=Position(line=line, character=1),
-        ),
-    )
-
-
-def _location(path: str, line: int, character: int) -> Location:
-    return Location(
-        file_path=path,
-        range=Range(
-            start=Position(line=line, character=character),
-            end=Position(line=line, character=character + 1),
         ),
     )
 
@@ -102,17 +91,6 @@ async def test_goto_definition_falls_back_to_jedi() -> None:
     assert len(result) == 1
     assert result[0].file_path == "/repo/a.py"
     jedi.goto_definition.assert_awaited_once()
-
-
-def _config(tmp_path: Path) -> ServerConfig:
-    return ServerConfig(
-        workspace_root=tmp_path,
-        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
-        venv_path=None,
-        pyright_executable="pyright-langserver",
-        pyrightconfig_path=None,
-        rope_prefs={},
-    )
 
 
 @pytest.mark.asyncio

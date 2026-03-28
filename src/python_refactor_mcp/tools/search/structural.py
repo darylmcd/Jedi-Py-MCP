@@ -19,9 +19,9 @@ from python_refactor_mcp.models import (
 )
 
 from ._helpers import (
-    _apply_limit,
-    _python_files,
-    _range_sort_key,
+    apply_limit_items,
+    python_files,
+    range_sort_key,
 )
 
 # Simplified pattern shortcuts → LibCST matcher DSL translations.
@@ -93,7 +93,7 @@ async def structural_search(
     if not isinstance(matcher, m.BaseMatcherNode):
         raise ValueError("Pattern must evaluate to a LibCST matcher node.")
 
-    candidate_files = [Path(file_path).resolve()] if file_path is not None else _python_files(config.workspace_root)
+    candidate_files = [Path(file_path).resolve()] if file_path is not None else python_files(config.workspace_root)
 
     def _scan_file(path: Path) -> list[StructuralMatch]:
         source = path.read_text(encoding="utf-8")
@@ -139,5 +139,5 @@ async def structural_search(
         return_exceptions=True,
     )
     flattened = [item for result in all_results if isinstance(result, list) for item in result]
-    sorted_items = sorted(flattened, key=lambda item: (item.file_path, *_range_sort_key(item.range)))
-    return _apply_limit(sorted_items, limit)
+    sorted_items = sorted(flattened, key=lambda item: (item.file_path, *range_sort_key(item.range)))
+    return apply_limit_items(sorted_items, limit)

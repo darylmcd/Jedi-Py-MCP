@@ -9,14 +9,14 @@ from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, Refacto
 from python_refactor_mcp.util.diff import build_unified_diff
 
 from .helpers import (
-    _attach_post_apply_diagnostics,
-    _PyrightRefactoringBackend,
-    _RopeRefactoringBackend,
+    post_apply_diagnostics,
+    PyrightRefactoringBackend,
+    RopeRefactoringBackend,
 )
 
 
-async def _ensure_renameable(
-    pyright: _PyrightRefactoringBackend,
+async def ensure_renameable(
+    pyright: PyrightRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -43,8 +43,8 @@ async def _ensure_renameable(
 
 
 async def rename_symbol(
-    pyright: _PyrightRefactoringBackend,
-    rope: _RopeRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
+    rope: RopeRefactoringBackend,
     file_path: str,
     line: int,
     character: int,
@@ -53,9 +53,9 @@ async def rename_symbol(
     include_diff: bool = False,
 ) -> RefactorResult:
     """Rename a symbol at the provided position."""
-    await _ensure_renameable(pyright, file_path, line, character)
+    await ensure_renameable(pyright, file_path, line, character)
     result = await rope.rename(file_path, line, character, new_name, apply)
-    result = await _attach_post_apply_diagnostics(pyright, result)
+    result = await post_apply_diagnostics(pyright, result)
 
     if include_diff and not result.applied and result.edits:
         # Group edits by file and build diffs.
@@ -73,7 +73,7 @@ async def rename_symbol(
 
 
 async def prepare_rename(
-    pyright: _PyrightRefactoringBackend,
+    pyright: PyrightRefactoringBackend,
     file_path: str,
     line: int,
     character: int,

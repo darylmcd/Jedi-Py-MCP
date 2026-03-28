@@ -15,11 +15,11 @@ from python_refactor_mcp.models import (
 )
 
 from ._helpers import (
-    _apply_limit,
-    _name_position,
-    _PyrightSearchBackend,
-    _python_files,
-    _range_sort_key,
+    apply_limit_items,
+    name_position,
+    PyrightSearchBackend,
+    python_files,
+    range_sort_key,
 )
 
 
@@ -52,7 +52,7 @@ def _class_definition_sites(class_name: str, paths: Iterable[Path]) -> list[tupl
             line_index = node.lineno - 1
             if line_index < 0 or line_index >= len(lines):
                 continue
-            char_index = _name_position(lines[line_index], node.col_offset, node.name)
+            char_index = name_position(lines[line_index], node.col_offset, node.name)
             matches.append((path, line_index, char_index))
     return matches
 
@@ -81,14 +81,14 @@ def _call_range(call_node: ast.Call) -> Range | None:
 
 
 async def find_constructors(
-    pyright: _PyrightSearchBackend,
+    pyright: PyrightSearchBackend,
     config: ServerConfig,
     class_name: str,
     file_path: str | None = None,
     limit: int | None = None,
 ) -> list[ConstructorSite]:
     """Find constructor call sites for a class across workspace files."""
-    candidate_files = [Path(file_path).resolve()] if file_path is not None else _python_files(config.workspace_root)
+    candidate_files = [Path(file_path).resolve()] if file_path is not None else python_files(config.workspace_root)
 
     class_sites = _class_definition_sites(class_name, candidate_files)
     if not class_sites:
@@ -160,5 +160,5 @@ async def find_constructors(
                 )
                 results[key] = site
 
-    sorted_items = sorted(results.values(), key=lambda item: (item.file_path, *_range_sort_key(item.range)))
-    return _apply_limit(sorted_items, limit)
+    sorted_items = sorted(results.values(), key=lambda item: (item.file_path, *range_sort_key(item.range)))
+    return apply_limit_items(sorted_items, limit)

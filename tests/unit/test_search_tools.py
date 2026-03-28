@@ -7,20 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
-
-
-def _config(tmp_path: Path) -> ServerConfig:
-    return ServerConfig(
-        workspace_root=tmp_path,
-        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
-        venv_path=None,
-        pyright_executable="pyright-langserver",
-        pyrightconfig_path=None,
-        rope_prefs={},
-    )
+from tests.helpers import make_config as _config
 
 
 def _location(path: Path, line: int, character: int) -> Location:
