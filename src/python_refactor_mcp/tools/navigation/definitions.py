@@ -7,14 +7,14 @@ import logging
 from python_refactor_mcp.models import Location
 from python_refactor_mcp.util.shared import location_key as _location_key
 
-from ._protocols import _JediNavigationBackend, _PyrightNavigationBackend
+from ._protocols import JediNavigationBackend, PyrightNavigationBackend
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def goto_definition(
-    pyright: _PyrightNavigationBackend,
-    jedi: _JediNavigationBackend,
+    pyright: PyrightNavigationBackend,
+    jedi: JediNavigationBackend,
     file_path: str,
     line: int,
     character: int,
@@ -41,7 +41,7 @@ async def goto_definition(
 
 
 async def find_implementations(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     line: int,
     character: int,
@@ -56,7 +56,7 @@ async def find_implementations(
 
 
 async def get_declaration(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     line: int,
     character: int,
@@ -71,7 +71,7 @@ async def get_declaration(
 
 
 async def get_type_definition(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     line: int,
     character: int,

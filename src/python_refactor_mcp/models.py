@@ -269,6 +269,13 @@ class StructuralMatch(BaseModel):
     matched_text: str
 
 
+class StructuralSearchResult(BaseModel):
+    """Result of a structural search including scan metadata."""
+
+    matches: list[StructuralMatch]
+    files_scanned: int
+
+
 class DeadCodeItem(BaseModel):
     """Detected dead or unreachable code candidate."""
 

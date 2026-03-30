@@ -160,5 +160,31 @@ async def find_constructors(
                 )
                 results[key] = site
 
+    # AST fallback: if Pyright references yielded no constructor matches,
+    # scan all candidate files for direct constructor calls by name.
+    if not results:
+        for path in candidate_files:
+            if not path.exists():
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+                module = ast.parse(source)
+            except (SyntaxError, OSError):
+                continue
+            for node in ast.walk(module):
+                if isinstance(node, ast.Call) and _is_constructor_call_node(node, class_name):
+                    call_range = _call_range(node)
+                    if call_range is None:
+                        continue
+                    site = ConstructorSite(
+                        class_name=class_name,
+                        file_path=str(path.resolve()),
+                        range=call_range,
+                        arguments=_extract_call_arguments(node),
+                    )
+                    key = (site.file_path, site.range.start.line, site.range.start.character,
+                           site.range.end.line, site.range.end.character)
+                    results[key] = site
+
     sorted_items = sorted(results.values(), key=lambda item: (item.file_path, *range_sort_key(item.range)))
     return apply_limit_items(sorted_items, limit)

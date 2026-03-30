@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from python_refactor_mcp.models import Position, Range, RefactorResult
+from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
 
 from .helpers import (
     PyrightRefactoringBackend,
@@ -71,7 +71,7 @@ async def organize_imports(
 ) -> RefactorResult:
     """Run organize imports for one or multiple files using Pyright code actions."""
     targets = file_paths if file_paths is not None else [file_path]
-    all_edits: list[object] = []
+    all_edits: list[TextEdit] = []
     all_files: list[str] = []
     for fp in targets:
         actions = await pyright.get_code_actions(fp, full_file_range(fp), [])

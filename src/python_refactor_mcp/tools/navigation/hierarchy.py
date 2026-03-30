@@ -15,7 +15,7 @@ from python_refactor_mcp.models import (
     TypeHierarchyResult,
 )
 
-from ._protocols import _PyrightNavigationBackend
+from ._protocols import PyrightNavigationBackend
 
 _VALID_DIRECTIONS = {"callers", "callees", "both"}
 
@@ -105,7 +105,7 @@ def _resolve_class_position(
 
 
 async def call_hierarchy(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     line: int,
     character: int,
@@ -156,6 +156,33 @@ async def call_hierarchy(
         except (OSError, SyntaxError):
             pass  # Keep original roots on any failure.
 
+    # If no roots found or the root has an empty name (common for class methods),
+    # try locating the method/function name via AST and retrying.
+    if not roots or (roots and not roots[0].name):
+        try:
+            source = Path(file_path).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                node_line = node.lineno - 1
+                node_end = (node.end_lineno - 1) if node.end_lineno else node_line
+                # Match if the requested line falls within the function range.
+                if not (node_line <= line <= node_end):
+                    continue
+                # Retry with the exact function name position.
+                source_lines = source.splitlines()
+                if node_line < len(source_lines):
+                    name_col = source_lines[node_line].find(node.name, node.col_offset)
+                    if name_col < 0:
+                        name_col = node.col_offset
+                    retry_roots = await pyright.prepare_call_hierarchy(file_path, node_line, name_col)
+                    if retry_roots and retry_roots[0].name:
+                        roots = retry_roots
+                        break
+        except (OSError, SyntaxError):
+            pass
+
     if not roots:
         placeholder = CallHierarchyItem.model_validate(
             {
@@ -187,7 +214,7 @@ async def call_hierarchy(
 
 
 async def type_hierarchy(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     line: int,
     character: int,

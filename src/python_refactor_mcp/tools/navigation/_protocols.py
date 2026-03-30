@@ -15,7 +15,7 @@ from python_refactor_mcp.models import (
 )
 
 
-class _PyrightNavigationBackend(Protocol):
+class PyrightNavigationBackend(Protocol):
     """Protocol describing Pyright navigation methods used by this module."""
 
     async def prepare_call_hierarchy(
@@ -76,7 +76,7 @@ class _PyrightNavigationBackend(Protocol):
         ...
 
 
-class _JediNavigationBackend(Protocol):
+class JediNavigationBackend(Protocol):
     """Protocol describing Jedi navigation methods used by this module."""
 
     async def goto_definition(self, file_path: str, line: int, character: int) -> list[Location]:

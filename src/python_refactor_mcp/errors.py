@@ -19,3 +19,7 @@ class RopeError(BackendError):
 
 class ConfigError(BackendError):
     """Raised when server configuration discovery fails."""
+
+
+class WorkspaceResolutionError(BackendError):
+    """Raised when a file path cannot be mapped to any known workspace root."""

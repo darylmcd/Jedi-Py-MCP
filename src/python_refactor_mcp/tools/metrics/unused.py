@@ -23,6 +23,9 @@ async def find_unused_imports(
     results: list[UnusedImport] = []
 
     for fp in paths:
+        # Read __all__ exports to avoid false positives on re-export facades.
+        all_exports = _read_all_exports(fp)
+
         diagnostics = await pyright.get_diagnostics(fp)
         for diag in diagnostics:
             if "import" in diag.message.lower() and (
@@ -36,6 +39,9 @@ async def find_unused_imports(
                     continue
                 # Extract the import name from diagnostic message
                 name = _extract_import_name(diag.message)
+                # Skip imports listed in __all__ (intentional re-exports).
+                if name is not None and name in all_exports:
+                    continue
                 results.append(UnusedImport(
                     file_path=diag.file_path,
                     module="",
@@ -49,6 +55,27 @@ async def find_unused_imports(
             results.extend(_ast_find_unused(fp))
 
     return results
+
+
+def _read_all_exports(file_path: str) -> set[str]:
+    """Read names from ``__all__`` in the given file, if present."""
+    try:
+        content = Path(file_path).read_text(encoding="utf-8")
+        tree = ast.parse(content, filename=file_path)
+    except (OSError, SyntaxError):
+        return set()
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        return {
+                            elt.value
+                            for elt in node.value.elts
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                        }
+    return set()
 
 
 def _extract_import_name(message: str) -> str | None:
