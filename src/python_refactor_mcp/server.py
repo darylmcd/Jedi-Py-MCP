@@ -18,7 +18,6 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 from python_refactor_mcp.errors import BackendError
-from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 from python_refactor_mcp.models import (
 	CallHierarchyResult,
 	CodeMetricsResult,
@@ -56,7 +55,6 @@ from python_refactor_mcp.models import (
 	SignatureInfo,
 	SignatureOperation,
 	StaticError,
-	StructuralMatch,
 	StructuralSearchResult,
 	SymbolInfo,
 	SymbolOutlineItem,
@@ -73,6 +71,7 @@ from python_refactor_mcp.tools import analysis, composite, metrics, navigation, 
 from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
 from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
+from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 _READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
@@ -191,12 +190,11 @@ def _tool_error_boundary(  # noqa: UP047
 		backends: WorkspaceBackends | None = None
 
 		if ctx is not None:
-			try:
+			with contextlib.suppress(RuntimeError):
 				multi_ctx = _get_multi_context(ctx)
-			except RuntimeError:
-				pass
 
 		if multi_ctx is not None:
+			assert ctx is not None
 			registry = multi_ctx.registry
 
 			# Lazy MCP roots fetch.
@@ -1173,7 +1171,7 @@ async def code_metrics(
 	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None,
 ) -> CodeMetricsResult:
 	"""Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await metrics.code_metrics(file_path, file_paths)
 	await ctx.debug(f"code_metrics functions={result.total_functions} max_cc={result.max_cyclomatic}")
 	return result
@@ -1212,7 +1210,7 @@ async def find_duplicated_code(
 	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None, min_lines: int = 3,
 ) -> list[DuplicateGroup]:
 	"""Detect duplicated function bodies by normalizing AST and comparing hashes. Use to find copy-paste code that should be refactored into shared functions. The min_lines parameter filters out trivially small functions. Related: use_function, extract_method."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await metrics.find_duplicated_code(file_path, file_paths, min_lines)
 	await ctx.debug(f"find_duplicated_code groups={len(result)}")
 	return result
@@ -1224,7 +1222,7 @@ async def get_type_coverage(
 	ctx: MCPContext, file_path: str, file_paths: list[str] | None = None,
 ) -> TypeCoverageReport:
 	"""Report type annotation completeness for function parameters and return types. Use to audit type coverage and identify unannotated symbols. Related: get_type_hint_string, deep_type_inference."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await metrics.get_type_coverage(file_path, file_paths)
 	await ctx.debug(f"get_type_coverage functions={result.total_functions} return_pct={result.return_coverage_pct} param_pct={result.param_coverage_pct}")
 	return result
@@ -1270,7 +1268,7 @@ async def interface_conformance(
 	ctx: MCPContext, file_path: str, class_names: list[str],
 ) -> InterfaceComparison:
 	"""Compare class interfaces to detect implicit protocol conformance. Given class names in a file, extracts method signatures and reports common methods, unique methods, and signature mismatches. Use before extract_protocol to preview what the protocol will contain. Related: extract_protocol, type_hierarchy."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await metrics.interface_conformance(file_path, class_names)
 	await ctx.debug(f"interface_conformance classes={len(class_names)} common={len(result.common_methods)}")
 	return result
@@ -1282,7 +1280,7 @@ async def extract_protocol(
 	ctx: MCPContext, file_path: str, class_names: list[str], protocol_name: str = "GeneratedProtocol",
 ) -> ProtocolSource:
 	"""Generate a Protocol class from common methods of given classes. Reuses interface_conformance logic to find shared methods, then generates a copy-paste-ready Protocol definition. Related: interface_conformance, type_hierarchy."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await metrics.extract_protocol(file_path, class_names, protocol_name)
 	await ctx.debug(f"extract_protocol methods={len(result.methods)}")
 	return result
@@ -1292,7 +1290,7 @@ async def extract_protocol(
 @_tool_error_boundary
 async def get_module_public_api(ctx: MCPContext, file_path: str) -> list[PublicAPIItem]:
 	"""Return only exported symbols from a module. Filters out _-prefixed names and respects __all__ if present. Use to understand a module's public interface without internal details. Related: get_symbol_outline, get_all_names."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await navigation.get_module_public_api(file_path)
 	await ctx.debug(f"get_module_public_api count={len(result)}")
 	return result
@@ -1307,7 +1305,7 @@ async def get_module_public_api(ctx: MCPContext, file_path: str) -> list[PublicA
 @_tool_error_boundary
 async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPreview]:
 	"""Generate unified diff previews for a list of TextEdit objects. Use to visualize what changes will look like before applying them. Pass edits from any refactoring tool's preview output. Related: rename_symbol, extract_method (any tool returning TextEdit lists)."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await composite.diff_preview(edits)
 	await ctx.debug(f"diff_preview files={len(result)}")
 	return result
@@ -1486,7 +1484,7 @@ async def security_scan(
 	file_paths: list[str] | None = None,
 ) -> SecurityScanResult:
 	"""AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Related: get_diagnostics, dead_code_detection."""
-	_ = _get_app_context(ctx)
+	_ = _get_current_backends()
 	result = await _security_scan(file_path, file_paths)
 	await ctx.debug(f"security_scan files={result.files_scanned} findings={result.total_findings}")
 	return result

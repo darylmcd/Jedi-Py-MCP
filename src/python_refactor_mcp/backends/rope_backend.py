@@ -9,6 +9,7 @@ import os
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
@@ -127,11 +128,11 @@ class RopeBackend:
         """Create rope project for the configured workspace root."""
         self._project = Project(
             str(self._config.workspace_root),
-            **self._config.rope_prefs,  # type: ignore[arg-type]  # rope prefs are runtime-configured
+            **cast(Any, self._config.rope_prefs),
         )
         # Pre-warm the AutoImport cache so autoimport_search returns results immediately.
         try:
-            with AutoImport(self._project) as ai:  # type: ignore[attr-defined]
+            with AutoImport(self._project) as ai:  # pyright: ignore[reportGeneralTypeIssues]
                 ai.generate_cache()
         except Exception:
             _LOGGER.debug("AutoImport cache pre-warm failed", exc_info=True)
@@ -242,8 +243,10 @@ class RopeBackend:
             raise
         return changed_files
 
-    def _build_result(self, changes: ChangeSet, description: str, apply: bool) -> RefactorResult:
+    def _build_result(self, changes: ChangeSet | None, description: str, apply: bool) -> RefactorResult:
         """Build a model result from rope changes and apply mode."""
+        if changes is None:
+            return RefactorResult(edits=[], files_affected=[], description=description, applied=False)
         edits = self._changes_to_edits(changes)
         if apply:
             files_affected = self._apply_edits(edits)
@@ -396,7 +399,7 @@ class RopeBackend:
             destination_resource = self._resource_for_path(destination_file)
             offset = self._find_symbol_offset(source_file, symbol_name)
             mover = create_move(project, source_resource, offset)
-            changes = mover.get_changes(destination_resource)  # type: ignore[arg-type]
+            changes = mover.get_changes(cast(Any, destination_resource))
             return self._build_result(
                 changes,
                 f"Moved symbol '{symbol_name}' to {destination_file}",
@@ -714,7 +717,7 @@ class RopeBackend:
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
             mover = create_move(project, resource, offset)
-            changes = mover.get_changes(destination_attr)  # type: ignore[arg-type]  # rope method-move takes str
+            changes = mover.get_changes(cast(Any, destination_attr))
             return self._build_result(changes, f"Moved method to '{destination_attr}'", apply)
 
         try:
@@ -738,7 +741,7 @@ class RopeBackend:
             source_resource = self._resource_for_path(source_path)
             dest_resource = self._resource_for_path(destination_package)
             mover = create_move(project, source_resource, None)
-            changes = mover.get_changes(dest_resource)  # type: ignore[arg-type]  # rope module-move takes Resource
+            changes = mover.get_changes(cast(Any, dest_resource))
             return self._build_result(
                 changes,
                 f"Moved module '{source_path}' to '{destination_package}'",
@@ -768,18 +771,18 @@ class RopeBackend:
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
             kind_lower = kind.strip().lower()
-            generators = {
-                "class": rope_generate.create_class,  # type: ignore[attr-defined]
-                "function": rope_generate.create_function,  # type: ignore[attr-defined]
-                "variable": rope_generate.create_variable,  # type: ignore[attr-defined]
+            generators: dict[str, Any] = {
+                "class": rope_generate.create_class,  # pyright: ignore[reportAttributeAccessIssue]
+                "function": rope_generate.create_function,  # pyright: ignore[reportAttributeAccessIssue]
+                "variable": rope_generate.create_variable,  # pyright: ignore[reportAttributeAccessIssue]
                 "module": rope_generate.create_module,
                 "package": rope_generate.create_package,
             }
             creator = generators.get(kind_lower)
             if creator is None:
                 raise RopeError(f"Unsupported generation kind: {kind}. Use: {', '.join(generators)}")
-            changes = creator(project, resource, offset)  # type: ignore[operator]  # rope generator returns ChangeSet
-            return self._build_result(changes, f"Generated {kind_lower}", apply)  # type: ignore[arg-type]
+            changes = cast(ChangeSet | None, creator(project, resource, offset))
+            return self._build_result(changes, f"Generated {kind_lower}", apply)
 
         try:
             async with timed(_LOGGER, "rope.generate_code"):
@@ -885,12 +888,12 @@ class RopeBackend:
 
         def _work() -> list[tuple[str, str]]:
             project = self._require_project()
-            with AutoImport(project) as ai:  # type: ignore[attr-defined]
+            with AutoImport(project) as ai:  # pyright: ignore[reportGeneralTypeIssues]
                 try:
                     ai.generate_cache()
                 except Exception:
                     _LOGGER.warning("AutoImport cache generation failed; searching existing cache")
-                return ai.search(name)
+                return cast(list[tuple[str, str]], ai.search(name))
 
         try:
             async with timed(_LOGGER, "rope.autoimport_search"):
@@ -994,14 +997,14 @@ class RopeBackend:
 
         project = self._require_project()
         self._change_stack = ChangeStack(project)
-        self._change_stack.__enter__()  # type: ignore[attr-defined]
+        self._change_stack.__enter__()  # pyright: ignore[reportAttributeAccessIssue]
         return "Change stack started"
 
     async def commit_change_stack(self) -> RefactorResult:
         """Commit and apply the current change stack."""
         if not hasattr(self, "_change_stack") or self._change_stack is None:
             raise RopeError("No active change stack to commit")
-        self._change_stack.__exit__(None, None, None)  # type: ignore[attr-defined]
+        self._change_stack.__exit__(None, None, None)  # pyright: ignore[reportAttributeAccessIssue]
         result = RefactorResult(
             edits=[], files_affected=[], description="Change stack committed", applied=True,
         )

@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+class RopeEncapsulateFixture:
+    """Class-level attribute for encapsulate_field (rope breaks on some dataclass fields on Py3.14)."""
+
+    encapsulate_me = 0
+
+
 @dataclass
 class User:
     user_id: int

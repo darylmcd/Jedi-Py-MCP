@@ -155,8 +155,8 @@ async def test_get_backends_creates_and_caches(tmp_path: Path) -> None:
 
     with patch("python_refactor_mcp.workspace_registry.discover_config") as mock_config, \
          patch("python_refactor_mcp.workspace_registry.PyrightLSPClient") as mock_pyright, \
-         patch("python_refactor_mcp.workspace_registry.JediBackend") as mock_jedi, \
-         patch("python_refactor_mcp.workspace_registry.RopeBackend") as mock_rope:
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
         mock_config.return_value = _mock_config(project)
         mock_pyright_inst = AsyncMock()
         mock_pyright.return_value = mock_pyright_inst

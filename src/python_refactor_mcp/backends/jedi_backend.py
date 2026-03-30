@@ -146,13 +146,15 @@ class JediBackend:
 
         if best is None:
             return None
+        assert isinstance(best, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef))
 
-        if isinstance(best, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-            kind = "function"
-        else:
-            kind = "class"
+        kind = (
+            "function"
+            if isinstance(best, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+            else "class"
+        )
         return ScopeContext(
-            name=best.name,  # type: ignore[union-attr]
+            name=best.name,
             kind=kind,
             file_path=str(Path(file_path).resolve()),
             line=best.lineno - 1,
@@ -666,8 +668,10 @@ class JediBackend:
             if not callable(defined_names_fn):
                 return []
             sub_names = defined_names_fn()
+            if not isinstance(sub_names, (list, tuple)):
+                return []
             results: list[NameEntry] = []
-            for name in sub_names:  # type: ignore[union-attr]
+            for name in sub_names:
                 entry_name = getattr(name, "name", "")
                 if not isinstance(entry_name, str) or not entry_name:
                     continue
@@ -710,8 +714,10 @@ class JediBackend:
             if not callable(execute_fn):
                 return []
             executed = execute_fn()
+            if not isinstance(executed, (list, tuple)):
+                return []
             results: list[TypeInfo] = []
-            for name in executed:  # type: ignore[union-attr]
+            for name in executed:
                 entry_name = getattr(name, "name", "")
                 if not isinstance(entry_name, str):
                     entry_name = ""
@@ -784,13 +790,13 @@ class JediBackend:
                     continue
                 seen_paths.add(env_path)
                 version_info = getattr(env, "version_info", None)
-                version = None
+                venv_py_version: str | None = None
                 if version_info is not None:
                     with contextlib.suppress(Exception):
-                        version = ".".join(str(v) for v in version_info[:3])
+                        venv_py_version = ".".join(str(v) for v in version_info[:3])
                 envs.append(EnvironmentInfo(
                     path=env_path,
-                    python_version=version or "unknown",
+                    python_version=venv_py_version or "unknown",
                     is_virtualenv=True,
                 ))
 
@@ -800,13 +806,13 @@ class JediBackend:
                     continue
                 seen_paths.add(env_path)
                 version_info = getattr(env, "version_info", None)
-                version = None
+                version_sys: str | None = None
                 if version_info is not None:
                     with contextlib.suppress(Exception):
-                        version = ".".join(str(v) for v in version_info[:3])
+                        version_sys = ".".join(str(v) for v in version_info[:3])
                 envs.append(EnvironmentInfo(
                     path=env_path,
-                    python_version=version or "unknown",
+                    python_version=version_sys or "unknown",
                     is_virtualenv=False,
                 ))
 

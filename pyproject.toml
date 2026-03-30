@@ -60,7 +60,7 @@ testpaths = ["tests"]
 python_version = "3.14"
 strict = true
 packages = ["python_refactor_mcp"]
-exclude = ["tests/integration/fixtures/sample_project/.*", "build/.*", "dist/.*"]
+exclude = ["tests/.*", "build/.*", "dist/.*"]
 
 [[tool.mypy.overrides]]
 module = ["python_refactor_mcp.server"]
