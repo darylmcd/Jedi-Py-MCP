@@ -60,7 +60,7 @@ Use this for each existing or proposed tool.
 
 ## C. Current Surface Coverage (Snapshot)
 
-Current server exposes 45 tools across analysis/navigation/refactoring/search/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
+Current server exposes 75 tools across analysis/navigation/refactoring/search/metrics/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
 
 Minimum per-release checks for current tools:
 - [ ] Tool table in `README.md` matches actual server registration.
