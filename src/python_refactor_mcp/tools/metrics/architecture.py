@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import (
@@ -180,7 +181,11 @@ async def interface_conformance(
     mismatches: list[dict[str, object]] = []
     for method_name in sorted(common):
         signatures = {cls: class_methods[cls][method_name] for cls in class_names if method_name in class_methods[cls]}
-        param_lists = [tuple(sig["params"]) for sig in signatures.values()]  # type: ignore[arg-type]
+        param_lists: list[tuple[Any, ...]] = []
+        for sig in signatures.values():
+            raw = sig.get("params")
+            if isinstance(raw, list):
+                param_lists.append(tuple(raw))
         if len(set(param_lists)) > 1:
             mismatches.append({
                 "method": method_name,
@@ -217,9 +222,10 @@ async def extract_protocol(
             if method_name.startswith("_") and method_name != "__init__":
                 continue
             sig = methods.get(method_name, {})
-            params = sig.get("params", [])
+            params_raw = sig.get("params", [])
+            params_list = params_raw if isinstance(params_raw, list) else []
             ret = sig.get("return_annotation")
-            param_str = ", ".join(["self"] + [str(p) for p in params])  # type: ignore[union-attr]
+            param_str = ", ".join(["self"] + [str(p) for p in params_list])
             ret_str = f" -> {ret}" if ret else ""
             lines.append(f"    def {method_name}({param_str}){ret_str}: ...")
 

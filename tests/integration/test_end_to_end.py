@@ -291,23 +291,31 @@ async def test_get_workspace_diagnostics_returns_summary(
     service_path = sample_workspace / "src" / "service.py"
     await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
 
-    payload: object = []
+    payload: object = None
+    items: list[object] = []
     for _ in range(8):
         result = await mcp_session.call_tool("get_workspace_diagnostics", {})
         assert result.isError is not True
         payload = _unwrap_result_payload(result.structuredContent)
-        if isinstance(payload, list) and any(
+        if isinstance(payload, dict):
+            raw_items = payload.get("items", [])
+            items = raw_items if isinstance(raw_items, list) else []
+        elif isinstance(payload, list):
+            items = payload
+        else:
+            items = []
+        if any(
             str(item.get("file_path", "")).endswith("service.py")
-            for item in payload
+            for item in items
             if isinstance(item, dict)
         ):
             break
         await asyncio.sleep(0.1)
 
-    assert isinstance(payload, list)
+    assert isinstance(payload, (dict, list))
     assert any(
         str(item.get("file_path", "")).endswith("service.py")
-        for item in payload
+        for item in items
         if isinstance(item, dict)
     )
 
@@ -662,7 +670,7 @@ async def test_encapsulate_field_preview_mode(
 ) -> None:
     """Ensure encapsulate_field returns a valid preview payload."""
     models_path = sample_workspace / "src" / "models.py"
-    line, character = _find_position(models_path, "user_id")
+    line, character = _find_position(models_path, "encapsulate_me")
 
     result = await mcp_session.call_tool(
         "encapsulate_field",
