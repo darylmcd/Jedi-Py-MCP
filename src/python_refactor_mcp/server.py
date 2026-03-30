@@ -1050,9 +1050,9 @@ async def structural_search(
 ) -> list[StructuralMatch]:
 	"""Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Related: restructure (pattern-based replace), dead_code_detection."""
 	app = _get_app_context(ctx)
-	result = await search.structural_search(app.config, pattern, file_path, language, limit)
-	await ctx.debug(f"structural_search language={language} count={len(result)}")
-	return result
+	matches, files_scanned = await search.structural_search(app.config, pattern, file_path, language, limit)
+	await ctx.debug(f"structural_search language={language} matches={len(matches)} files_scanned={files_scanned}")
+	return matches
 
 
 @mcp.tool(annotations=_READONLY)

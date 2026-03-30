@@ -216,9 +216,21 @@ async def type_hierarchy(
             roots = await pyright.prepare_type_hierarchy(file_path, resolved[0], resolved[1])
 
     if not roots:
+        # Try to determine the class name from AST for a useful placeholder.
+        fallback_name = class_name or ""
+        if not fallback_name:
+            try:
+                source = Path(file_path).read_text(encoding="utf-8")
+                tree = ast.parse(source)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef) and abs((node.lineno - 1) - line) <= 2:
+                        fallback_name = node.name
+                        break
+            except (OSError, SyntaxError):
+                pass
         placeholder = TypeHierarchyItem.model_validate(
             {
-                "name": "",
+                "name": fallback_name,
                 "kind": "class",
                 "file_path": file_path,
                 "range": {

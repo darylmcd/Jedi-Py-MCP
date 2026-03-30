@@ -10,16 +10,31 @@ from python_refactor_mcp.models import DependencyGraph, ModuleDependency
 
 
 def _resolve_module_to_file(module_name: str, workspace_root: Path) -> str | None:
-    """Try to resolve a module name to a file path within the workspace."""
+    """Try to resolve a module name to a file path within the workspace.
+
+    Searches workspace_root directly and common source subdirectories
+    (``src/``, ``lib/``) to support projects with non-flat layouts.
+    """
     parts = module_name.split(".")
-    # Try as package/__init__.py
-    package_path = workspace_root / "/".join(parts) / "__init__.py"
-    if package_path.exists():
-        return str(package_path.resolve())
-    # Try as module.py
-    module_path = workspace_root / "/".join(parts[:-1]) / (parts[-1] + ".py") if len(parts) > 1 else workspace_root / (parts[0] + ".py")
-    if module_path.exists():
-        return str(module_path.resolve())
+    # Build list of search roots: workspace itself, then common source dirs.
+    search_roots = [workspace_root]
+    for subdir_name in ("src", "lib"):
+        subdir = workspace_root / subdir_name
+        if subdir.is_dir():
+            search_roots.append(subdir)
+
+    for root in search_roots:
+        # Try as package/__init__.py
+        package_path = root / "/".join(parts) / "__init__.py"
+        if package_path.exists():
+            return str(package_path.resolve())
+        # Try as module.py
+        if len(parts) > 1:
+            module_path = root / "/".join(parts[:-1]) / (parts[-1] + ".py")
+        else:
+            module_path = root / (parts[0] + ".py")
+        if module_path.exists():
+            return str(module_path.resolve())
     return None
 
 

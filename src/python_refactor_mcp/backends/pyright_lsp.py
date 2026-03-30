@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -70,6 +71,7 @@ class PyrightLSPClient:
             self._request_timeout_seconds = 5.0
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
+        self._content_hashes: dict[str, str] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._diagnostics_events: dict[str, asyncio.Event] = {}
         self._startup_command: list[str] | None = None
@@ -124,21 +126,7 @@ class PyrightLSPClient:
             self._diagnostics_events.clear()
             # Create fresh client and re-run startup.
             self._client = self._make_client()
-            root_uri = path_to_uri(str(self._config.workspace_root))
-            initialize_params: dict[str, JSONValue] = {
-                "processId": None,
-                "rootUri": root_uri,
-                "capabilities": {
-                    "textDocument": {
-                        "publishDiagnostics": {"relatedInformation": True},
-                    },
-                    "workspace": {"workspaceFolders": True},
-                },
-                "workspaceFolders": [
-                    {"uri": root_uri, "name": self._config.workspace_root.name}
-                ],
-                "clientInfo": {"name": "python-refactor-mcp"},
-            }
+            initialize_params = self._build_initialize_params()
             await self._client.start(self._startup_command)
             response = await asyncio.wait_for(
                 self._client.send_request("initialize", initialize_params),
@@ -217,15 +205,25 @@ class PyrightLSPClient:
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
-    async def start(self) -> None:
-        """Start the Pyright language server and initialize the LSP session."""
+    def _build_initialize_params(self) -> dict[str, JSONValue]:
+        """Build LSP initialize params with full capability declarations."""
         root_uri = path_to_uri(str(self._config.workspace_root))
-        initialize_params: dict[str, JSONValue] = {
+        return {
             "processId": None,
             "rootUri": root_uri,
             "capabilities": {
                 "textDocument": {
                     "publishDiagnostics": {"relatedInformation": True},
+                    "rename": {
+                        "prepareSupport": True,
+                        "prepareSupportDefaultBehavior": 1,
+                    },
+                    "semanticTokens": {
+                        "requests": {"full": True},
+                        "tokenTypes": SEMANTIC_TOKEN_TYPES,
+                        "tokenModifiers": SEMANTIC_TOKEN_MODIFIERS,
+                        "formats": ["relative"],
+                    },
                 },
                 "workspace": {"workspaceFolders": True},
             },
@@ -237,6 +235,10 @@ class PyrightLSPClient:
             ],
             "clientInfo": {"name": "python-refactor-mcp"},
         }
+
+    async def start(self) -> None:
+        """Start the Pyright language server and initialize the LSP session."""
+        initialize_params = self._build_initialize_params()
 
         startup_errors: list[str] = []
         for command in self._candidate_commands():
@@ -305,6 +307,34 @@ class PyrightLSPClient:
         await self._client.send_notification("textDocument/didOpen", params)
         self._open_files.add(absolute_path)
         self._file_versions[absolute_path] = version
+        self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
+
+    async def _refresh_if_changed(self, absolute_path: str) -> None:
+        """Re-read a file from disk and send didChange if its content has changed."""
+        if absolute_path not in self._open_files:
+            return
+        try:
+            text = Path(absolute_path).read_text(encoding="utf-8")
+        except (FileNotFoundError, UnicodeDecodeError, OSError):
+            return
+        new_hash = hashlib.md5(text.encode()).hexdigest()
+        old_hash = self._content_hashes.get(absolute_path)
+        if old_hash == new_hash:
+            return
+        # File changed on disk — send didChange to Pyright.
+        version = self._file_versions.get(absolute_path, 1) + 1
+        self._file_versions[absolute_path] = version
+        self._content_hashes[absolute_path] = new_hash
+        params: dict[str, JSONValue] = {
+            "textDocument": {
+                "uri": path_to_uri(absolute_path),
+                "version": version,
+            },
+            "contentChanges": [{"text": text}],
+        }
+        await self._client.send_notification("textDocument/didChange", params)
+        # Clear stale diagnostics so they get refreshed.
+        self._diagnostics.pop(absolute_path, None)
 
     async def notify_file_changed(self, file_path: str) -> None:
         """Notify Pyright that a file's full contents changed."""
@@ -328,6 +358,7 @@ class PyrightLSPClient:
             "contentChanges": [{"text": text}],
         }
         await self._client.send_notification("textDocument/didChange", params)
+        self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
@@ -336,6 +367,8 @@ class PyrightLSPClient:
         if file_path is not None:
             normalized = normalize_path(file_path)
             await self.ensure_file_open(normalized)
+            # Detect externally-modified files and refresh Pyright's view.
+            await self._refresh_if_changed(normalized)
             if normalized not in self._diagnostics:
                 event = self._diagnostics_events.setdefault(normalized, asyncio.Event())
                 event.clear()

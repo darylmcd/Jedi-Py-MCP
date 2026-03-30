@@ -15,7 +15,7 @@ from python_refactor_mcp.tools.analysis._protocols import (
     PyrightAnalysisBackend as _PyrightAnalysisBackend,
 )
 from python_refactor_mcp.util.file_filter import python_files
-from python_refactor_mcp.util.shared import apply_limit
+from python_refactor_mcp.util.shared import apply_limit, diagnostic_key
 
 _VALID_SEVERITIES = {"error", "warning", "information", "hint"}
 
@@ -62,6 +62,14 @@ async def get_diagnostics(
         diagnostics = all_diags
     else:
         diagnostics = await pyright.get_diagnostics(file_path)
+
+    # Deduplicate diagnostics that appear at the same position with the same message.
+    seen: dict[tuple[str, int, int, int, int, str, str], Diagnostic] = {}
+    for d in diagnostics:
+        key = diagnostic_key(d)
+        if key not in seen:
+            seen[key] = d
+    diagnostics = list(seen.values())
 
     if normalized_severity is not None:
         diagnostics = [
