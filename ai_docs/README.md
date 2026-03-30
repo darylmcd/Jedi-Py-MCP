@@ -18,13 +18,12 @@ Read order is defined by `../AGENTS.md`.
 ## Preferred Active References
 
 - `architecture.md`: compact system architecture reference
-- `domains/python-refactor/reference.md`: domain-specific entry point
-- `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and
-	prompt-example template for current and planned tools
-- `domains/python-refactor/next10-implementation-plan.md`: approved and executed implementation/audit plan for the original 35-tool surface
-- `domains/python-refactor/next10-wave2-plan.md`: approved expansion plan for hardening + the additional 10-tool implementation wave (current 45-tool surface)
+- `domains/python-refactor/reference.md`: domain-specific entry point (75 tools)
+- `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
+- `mcp_best_practices.md`: general MCP server best practices reference
 - `references/testing.md`: stable test strategy and command reference
 - `references/tooling/python.md`: Python/runtime tooling reference
+- `prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
 - `procedures/release-handoff.md`: repeatable handoff sequence
 
 ## Project Map
@@ -40,12 +39,12 @@ Read order is defined by `../AGENTS.md`.
 - `../src/python_refactor_mcp/tools/`: tool modules
 - `../tests/unit/`: current automated coverage
 - `../tests/integration/`: transport and end-to-end coverage
-- `archive/python-refactor-mcp-prompt.md`: stage-by-stage historical implementation prompt
 
 ## Organization Rules
 
 - Keep active docs current-state only.
 - Keep unfinished work in `backlog.md` only.
-- Keep deep history, audits, and point-in-time analyses in `archive/`.
+- Historical rationale, audits, and one-off analyses are preserved in git history only.
+- Files marked with `<!-- KEEP THIS FILE -->` are reusable assets — update them, never delete them.
 - Keep scratch/session artifacts outside `ai_docs` (for example `.ai-scratch/`).
 - Use one canonical owner per concern and link instead of duplicating policy.

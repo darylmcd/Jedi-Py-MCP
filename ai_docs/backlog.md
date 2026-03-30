@@ -4,7 +4,7 @@ Open follow-up items only. Remove entries once verified complete.
 Ordered by severity: P0 (bug fixes / security) > P1 (usability / hardening) > P2 (new features) > P3 (advanced) > P4 (stretch) > Tests/Docs.
 
 Best practices analysis: `ai_docs/mcp_best_practices.md`.
-Historical plans and audits removed — all open items consolidated here; originals preserved in git history.
+Historical plans, audits, and reports removed — all open items consolidated here; originals preserved in git history.
 
 ---
 
@@ -16,57 +16,62 @@ Historical plans and audits removed — all open items consolidated here; origin
 
 ## P1 — Usability, Hardening & Critical Gaps
 
-- Status: `done`
-  Area: reliability / timeouts
-  Item: Add timeouts to Jedi backend operations.
-  Completed: 2026-03-28. All 7 `asyncio.to_thread()` calls wrapped with `asyncio.wait_for()` using `JEDI_OPERATION_TIMEOUT_SECONDS` env var (default 10s).
-
-- Status: `done`
-  Area: usability / tool design
-  Item: Rewrite all 45 tool docstrings with workflow-oriented descriptions.
-  Completed: 2026-03-28. All docstrings rewritten with: what, when, key params, related tools.
-
-- Status: `done`
-  Area: usability / annotations
-  Item: Add `idempotentHint`, `_ADDITIVE` annotation to tool annotations.
-  Completed: 2026-03-28. `_READONLY` has `idempotentHint=True`. New `_ADDITIVE` annotation for non-destructive mutations (organize_imports, apply_code_action). `title` field deferred — not yet supported by FastMCP SDK.
-
-- Status: `done`
-  Area: usability / server metadata
-  Item: Add server instructions to FastMCP constructor.
-  Completed: 2026-03-28. Added `instructions` parameter with tool category overview and workflow tips. `version` not supported by current SDK version.
-
-- Status: `done`
-  Area: reliability / concurrency
-  Item: Add concurrency semaphore for workspace-wide scan operations.
-  Completed: 2026-03-28. `asyncio.Semaphore(10)` added to `diagnostics.py`, `outline.py`, and `dead_code.py`.
-
-- Status: `done`
-  Area: testing / compliance
-  Item: Add MCP protocol contract tests using in-memory transport.
-  Completed: 2026-03-28. 10 contract tests in `tests/contract/test_mcp_protocol.py` verifying annotations, descriptions, schema shapes, and validation sets.
-
-- Status: `done`
-  Area: observability / logging
-  Item: Add timing measurement to all tool functions and backend calls.
-  Completed: 2026-03-28. `_tool_error_boundary` now measures and logs elapsed time for every tool call via `ctx.debug`. Backend timing via `util/timing.py` `timed()` context manager.
-
-- Status: `done`
-  Area: performance / concurrency
-  Item: Parallelize dead_code_detection diagnostics and reference counting.
-  Completed: 2026-03-28. Both diagnostic fetch and per-symbol reference counting now use `asyncio.gather` with `Semaphore(10)`.
+(All items completed.)
 
 ---
 
-## P2 — High-Value New Features
+## P2 — Refactoring & Code Quality
 
-(All items completed 2026-03-28. 15 new tools added: `inline_method`, `inline_parameter`, `move_method`, `move_module`, `expand_star_imports`, `create_type_stubs`, `generate_code`, `deep_type_inference`, `get_type_hint_string`, `get_syntax_errors`, `code_metrics`, `get_module_dependencies`, `find_unused_imports`, `find_duplicated_code`, `get_type_coverage`.)
+- Status: `open`
+  Area: complexity / refactoring
+  Item: Refactor `get_document_symbols` (CC=24, cognitive=40) — extract nested dict conversion into helper.
+  Source: code-review-report (2026-03-28)
+  Files: `backends/pyright_lsp.py`
+
+- Status: `open`
+  Area: complexity / refactoring
+  Item: Refactor `_build_signature_changers` (cognitive=56, nesting=8) — convert to dispatch table pattern.
+  Source: code-review-report (2026-03-28)
+  Files: `backends/rope_backend.py`
+
+- Status: `open`
+  Area: code quality / dedup
+  Item: Consolidate `notify_file_changed` — remove duplicate between `composite.py` and `shared.py`.
+  Source: code-review-report (2026-03-28)
+  Files: `tools/composite.py`, `util/shared.py`
+
+- Status: `open`
+  Area: code quality / dead code audit
+  Item: Audit `lsp_types.py` — 30+ TypedDict/class definitions appear unused; verify runtime usage patterns.
+  Source: code-review-report (2026-03-28)
+  Files: `util/lsp_types.py`
+
+- Status: `open`
+  Area: code quality / dead code
+  Item: Consider removing `severity_to_string` in `lsp_converters.py` if no external consumers exist.
+  Source: code-review-report (2026-03-28)
+  Files: `util/lsp_converters.py`
+
+- Status: `open`
+  Area: tool consolidation
+  Item: Merge overlapping tools to reduce tool count below 40: merge `get_type_info`/`get_hover_info`, `rename_symbol`/`smart_rename`, `get_signature_help`/`get_call_signatures_fallback`.
+  Source: mcp-compliance-plan GAP-02 (2026-03-28)
+  Files: `server.py`, tool modules
+
+- Status: `open`
+  Area: error handling
+  Item: Audit tool-level fallback `except` blocks for silent error swallowing — add `_LOGGER.debug(..., exc_info=True)` to any that swallow silently.
+  Source: mcp-compliance-plan GAP-07 (2026-03-28)
+  Files: `tools/analysis/references.py`, `tools/analysis/type_info.py`, `tools/navigation/definitions.py`, `tools/search/symbols.py`
 
 ---
 
-## P3 — Advanced Analysis & Refactoring
+## P3 — Known Limitations
 
-(All items completed 2026-03-28. 15 new tools added: `argument_normalizer`, `argument_default_inliner`, `relatives_to_absolutes`, `froms_to_imports`, `handle_long_imports`, `get_context`, `get_all_names`, `find_errors_static`, `fix_module_names`, `autoimport_search`, `get_coupling_metrics`, `check_layer_violations`, `interface_conformance`, `extract_protocol`, `get_module_public_api`.)
+- Status: `documented`
+  Area: upstream limitation
+  Item: `change_signature` strips Python 3 type annotations during normalization. This is a known rope limitation (`ArgumentNormalizer`). Documented in rope_backend.py docstring.
+  Source: mcp-server-audit-report #15 (2026-03-28)
 
 ---
 
