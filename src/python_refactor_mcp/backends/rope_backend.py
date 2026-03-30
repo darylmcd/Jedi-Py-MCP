@@ -130,7 +130,7 @@ class RopeBackend:
         try:
             relative = absolute.relative_to(self._config.workspace_root)
         except ValueError as exc:
-            raise RopeError(f"Path is outside workspace root: {absolute}") from exc
+            raise RopeError(f"Path is outside workspace root: {absolute}: {exc}") from exc
         # Rope expects forward-slash paths internally regardless of OS.
         return project.get_resource(str(relative).replace("\\", "/"))
 
@@ -238,7 +238,7 @@ class RopeBackend:
         try:
             tree = ast.parse(content)
         except SyntaxError as exc:
-            raise RopeError(f"Failed to parse source for symbol lookup: {source_file}") from exc
+            raise RopeError(f"Failed to parse source for symbol lookup: {source_file}: {exc}") from exc
 
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol_name:
@@ -278,7 +278,7 @@ class RopeBackend:
             _LOGGER.debug("rope rename produced %d edits", len(result.edits))
             return result
         except Exception as exc:
-            raise RopeError(f"rope rename failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope rename failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def extract_method(
         self,
@@ -307,7 +307,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope extract_method failed for {file_path}") from exc
+            raise RopeError(f"rope extract_method failed for {file_path}: {exc}") from exc
 
     async def extract_variable(
         self,
@@ -335,7 +335,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope extract_variable failed for {file_path}") from exc
+            raise RopeError(f"rope extract_variable failed for {file_path}: {exc}") from exc
 
     async def inline(self, file_path: str, line: int, character: int, apply: bool) -> RefactorResult:
         """Inline a symbol and optionally apply edits."""
@@ -353,7 +353,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope inline failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope inline failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def move(
         self,
@@ -383,7 +383,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope move failed for symbol {symbol_name}") from exc
+            raise RopeError(f"rope move failed for symbol {symbol_name}: {exc}") from exc
 
     async def introduce_parameter(
         self,
@@ -442,7 +442,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope encapsulate_field failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope encapsulate_field failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def change_signature(
         self,
@@ -452,7 +452,15 @@ class RopeBackend:
         operations: list[SignatureOperation],
         apply: bool,
     ) -> RefactorResult:
-        """Apply ordered signature changes to a function and call sites."""
+        """Apply ordered signature changes to a function and call sites.
+
+        .. note::
+
+            Rope's ``ArgumentNormalizer`` and ``ArgumentAdder`` do **not**
+            preserve Python 3 type annotations on modified parameters.
+            The ``normalize`` operation and ``rename`` (remove + re-add)
+            may strip annotations.  This is a known upstream rope limitation.
+        """
 
         def _work() -> RefactorResult:
             project = self._require_project()
@@ -469,7 +477,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope change_signature failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope change_signature failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def restructure(
         self,
@@ -497,7 +505,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError("rope restructure failed") from exc
+            raise RopeError("rope restructure failed: {exc}") from exc
 
     async def use_function(
         self,
@@ -521,7 +529,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope use_function failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope use_function failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def introduce_factory(
         self,
@@ -549,7 +557,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope introduce_factory failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope introduce_factory failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def module_to_package(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert a module into a package preserving public imports."""
@@ -566,7 +574,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope module_to_package failed for {file_path}") from exc
+            raise RopeError(f"rope module_to_package failed for {file_path}: {exc}") from exc
 
     async def local_to_field(
         self,
@@ -590,7 +598,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope local_to_field failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope local_to_field failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def method_object(
         self,
@@ -615,7 +623,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope method_object failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope method_object failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def inline_method(
         self,
@@ -639,7 +647,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope inline_method failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope inline_method failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def inline_parameter(
         self,
@@ -663,7 +671,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope inline_parameter failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope inline_parameter failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def move_method(
         self,
@@ -689,7 +697,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope move_method failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope move_method failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def move_module(
         self,
@@ -717,7 +725,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope move_module failed for {source_path}") from exc
+            raise RopeError(f"rope move_module failed for {source_path}: {exc}") from exc
 
     async def generate_code(
         self,
@@ -753,7 +761,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError(f"rope generate_code failed for {file_path}:{line}:{character}") from exc
+            raise RopeError(f"rope generate_code failed for {file_path}:{line}:{character}: {exc}") from exc
 
     async def fix_module_names(self, apply: bool) -> RefactorResult:
         """Batch-rename modules to conform to PEP 8 lowercase naming."""
@@ -770,7 +778,7 @@ class RopeBackend:
                 result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
             return result
         except Exception as exc:
-            raise RopeError("rope fix_module_names failed") from exc
+            raise RopeError("rope fix_module_names failed: {exc}") from exc
 
     # ── Import organizer methods ──────────────────────────────────────────
 
@@ -789,7 +797,7 @@ class RopeBackend:
             async with timed(_LOGGER, "rope.expand_star_imports"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope expand_star_imports failed for {file_path}") from exc
+            raise RopeError(f"rope expand_star_imports failed for {file_path}: {exc}") from exc
 
     async def relatives_to_absolutes(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert all relative imports to absolute imports."""
@@ -806,7 +814,7 @@ class RopeBackend:
             async with timed(_LOGGER, "rope.relatives_to_absolutes"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope relatives_to_absolutes failed for {file_path}") from exc
+            raise RopeError(f"rope relatives_to_absolutes failed for {file_path}: {exc}") from exc
 
     async def froms_to_imports(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert ``from module import name`` to ``import module`` style."""
@@ -823,7 +831,7 @@ class RopeBackend:
             async with timed(_LOGGER, "rope.froms_to_imports"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope froms_to_imports failed for {file_path}") from exc
+            raise RopeError(f"rope froms_to_imports failed for {file_path}: {exc}") from exc
 
     async def handle_long_imports(self, file_path: str, apply: bool) -> RefactorResult:
         """Break long import lines per project preferences."""
@@ -840,7 +848,7 @@ class RopeBackend:
             async with timed(_LOGGER, "rope.handle_long_imports"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope handle_long_imports failed for {file_path}") from exc
+            raise RopeError(f"rope handle_long_imports failed for {file_path}: {exc}") from exc
 
     # ── AutoImport cache ──────────────────────────────────────────────────
 
@@ -853,14 +861,18 @@ class RopeBackend:
         def _work() -> list[tuple[str, str]]:
             project = self._require_project()
             with AutoImport(project) as ai:
-                ai.generate_cache()
+                try:
+                    ai.generate_cache()
+                except Exception:
+                    _LOGGER.warning("AutoImport cache generation failed; searching existing cache")
                 return ai.search(name)
 
         try:
             async with timed(_LOGGER, "rope.autoimport_search"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope autoimport_search failed for '{name}'") from exc
+            _LOGGER.warning("rope autoimport_search failed for '%s': %s", name, exc, exc_info=True)
+            return []
 
     async def find_errors(self, file_path: str) -> list[dict[str, object]]:
         """Run rope's static analysis for bad name/attribute accesses."""
@@ -884,4 +896,4 @@ class RopeBackend:
             async with timed(_LOGGER, "rope.find_errors"):
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
-            raise RopeError(f"rope find_errors failed for {file_path}") from exc
+            raise RopeError(f"rope find_errors failed for {file_path}: {exc}") from exc

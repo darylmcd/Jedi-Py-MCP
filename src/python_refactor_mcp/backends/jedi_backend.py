@@ -435,9 +435,8 @@ class JediBackend:
                 get_type_hint_fn = getattr(name, "get_type_hint", None)
                 if callable(get_type_hint_fn):
                     try:
-                        hint = get_type_hint_fn()
-                        if not isinstance(hint, str) or not hint:
-                            hint = None
+                        raw_hint = get_type_hint_fn()
+                        hint = raw_hint if isinstance(raw_hint, str) and raw_hint else None
                     except Exception:
                         pass
                 results.append(TypeHintResult(

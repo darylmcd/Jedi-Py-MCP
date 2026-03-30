@@ -58,7 +58,7 @@ async def structural_search(
     file_path: str | None = None,
     language: str = "python",
     limit: int | None = None,
-) -> list[StructuralMatch]:
+) -> tuple[list[StructuralMatch], int]:
     """Run LibCST matcher-based structural search for Python code."""
     if language.strip().lower() != "python":
         raise ValueError("Only language='python' is supported.")
@@ -138,6 +138,7 @@ async def structural_search(
         *[asyncio.to_thread(_scan_file, path) for path in candidate_files],
         return_exceptions=True,
     )
+    files_scanned = sum(1 for r in all_results if isinstance(r, list))
     flattened = [item for result in all_results if isinstance(result, list) for item in result]
     sorted_items = sorted(flattened, key=lambda item: (item.file_path, *range_sort_key(item.range)))
-    return apply_limit_items(sorted_items, limit)
+    return apply_limit_items(sorted_items, limit), files_scanned

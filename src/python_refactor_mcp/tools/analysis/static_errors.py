@@ -17,11 +17,13 @@ async def find_errors_static(
 ) -> list[StaticError]:
     """Run rope's static analysis for bad name/attribute accesses."""
     raw_errors = await rope.find_errors(file_path)
-    return [
-        StaticError(
+    results: list[StaticError] = []
+    for err in raw_errors:
+        raw_line = err.get("line", 0)
+        line_no = int(raw_line) if isinstance(raw_line, (int, str)) else 0
+        results.append(StaticError(
             file_path=str(err.get("file_path", file_path)),
-            line=int(err.get("line", 0)),
+            line=line_no,
             message=str(err.get("message", "")),
-        )
-        for err in raw_errors
-    ]
+        ))
+    return results

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import logging
 from pathlib import Path
 
@@ -21,6 +22,36 @@ from python_refactor_mcp.util.shared import apply_limit
 from python_refactor_mcp.util.shared import location_key as _location_key
 
 _apply_limit = apply_limit
+
+
+def _snap_to_symbol(file_path: str, line: int, character: int) -> tuple[int, int] | None:
+    """Try to find the nearest symbol name at the given position using AST.
+
+    When the cursor lands on a docstring, decorator, or ``class``/``def``
+    keyword instead of the actual name token, this snaps to the name.
+    Returns ``(line, character)`` of the name token or ``None``.
+    """
+    try:
+        source = Path(file_path).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError):
+        return None
+
+    source_lines = source.splitlines()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        node_start = node.lineno - 1
+        # Check if cursor is within a few lines of this definition (covers
+        # docstrings, decorators, and the ``class``/``def`` keyword line).
+        if not (node_start - 3 <= line <= node_start + 3):
+            continue
+        name_line = node.lineno - 1
+        if 0 <= name_line < len(source_lines):
+            name_col = source_lines[name_line].find(node.name)
+            if name_col >= 0:
+                return name_line, name_col
+    return None
 
 
 def _add_context_lines(locations: list[Location]) -> list[Location]:
@@ -61,6 +92,15 @@ async def find_references(
         character,
         include_declaration,
     )
+
+    # If Pyright found nothing, the cursor may be on a docstring or keyword
+    # instead of the symbol name.  Snap to the nearest definition name.
+    if not pyright_references:
+        snapped = _snap_to_symbol(file_path, line, character)
+        if snapped and (snapped[0] != line or snapped[1] != character):
+            pyright_references = await pyright.get_references(
+                file_path, snapped[0], snapped[1], include_declaration,
+            )
 
     if not pyright_references:
         try:

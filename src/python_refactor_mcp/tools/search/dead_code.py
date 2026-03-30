@@ -35,6 +35,8 @@ def _score_confidence(name: str, reason: str) -> str:
         return "low"
     if name.startswith("__") and name.endswith("__"):
         return "low"
+    if name == "__all__":
+        return "low"
     return "medium"
 
 
@@ -56,6 +58,10 @@ def _iter_module_level_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
     symbols: list[tuple[str, str, Range]] = []
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # Skip decorated symbols — decorators often register functions
+            # externally (e.g., @app.route, @mcp.tool, @pytest.fixture).
+            if node.decorator_list:
+                continue
             line_index = node.lineno - 1
             if line_index < 0 or line_index >= len(lines):
                 continue
@@ -74,6 +80,9 @@ def _iter_module_level_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if not isinstance(target, ast.Name):
+                    continue
+                # Skip __all__ — it controls the module's public interface.
+                if target.id == "__all__":
                     continue
                 symbols.append(
                     (

@@ -59,7 +59,7 @@ async def test_structural_search_returns_matches(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    results = await search.structural_search(
+    results, files_scanned = await search.structural_search(
         _config(tmp_path),
         "m.Call(func=m.Name('print'))",
         str(source),
@@ -67,6 +67,7 @@ async def test_structural_search_returns_matches(tmp_path: Path) -> None:
 
     assert len(results) == 2
     assert all("print" in item.matched_text for item in results)
+    assert files_scanned == 1
 
 
 @pytest.mark.asyncio

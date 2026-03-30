@@ -30,6 +30,10 @@ async def find_unused_imports(
                 or "not accessed" in diag.message.lower()
                 or "unused" in diag.message.lower()
             ):
+                # __future__ imports are special — they modify runtime behaviour
+                # even though their names are never referenced directly in code.
+                if "__future__" in diag.message:
+                    continue
                 # Extract the import name from diagnostic message
                 name = _extract_import_name(diag.message)
                 results.append(UnusedImport(
@@ -73,6 +77,8 @@ def _ast_find_unused(file_path: str) -> list[UnusedImport]:
                 imported[name] = (alias.name, node.lineno - 1)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
+            if module == "__future__":
+                continue
             for alias in node.names:
                 name = alias.asname or alias.name
                 imported[name] = (module, node.lineno - 1)
