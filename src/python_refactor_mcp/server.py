@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -77,7 +78,10 @@ _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempot
 _ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Parameters that contain file paths requiring workspace boundary validation.
-_PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"})
+_PATH_PARAMS = frozenset({
+    "file_path", "source_file", "destination_file",
+    "root_path", "source_path", "destination_package",
+})
 _LIST_PATH_PARAMS = frozenset({"file_paths"})
 
 # Parameters that must be valid Python identifiers.
@@ -155,10 +159,8 @@ def _tool_error_boundary(  # noqa: UP047
 		finally:
 			elapsed_ms = (time.perf_counter() - start) * 1000
 			if ctx is not None:
-				try:
+				with contextlib.suppress(Exception):
 					await ctx.debug(f"{func.__name__} completed in {elapsed_ms:.1f}ms")
-				except Exception:
-					pass
 
 	return _wrapped
 
