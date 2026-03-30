@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult
+from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult, TextEdit
 from python_refactor_mcp.util.diff import build_unified_diff
 
 from .helpers import (
@@ -59,7 +59,7 @@ async def rename_symbol(
 
     if include_diff and not result.applied and result.edits:
         # Group edits by file and build diffs.
-        edits_by_file: dict[str, list] = defaultdict(list)
+        edits_by_file: dict[str, list[TextEdit]] = defaultdict(list)
         for edit in result.edits:
             edits_by_file[edit.file_path].append(edit)
         diffs: list[DiffPreview] = []

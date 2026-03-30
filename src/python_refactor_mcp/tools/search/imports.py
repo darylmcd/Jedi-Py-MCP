@@ -101,6 +101,14 @@ async def suggest_imports(
 
     deduped: dict[tuple[str, str], ImportSuggestion] = {}
     for suggestion in pyright_suggestions + jedi_suggestions:
+        # Fix: when the symbol IS the package name (e.g., "pytest"), the
+        # suggestion should be "import pytest", not "from pytest import pytest".
+        if suggestion.symbol == suggestion.module and suggestion.import_statement.startswith("from "):
+            suggestion = ImportSuggestion(
+                symbol=suggestion.symbol,
+                module=suggestion.module,
+                import_statement=f"import {suggestion.module}",
+            )
         key = (suggestion.symbol, suggestion.module)
         if key not in deduped:
             deduped[key] = suggestion

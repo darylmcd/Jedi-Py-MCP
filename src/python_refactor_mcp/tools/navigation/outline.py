@@ -17,12 +17,59 @@ from python_refactor_mcp.models import (
 from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.shared import apply_limit as _apply_limit
 
-from ._protocols import _PyrightNavigationBackend
+from ._protocols import PyrightNavigationBackend
 
 
 def _outline_key(item: SymbolOutlineItem) -> tuple[str, int, int, str]:
     """Build a stable sort key for outline items."""
     return (item.file_path, item.selection_range.start.line, item.selection_range.start.character, item.name)
+
+
+def _range_contains(outer: SymbolOutlineItem, inner: SymbolOutlineItem) -> bool:
+    """Return True if *outer*'s range fully contains *inner*'s range."""
+    if outer.file_path != inner.file_path:
+        return False
+    o_start = (outer.range.start.line, outer.range.start.character)
+    o_end = (outer.range.end.line, outer.range.end.character)
+    i_start = (inner.range.start.line, inner.range.start.character)
+    i_end = (inner.range.end.line, inner.range.end.character)
+    return o_start <= i_start and i_end <= o_end
+
+
+def _renest_flattened_symbols(items: list[SymbolOutlineItem]) -> list[SymbolOutlineItem]:
+    """Move flattened inner functions into the children of their enclosing scope.
+
+    Pyright's documentSymbol may report nested closures (e.g., ``_work()``
+    inside an async method) as top-level siblings.  This function checks
+    each function-kind item against others and nests it if its range is
+    fully contained within a parent item.
+    """
+    if len(items) <= 1:
+        return items
+
+    # Sort by file then by range start (outermost first).
+    sorted_items = sorted(items, key=lambda s: (
+        s.file_path, s.range.start.line, s.range.start.character,
+        -(s.range.end.line * 10000 + s.range.end.character),
+    ))
+
+    top_level: list[SymbolOutlineItem] = []
+    nested_ids: set[int] = set()
+
+    for i, item in enumerate(sorted_items):
+        if id(item) in nested_ids:
+            continue
+        # Check if any later item should be nested under this one.
+        for j in range(i + 1, len(sorted_items)):
+            candidate = sorted_items[j]
+            if id(candidate) in nested_ids:
+                continue
+            if _range_contains(item, candidate) and item is not candidate:
+                item.children.append(candidate)
+                nested_ids.add(id(candidate))
+        top_level.append(item)
+
+    return top_level
 
 
 def _ast_folding_ranges(file_path: str) -> list[FoldingRange]:
@@ -72,7 +119,7 @@ def _ast_folding_ranges(file_path: str) -> list[FoldingRange]:
 
 
 async def get_symbol_outline(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     config: ServerConfig,
     file_path: str | None = None,
     kind_filter: list[str] | None = None,
@@ -129,6 +176,12 @@ async def get_symbol_outline(
         if isinstance(result, list):
             outlines.extend(result)
 
+    # Re-nest flattened inner functions: Pyright's documentSymbol can report
+    # nested closures (e.g., _work() inside async methods) as top-level
+    # symbols.  Move items whose range is fully contained within another
+    # item's range into that item's children list.
+    outlines = _renest_flattened_symbols(outlines)
+
     sorted_items = sorted(outlines, key=_outline_key)
     if offset > 0:
         sorted_items = sorted_items[offset:]
@@ -137,7 +190,7 @@ async def get_symbol_outline(
 
 
 async def get_folding_ranges(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
 ) -> list[FoldingRange]:
     """Return foldable ranges for a file in deterministic order."""
@@ -148,7 +201,7 @@ async def get_folding_ranges(
 
 
 async def selection_range(
-    pyright: _PyrightNavigationBackend,
+    pyright: PyrightNavigationBackend,
     file_path: str,
     positions: list[Position],
 ) -> list[SelectionRangeResult]:

@@ -120,6 +120,46 @@ class JediBackend:
             script_source = Path(absolute_path).read_text(encoding="utf-8")
         return jedi.Script(code=script_source, path=absolute_path, project=project)
 
+    @staticmethod
+    def _ast_enclosing_scope(file_path: str, line: int) -> ScopeContext | None:
+        """Find the innermost function/class enclosing a 0-based line via AST."""
+        import ast as _ast  # noqa: PLC0415
+
+        try:
+            source = Path(file_path).read_text(encoding="utf-8")
+            tree = _ast.parse(source, filename=file_path)
+        except (OSError, SyntaxError):
+            return None
+
+        best: _ast.AST | None = None
+        best_span = float("inf")
+        for node in _ast.walk(tree):
+            if not isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                continue
+            start = node.lineno - 1
+            end = (node.end_lineno - 1) if node.end_lineno else start
+            if start <= line <= end:
+                span = end - start
+                if span < best_span:
+                    best_span = span
+                    best = node
+
+        if best is None:
+            return None
+
+        if isinstance(best, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            kind = "function"
+        else:
+            kind = "class"
+        return ScopeContext(
+            name=best.name,  # type: ignore[union-attr]
+            kind=kind,
+            file_path=str(Path(file_path).resolve()),
+            line=best.lineno - 1,
+            character=best.col_offset,
+            full_name=None,
+        )
+
     async def get_references(self, file_path: str, line: int, character: int) -> list[Location]:
         """Return references for a symbol position using Jedi lookup."""
 
@@ -489,7 +529,12 @@ class JediBackend:
             raise JediError(f"Jedi get_syntax_errors failed for {file_path}") from exc
 
     async def get_context(self, file_path: str, line: int, character: int) -> ScopeContext | None:
-        """Return the enclosing function/class/module scope at a position."""
+        """Return the enclosing function/class/module scope at a position.
+
+        When Jedi reports module scope for a position that is actually inside a
+        decorated function (a known Jedi limitation), fall back to AST-based
+        scope detection.
+        """
 
         def _work() -> ScopeContext | None:
             script = self._make_script(file_path)
@@ -502,6 +547,14 @@ class JediBackend:
             kind = str(getattr(ctx, "type", "module"))
             full_name = getattr(ctx, "full_name", None)
             full_name = full_name if isinstance(full_name, str) else None
+
+            # AST fallback: if Jedi reports module scope but the position is
+            # inside a function or class body, use AST to find the real scope.
+            if kind == "module" and name == "":
+                ast_scope = self._ast_enclosing_scope(file_path, line)
+                if ast_scope is not None:
+                    return ast_scope
+
             return ScopeContext(
                 name=name,
                 kind=kind,
@@ -690,11 +743,40 @@ class JediBackend:
             raise JediError(f"Jedi simulate_execute failed for {file_path}:{line}:{character}") from exc
 
     async def list_environments(self) -> list[EnvironmentInfo]:
-        """List available Python environments discovered by Jedi."""
+        """List available Python environments discovered by Jedi and workspace detection."""
 
         def _work() -> list[EnvironmentInfo]:
             envs: list[EnvironmentInfo] = []
             seen_paths: set[str] = set()
+
+            # First, include the workspace-detected environment (detect_python is
+            # more reliable than Jedi for finding .venv in the workspace root).
+            from python_refactor_mcp.util.python_detect import detect_python  # noqa: PLC0415
+            try:
+                py_exec, venv_path = detect_python(self._config.workspace_root)
+                exec_str = str(py_exec)
+                if exec_str not in seen_paths:
+                    seen_paths.add(exec_str)
+                    # Get version from the executable.
+                    import subprocess  # noqa: PLC0415
+                    version = "unknown"
+                    try:
+                        result = subprocess.run(
+                            [exec_str, "--version"],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        parts = result.stdout.strip().split()
+                        if len(parts) >= 2:
+                            version = parts[1]
+                    except Exception:
+                        pass
+                    envs.append(EnvironmentInfo(
+                        path=exec_str,
+                        python_version=version,
+                        is_virtualenv=venv_path is not None,
+                    ))
+            except Exception:
+                pass
 
             for env in jedi.find_virtualenvs():
                 env_path = str(getattr(env, "executable", getattr(env, "path", "")))
@@ -738,11 +820,22 @@ class JediBackend:
             raise JediError("Jedi list_environments failed") from exc
 
     async def project_search(self, query: str, complete: bool = False) -> list[SymbolInfo]:
-        """Search project symbols by name, optionally using completion-style search."""
+        """Search project symbols by name, optionally using completion-style search.
+
+        Jedi's ``project.search()`` requires exact name matches while
+        ``complete_search()`` does prefix/substring matching.  When the
+        exact search returns no results, we transparently fall back to
+        ``complete_search`` so callers get useful results for partial queries.
+        """
 
         def _work() -> list[SymbolInfo]:
             project = self._require_project()
-            names = project.complete_search(query) if complete else project.search(query, all_scopes=True)
+            if complete:
+                names = project.complete_search(query)
+            else:
+                names = project.search(query, all_scopes=True)
+                if not names:
+                    names = project.complete_search(query)
             symbols: list[SymbolInfo] = []
             seen: set[tuple[str, str, int, int, str]] = set()
             for name in names:

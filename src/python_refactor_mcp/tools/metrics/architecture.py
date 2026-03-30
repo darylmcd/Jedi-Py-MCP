@@ -74,14 +74,24 @@ async def check_layer_violations(
             layer_index[pattern] = layer_num
 
     def _get_layer(module_path: str) -> int | None:
-        """Find the layer number for a module path or name."""
+        """Find the layer number for a module path or name.
+
+        Uses path-component matching to avoid false positives from stdlib
+        or third-party modules whose names happen to contain a layer keyword.
+        """
+        # Split into path parts for component-level matching.
+        parts = Path(module_path).parts if "/" in module_path or "\\" in module_path else module_path.split(".")
         for pattern, layer_num in layer_index.items():
-            if pattern in module_path:
+            if pattern in parts:
                 return layer_num
         return None
 
     violations: list[LayerViolation] = []
-    paths = [Path(fp) for fp in file_paths] if file_paths else list(workspace_root.rglob("*.py"))
+    if file_paths:
+        paths = [Path(fp) for fp in file_paths]
+    else:
+        from python_refactor_mcp.util.file_filter import python_files  # noqa: PLC0415
+        paths = python_files(workspace_root)
 
     for fp in paths:
         try:
@@ -96,11 +106,13 @@ async def check_layer_violations(
             continue
 
         for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
             target_name: str | None = None
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     target_name = alias.name
-            elif isinstance(node, ast.ImportFrom):
+            else:
                 target_name = node.module
 
             if target_name is None:
