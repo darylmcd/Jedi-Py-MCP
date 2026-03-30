@@ -10,8 +10,6 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-_DEFAULT_ROPE_TIMEOUT = 30.0
-
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
@@ -49,7 +47,7 @@ from python_refactor_mcp.util.shared import end_position_for_content as _end_pos
 from python_refactor_mcp.util.timing import timed
 
 _LOGGER = logging.getLogger(__name__)
-
+_DEFAULT_ROPE_TIMEOUT = 30.0
 
 
 def _absolute_path(path: str) -> str:

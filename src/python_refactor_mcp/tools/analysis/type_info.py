@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.models import (
     DocumentationResult,
     TypeInfo,
@@ -16,6 +14,8 @@ from python_refactor_mcp.tools.analysis._protocols import (
 from python_refactor_mcp.tools.analysis._protocols import (
     PyrightAnalysisBackend as _PyrightAnalysisBackend,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _is_unknown_type(type_info: TypeInfo | None) -> bool:

@@ -6,8 +6,6 @@ import ast
 import logging
 from pathlib import Path
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.models import (
     Location,
     ReferenceResult,
@@ -20,6 +18,9 @@ from python_refactor_mcp.tools.analysis._protocols import (
 )
 from python_refactor_mcp.util.shared import apply_limit
 from python_refactor_mcp.util.shared import location_key as _location_key
+
+_LOGGER = logging.getLogger(__name__)
+
 
 _apply_limit = apply_limit
 

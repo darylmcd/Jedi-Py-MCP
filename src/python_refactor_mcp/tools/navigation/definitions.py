@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.models import Location
 from python_refactor_mcp.util.shared import location_key as _location_key
 
 from ._protocols import _JediNavigationBackend, _PyrightNavigationBackend
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def goto_definition(

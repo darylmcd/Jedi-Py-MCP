@@ -9,8 +9,6 @@ import logging
 import os
 from pathlib import Path
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import PyrightError
 from python_refactor_mcp.models import (
@@ -55,6 +53,8 @@ from python_refactor_mcp.util.lsp_converters import (
 )
 from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_path
 from python_refactor_mcp.util.timing import timed
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
