@@ -59,17 +59,6 @@ async def get_type_info(
     )
 
 
-async def get_hover_info(
-    pyright: _PyrightAnalysisBackend,
-    jedi: _JediAnalysisBackend,
-    file_path: str,
-    line: int,
-    character: int,
-) -> TypeInfo:
-    """Get hover-style symbol information with Jedi fallback for unknown results."""
-    return await get_type_info(pyright, jedi, file_path, line, character)
-
-
 async def get_documentation(
     jedi: _JediAnalysisBackend,
     file_path: str,

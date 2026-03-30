@@ -55,11 +55,3 @@ async def get_signature_help(
         return None
 
 
-async def get_call_signatures_fallback(
-    jedi: _JediAnalysisBackend,
-    file_path: str,
-    line: int,
-    character: int,
-) -> SignatureInfo | None:
-    """Get Jedi signature help as a fallback for dynamic call sites."""
-    return await jedi.get_signatures(file_path, line, character)

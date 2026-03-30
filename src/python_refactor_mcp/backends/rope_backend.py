@@ -7,14 +7,18 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
 _DEFAULT_ROPE_TIMEOUT = 30.0
 
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
+from rope.contrib import generate as rope_generate  # type: ignore[import-untyped]
+from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-untyped]
+from rope.contrib.finderrors import find_errors as _rope_find_errors  # type: ignore[import-untyped]
+from rope.contrib.fixmodnames import FixModuleNames  # type: ignore[import-untyped]
 from rope.refactor.change_signature import (  # type: ignore[import-untyped]
     ArgumentAdder,
     ArgumentDefaultInliner,
@@ -25,6 +29,7 @@ from rope.refactor.change_signature import (  # type: ignore[import-untyped]
 )
 from rope.refactor.encapsulate_field import EncapsulateField  # type: ignore[import-untyped]
 from rope.refactor.extract import ExtractMethod, ExtractVariable  # type: ignore[import-untyped]
+from rope.refactor.importutils import ImportOrganizer  # type: ignore[import-untyped]
 from rope.refactor.inline import create_inline  # type: ignore[import-untyped]
 from rope.refactor.introduce_factory import IntroduceFactory  # type: ignore[import-untyped]
 from rope.refactor.introduce_parameter import IntroduceParameter  # type: ignore[import-untyped]
@@ -35,16 +40,10 @@ from rope.refactor.rename import Rename  # type: ignore[import-untyped]
 from rope.refactor.restructure import Restructure  # type: ignore[import-untyped]
 from rope.refactor.topackage import ModuleToPackage  # type: ignore[import-untyped]
 from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped]
-from rope.contrib.findit import find_definition  # type: ignore[import-untyped]
-from rope.contrib import generate as rope_generate  # type: ignore[import-untyped]
-from rope.contrib.finderrors import find_errors as _rope_find_errors  # type: ignore[import-untyped]
-from rope.contrib.fixmodnames import FixModuleNames  # type: ignore[import-untyped]
-from rope.refactor.importutils import ImportOrganizer  # type: ignore[import-untyped]
-from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-untyped]
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
-from python_refactor_mcp.models import Position, Range, RefactorResult, SignatureOperation, TextEdit
+from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
 from python_refactor_mcp.util.timing import timed
@@ -58,36 +57,58 @@ def _absolute_path(path: str) -> str:
     return str(Path(path).resolve())
 
 
+def _build_add(op: SignatureOperation) -> list[object]:
+    if op.index is None or not op.name:
+        raise RopeError("change_signature add operation requires index and name")
+    return [ArgumentAdder(op.index, op.name, default=op.default)]
+
+
+def _build_remove(op: SignatureOperation) -> list[object]:
+    if op.index is None:
+        raise RopeError("change_signature remove operation requires index")
+    return [ArgumentRemover(op.index)]
+
+
+def _build_reorder(op: SignatureOperation) -> list[object]:
+    if not op.new_order:
+        raise RopeError("change_signature reorder operation requires new_order")
+    return [ArgumentReorderer(op.new_order)]
+
+
+def _build_inline_default(op: SignatureOperation) -> list[object]:
+    if op.index is None:
+        raise RopeError("change_signature inline_default operation requires index")
+    return [ArgumentDefaultInliner(op.index)]
+
+
+def _build_normalize(op: SignatureOperation) -> list[object]:
+    return [ArgumentNormalizer()]
+
+
+def _build_rename(op: SignatureOperation) -> list[object]:
+    if op.index is None or not op.new_name:
+        raise RopeError("change_signature rename operation requires index and new_name")
+    return [ArgumentRemover(op.index), ArgumentAdder(op.index, op.new_name, default=op.default)]
+
+
+_OP_DISPATCH: dict[str, Callable[[SignatureOperation], list[object]]] = {
+    "add": _build_add,
+    "remove": _build_remove,
+    "reorder": _build_reorder,
+    "inline_default": _build_inline_default,
+    "normalize": _build_normalize,
+    "rename": _build_rename,
+}
+
+
 def _build_signature_changers(operations: list[SignatureOperation]) -> list[object]:
     """Map signature operation descriptors to rope changer objects."""
     changers: list[object] = []
     for operation in operations:
-        op = operation.op.strip().lower()
-        if op == "add":
-            if operation.index is None or not operation.name:
-                raise RopeError("change_signature add operation requires index and name")
-            changers.append(ArgumentAdder(operation.index, operation.name, default=operation.default))
-        elif op == "remove":
-            if operation.index is None:
-                raise RopeError("change_signature remove operation requires index")
-            changers.append(ArgumentRemover(operation.index))
-        elif op == "reorder":
-            if not operation.new_order:
-                raise RopeError("change_signature reorder operation requires new_order")
-            changers.append(ArgumentReorderer(operation.new_order))
-        elif op == "inline_default":
-            if operation.index is None:
-                raise RopeError("change_signature inline_default operation requires index")
-            changers.append(ArgumentDefaultInliner(operation.index))
-        elif op == "normalize":
-            changers.append(ArgumentNormalizer())
-        elif op == "rename":
-            if operation.index is None or not operation.new_name:
-                raise RopeError("change_signature rename operation requires index and new_name")
-            changers.append(ArgumentRemover(operation.index))
-            changers.append(ArgumentAdder(operation.index, operation.new_name, default=operation.default))
-        else:
+        builder = _OP_DISPATCH.get(operation.op.strip().lower())
+        if builder is None:
             raise RopeError(f"Unsupported change_signature operation: {operation.op}")
+        changers.extend(builder(operation))
     return changers
 
 
@@ -370,8 +391,8 @@ class RopeBackend:
             source_resource = self._resource_for_path(source_file)
             destination_resource = self._resource_for_path(destination_file)
             offset = self._find_symbol_offset(source_file, symbol_name)
-            mover = cast(_MoveRefactoring, create_move(project, source_resource, offset))
-            changes = mover.get_changes(destination_resource)
+            mover = create_move(project, source_resource, offset)
+            changes = mover.get_changes(destination_resource)  # type: ignore[arg-type]
             return self._build_result(
                 changes,
                 f"Moved symbol '{symbol_name}' to {destination_file}",
@@ -897,3 +918,153 @@ class RopeBackend:
                 return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
         except Exception as exc:
             raise RopeError(f"rope find_errors failed for {file_path}: {exc}") from exc
+
+    # ── Undo/Redo History ──
+
+    async def undo(self, count: int = 1) -> RefactorResult:
+        """Undo the last *count* refactoring operations."""
+        project = self._require_project()
+
+        def _work() -> RefactorResult:
+            history = project.history
+            for _ in range(count):
+                history.undo()
+            return RefactorResult(
+                edits=[], files_affected=[], description=f"Undid {count} operation(s)", applied=True,
+            )
+
+        try:
+            async with timed(_LOGGER, "rope.undo"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope undo failed: {exc}") from exc
+
+    async def redo(self, count: int = 1) -> RefactorResult:
+        """Redo the last *count* undone refactoring operations."""
+        project = self._require_project()
+
+        def _work() -> RefactorResult:
+            history = project.history
+            for _ in range(count):
+                history.redo()
+            return RefactorResult(
+                edits=[], files_affected=[], description=f"Redid {count} operation(s)", applied=True,
+            )
+
+        try:
+            async with timed(_LOGGER, "rope.redo"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope redo failed: {exc}") from exc
+
+    async def get_history(self) -> list[HistoryEntry]:
+        """Return the refactoring history as a list of HistoryEntry objects."""
+        project = self._require_project()
+
+        def _work() -> list[HistoryEntry]:
+            history = project.history
+            entries: list[HistoryEntry] = []
+            for change_set in getattr(history, "undo_list", []):
+                description = str(getattr(change_set, "description", change_set))
+                date = str(getattr(change_set, "date", ""))
+                resources = getattr(change_set, "resources", [])
+                file_paths = [str(r.path) for r in resources if hasattr(r, "path")]
+                entries.append(HistoryEntry(
+                    description=description,
+                    date=date,
+                    files_affected=file_paths,
+                ))
+            return entries
+
+        try:
+            async with timed(_LOGGER, "rope.get_history"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope get_history failed: {exc}") from exc
+
+    # ── Change Stack ──
+
+    async def begin_change_stack(self) -> str:
+        """Start a new atomic change stack for chaining refactorings."""
+        from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        project = self._require_project()
+        self._change_stack = ChangeStack(project)
+        self._change_stack.__enter__()  # type: ignore[attr-defined]
+        return "Change stack started"
+
+    async def commit_change_stack(self) -> RefactorResult:
+        """Commit and apply the current change stack."""
+        if not hasattr(self, "_change_stack") or self._change_stack is None:
+            raise RopeError("No active change stack to commit")
+        self._change_stack.__exit__(None, None, None)  # type: ignore[attr-defined]
+        result = RefactorResult(
+            edits=[], files_affected=[], description="Change stack committed", applied=True,
+        )
+        self._change_stack = None
+        return result
+
+    async def rollback_change_stack(self) -> str:
+        """Discard the current change stack without applying."""
+        if not hasattr(self, "_change_stack") or self._change_stack is None:
+            raise RopeError("No active change stack to rollback")
+        self._change_stack = None
+        return "Change stack rolled back"
+
+    # ── Multi-Project Refactoring ──
+
+    async def multi_project_rename(
+        self,
+        additional_roots: list[str],
+        file_path: str,
+        line: int,
+        character: int,
+        new_name: str,
+        apply: bool = False,
+    ) -> RefactorResult:
+        """Rename a symbol across multiple Rope projects simultaneously."""
+        from rope.refactor.multiproject import MultiProjectRefactoring  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        project = self._require_project()
+
+        def _work() -> RefactorResult:
+            other_projects = [Project(root) for root in additional_roots]
+            try:
+                resource = self._resource_for_path(file_path)
+                offset = self._position_to_offset(file_path, line, character)
+                multi = MultiProjectRefactoring(Rename, [project, *other_projects])
+                renamer = multi(project, resource, offset)
+                project_changes = renamer.get_all_changes(new_name)
+                all_edits: list[TextEdit] = []
+                all_files: list[str] = []
+                for proj, changes in project_changes:
+                    for change in changes.changes:
+                        if isinstance(change, ChangeContents):
+                            file_path_str = str(Path(proj.root.real_path) / change.resource.path)
+                            all_files.append(file_path_str)
+                            all_edits.append(TextEdit(
+                                file_path=file_path_str,
+                                range=Range(
+                                    start=Position(line=0, character=0),
+                                    end=_end_position_for_content(change.resource.read()),
+                                ),
+                                new_text=change.new_contents,
+                            ))
+                if apply:
+                    for proj, changes in project_changes:
+                        proj.do(changes)
+                return RefactorResult(
+                    edits=all_edits,
+                    files_affected=sorted(set(all_files)),
+                    description=f"Multi-project rename to '{new_name}'",
+                    applied=apply,
+                )
+            finally:
+                for proj in other_projects:
+                    proj.close()
+
+        try:
+            async with timed(_LOGGER, "rope.multi_project_rename"):
+                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+        except Exception as exc:
+            raise RopeError(f"rope multi_project_rename failed: {exc}") from exc

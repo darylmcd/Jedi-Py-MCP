@@ -192,16 +192,16 @@ async def test_find_constructors_finds_call_sites(
 
 
 @pytest.mark.asyncio
-async def test_smart_rename_applies_and_returns_validation(
+async def test_rename_symbol_applies_and_returns_validation(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure smart_rename performs end-to-end rename with validation."""
+    """Ensure rename_symbol performs end-to-end rename with validation."""
     service_path = sample_workspace / "src" / "service.py"
     line, character = _find_position(service_path, "invoice")
 
     result = await mcp_session.call_tool(
-        "smart_rename",
+        "rename_symbol",
         {
             "file_path": str(service_path),
             "line": line,
@@ -220,16 +220,16 @@ async def test_smart_rename_applies_and_returns_validation(
 
 
 @pytest.mark.asyncio
-async def test_get_hover_info_returns_documentation(
+async def test_get_type_info_returns_type_metadata(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure hover info returns non-empty type metadata."""
+    """Ensure get_type_info returns non-empty type metadata."""
     service_path = sample_workspace / "src" / "service.py"
     line, character = _find_position(service_path, "current_user")
 
     result = await mcp_session.call_tool(
-        "get_hover_info",
+        "get_type_info",
         {
             "file_path": str(service_path),
             "line": line,
@@ -413,17 +413,17 @@ async def test_inlay_and_semantic_tokens(
 
 
 @pytest.mark.asyncio
-async def test_call_signatures_fallback_tool(
+async def test_get_signature_help_returns_nullable_payload(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure Jedi signature fallback tool returns a nullable signature payload."""
+    """Ensure get_signature_help returns a nullable signature payload."""
     service_path = sample_workspace / "src" / "service.py"
     line, character = _find_position(service_path, "User(")
     character += len("User(")
 
     result = await mcp_session.call_tool(
-        "get_call_signatures_fallback",
+        "get_signature_help",
         {"file_path": str(service_path), "line": line, "character": character},
     )
 
@@ -625,3 +625,121 @@ async def test_failure_paths_return_tool_errors(
 
     assert bad_direction.isError is True
     assert missing_file.isError is True
+
+
+# ── PR 3-A: Integration smoke tests for introduce_parameter and encapsulate_field ──
+
+
+@pytest.mark.asyncio
+async def test_introduce_parameter_preview_mode(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure introduce_parameter returns a valid preview payload."""
+    service_path = sample_workspace / "src" / "service.py"
+    line, character = _find_position(service_path, "12.5")
+
+    result = await mcp_session.call_tool(
+        "introduce_parameter",
+        {
+            "file_path": str(service_path),
+            "line": line,
+            "character": character,
+            "parameter_name": "amount",
+            "default_value": "12.5",
+            "apply": False,
+        },
+    )
+
+    assert result.isError is not True
+    _assert_refactor_preview_payload(result.structuredContent)
+
+
+@pytest.mark.asyncio
+async def test_encapsulate_field_preview_mode(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure encapsulate_field returns a valid preview payload."""
+    models_path = sample_workspace / "src" / "models.py"
+    line, character = _find_position(models_path, "user_id")
+
+    result = await mcp_session.call_tool(
+        "encapsulate_field",
+        {
+            "file_path": str(models_path),
+            "line": line,
+            "character": character,
+            "apply": False,
+        },
+    )
+
+    assert result.isError is not True
+    _assert_refactor_preview_payload(result.structuredContent)
+
+
+# ── PR 3-B: Failure-path integration scenarios ──
+
+
+@pytest.mark.asyncio
+async def test_rename_at_invalid_position_returns_error(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure rename at a non-symbol position returns an error."""
+    service_path = sample_workspace / "src" / "service.py"
+
+    result = await mcp_session.call_tool(
+        "rename_symbol",
+        {
+            "file_path": str(service_path),
+            "line": 0,
+            "character": 0,
+            "new_name": "new_name",
+            "apply": False,
+        },
+    )
+
+    assert result.isError is True
+
+
+@pytest.mark.asyncio
+async def test_extract_method_invalid_range_returns_error(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure extract_method with invalid range returns an error."""
+    service_path = sample_workspace / "src" / "service.py"
+
+    result = await mcp_session.call_tool(
+        "extract_method",
+        {
+            "file_path": str(service_path),
+            "start_line": 5,
+            "start_character": 0,
+            "end_line": 2,
+            "end_character": 0,
+            "method_name": "new_method",
+            "apply": False,
+        },
+    )
+
+    assert result.isError is True
+
+
+@pytest.mark.asyncio
+async def test_find_references_nonexistent_file_returns_error(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure find_references for a nonexistent file returns an error."""
+    result = await mcp_session.call_tool(
+        "find_references",
+        {
+            "file_path": str(sample_workspace / "nonexistent.py"),
+            "line": 0,
+            "character": 0,
+        },
+    )
+
+    assert result.isError is True

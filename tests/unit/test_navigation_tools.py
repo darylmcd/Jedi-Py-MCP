@@ -17,7 +17,8 @@ from python_refactor_mcp.models import (
     TypeHierarchyItem,
 )
 from python_refactor_mcp.tools import navigation
-from tests.helpers import make_config as _config, make_location as _location
+from tests.helpers import make_config as _config
+from tests.helpers import make_location as _location
 
 
 def _item(name: str, path: str, line: int) -> CallHierarchyItem:
@@ -213,3 +214,19 @@ async def test_selection_range_passthrough() -> None:
     result = await navigation.selection_range(pyright, "/repo/a.py", [Position(line=1, character=4)])
 
     assert result == expected
+
+
+# ── PR 3-B: Invalid-input / failure-path unit tests ──
+
+
+@pytest.mark.asyncio
+async def test_goto_definition_empty_result() -> None:
+    """When both Pyright and Jedi return nothing, result is empty list."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+    pyright.get_definition.return_value = []
+    jedi.goto_definition.side_effect = RuntimeError("jedi crashed")
+
+    result = await navigation.goto_definition(pyright, jedi, "/repo/a.py", 0, 0)
+
+    assert result == []

@@ -9,8 +9,8 @@ from typing import Protocol
 from python_refactor_mcp.models import Diagnostic, Location, Position
 
 
-class _DiagnosticsBackend(Protocol):
-    """Protocol describing backends that supply diagnostics and file change notifications."""
+class DiagnosticsNotifier(Protocol):
+    """Protocol for backends that supply diagnostics and file change notifications."""
 
     async def notify_file_changed(self, file_path: str) -> None:
         """Notify backend that file contents changed on disk."""
@@ -61,7 +61,7 @@ def diagnostic_key(item: Diagnostic) -> tuple[str, int, int, int, int, str, str]
 
 
 async def attach_post_apply_diagnostics(
-    pyright: _DiagnosticsBackend,
+    pyright: DiagnosticsNotifier,
     result: object,
 ) -> object:
     """Notify Pyright of changed files and append refreshed diagnostics.

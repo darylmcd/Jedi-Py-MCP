@@ -35,6 +35,7 @@ def _snap_to_symbol(file_path: str, line: int, character: int) -> tuple[int, int
         source = Path(file_path).read_text(encoding="utf-8")
         tree = ast.parse(source)
     except (OSError, SyntaxError):
+        _LOGGER.debug("_snap_to_symbol failed for %s", file_path, exc_info=True)
         return None
 
     source_lines = source.splitlines()
