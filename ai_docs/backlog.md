@@ -22,47 +22,16 @@ Historical plans, audits, and reports removed — all open items consolidated he
 
 ## P2 — Refactoring & Code Quality
 
-- Status: `open`
-  Area: complexity / refactoring
-  Item: Refactor `get_document_symbols` (CC=24, cognitive=40) — extract nested dict conversion into helper.
-  Source: code-review-report (2026-03-28)
-  Files: `backends/pyright_lsp.py`
+(All items completed.)
 
-- Status: `open`
-  Area: complexity / refactoring
-  Item: Refactor `_build_signature_changers` (cognitive=56, nesting=8) — convert to dispatch table pattern.
-  Source: code-review-report (2026-03-28)
-  Files: `backends/rope_backend.py`
-
-- Status: `open`
-  Area: code quality / dedup
-  Item: Consolidate `notify_file_changed` — remove duplicate between `composite.py` and `shared.py`.
-  Source: code-review-report (2026-03-28)
-  Files: `tools/composite.py`, `util/shared.py`
-
-- Status: `open`
-  Area: code quality / dead code audit
-  Item: Audit `lsp_types.py` — 30+ TypedDict/class definitions appear unused; verify runtime usage patterns.
-  Source: code-review-report (2026-03-28)
-  Files: `util/lsp_types.py`
-
-- Status: `open`
-  Area: code quality / dead code
-  Item: Consider removing `severity_to_string` in `lsp_converters.py` if no external consumers exist.
-  Source: code-review-report (2026-03-28)
-  Files: `util/lsp_converters.py`
-
-- Status: `open`
-  Area: tool consolidation
-  Item: Merge overlapping tools to reduce tool count below 40: merge `get_type_info`/`get_hover_info`, `rename_symbol`/`smart_rename`, `get_signature_help`/`get_call_signatures_fallback`.
-  Source: mcp-compliance-plan GAP-02 (2026-03-28)
-  Files: `server.py`, tool modules
-
-- Status: `open`
-  Area: error handling
-  Item: Audit tool-level fallback `except` blocks for silent error swallowing — add `_LOGGER.debug(..., exc_info=True)` to any that swallow silently.
-  Source: mcp-compliance-plan GAP-07 (2026-03-28)
-  Files: `tools/analysis/references.py`, `tools/analysis/type_info.py`, `tools/navigation/definitions.py`, `tools/search/symbols.py`
+Items resolved in this batch:
+- Refactored `get_document_symbols` (CC=24) — extracted `_convert_document_symbol` and `_reconstruct_symbol_hierarchy` to module level.
+- Refactored `_build_signature_changers` (cognitive=56) — converted to dispatch table pattern.
+- Consolidated `notify_file_changed` — extracted `DiagnosticsNotifier` base protocol in `util/shared.py`.
+- Audited `lsp_types.py` — entire file was unused (zero imports), removed.
+- `severity_to_string` — confirmed in use internally by `convert_publish_diagnostics`, kept.
+- Merged 3 overlapping tool pairs: removed `get_hover_info`, `smart_rename`, `get_call_signatures_fallback` (75 → 72 tools, then +15 new = 87).
+- Audited silent error swallowing — added `_LOGGER.debug` to `_snap_to_symbol` in `references.py`.
 
 ---
 
@@ -77,94 +46,31 @@ Historical plans, audits, and reports removed — all open items consolidated he
 
 ## P4 — Stretch / Nice-to-Have
 
-- Status: `open`
-  Area: feature / refactoring
-  Item: **Undo/Redo History** — track and undo/redo refactoring changes with dependency-aware rollback.
-  Source: Rope (`rope.base.history.History`)
-  Files: `tools/refactoring.py`, `server.py`
+(All items completed.)
 
-- Status: `open`
-  Area: feature / refactoring
-  Item: **Change Stack** — chain multiple refactorings into one atomic change set.
-  Source: Rope (`rope.contrib.changestack.ChangeStack`)
-  Files: `tools/refactoring.py`, `server.py`
-
-- Status: `open`
-  Area: feature / refactoring
-  Item: **Multi-Project Refactoring** — apply refactorings across multiple Rope projects simultaneously.
-  Source: Rope (`rope.refactor.multiproject.MultiProjectRefactoring`)
-  Files: `tools/refactoring.py`, `server.py`
-
-- Status: `open`
-  Area: feature / completion
-  Item: **Fuzzy Completion** — enable fuzzy matching for completions (e.g., "ooa" matches "foobar").
-  Source: Jedi (`Script.complete(fuzzy=True)`)
-  Files: `tools/analysis.py`, `server.py`
-
-- Status: `open`
-  Area: feature / search
-  Item: **Project-wide Semantic Search** — search across entire project using Jedi's analysis engine.
-  Detail: Complements Pyright's `workspace/symbol` with Jedi's `Project.search()` and `Project.complete_search()`.
-  Source: Jedi (`Project.search`, `Project.complete_search`)
-  Files: `tools/search.py`, `server.py`
-
-- Status: `open`
-  Area: feature / analysis
-  Item: **Keyword/Operator Help** — documentation for Python keywords and operators.
-  Detail: Jedi's `Script.help()` covers keywords like `yield`, `async`, `with` and operators, not just names.
-  Source: Jedi (`Script.help`)
-  Files: `tools/analysis.py`, `server.py`
-
-- Status: `open`
-  Area: feature / analysis
-  Item: **Simulate Execution** — simulate calling a callable and return result types.
-  Source: Jedi (`Name.execute`)
-  Files: `tools/analysis.py`, `server.py`
-
-- Status: `open`
-  Area: feature / navigation
-  Item: **Sub-definitions** — list sub-definitions of a name (e.g., methods of a class from a reference).
-  Source: Jedi (`Name.defined_names`)
-  Files: `tools/navigation.py`, `server.py`
-
-- Status: `open`
-  Area: feature / environment
-  Item: **Environment Management** — discover and manage Python environments/virtualenvs.
-  Source: Jedi (`create_environment`, `find_virtualenvs`, `find_system_environments`)
-  Files: `tools/analysis.py`, `server.py`
-
-- Status: `open`
-  Area: feature / server
-  Item: **Restart Server** — discard cached type info and restart Pyright analysis.
-  Source: Pyright (`pyright.restartserver`)
-  Files: `backends/pyright_lsp.py`, `server.py`
-
-- Status: `open`
-  Area: feature / testing
-  Item: Add `get_test_coverage_map` tool mapping source symbols to test references.
-  Files: new tool module, `models.py`, `server.py`, tests
-
-- Status: `open`
-  Area: feature / security
-  Item: Add `security_scan` tool with common Python SAST rules.
-  Files: new tool module, `models.py`, `server.py`, tests
+Items implemented in this batch (15 new tools):
+- **Undo/Redo History** — `undo_refactoring`, `redo_refactoring`, `get_refactoring_history` tools via Rope history.
+- **Change Stack** — `begin_change_stack`, `commit_change_stack`, `rollback_change_stack` tools via Rope ChangeStack.
+- **Multi-Project Refactoring** — `multi_project_rename` tool via Rope MultiProjectRefactoring.
+- **Fuzzy Completion** — added `fuzzy` parameter to `get_completions` tool, delegating to Jedi when fuzzy=True.
+- **Project-wide Semantic Search** — `project_search` tool via Jedi Project.search().
+- **Keyword/Operator Help** — `get_keyword_help` tool via Jedi Script.help().
+- **Simulate Execution** — `simulate_execution` tool via Jedi Name.execute().
+- **Sub-definitions** — `get_sub_definitions` tool via Jedi Name.defined_names().
+- **Environment Management** — `list_environments` tool via Jedi find_virtualenvs()/find_system_environments().
+- **Restart Server** — `restart_server` tool via Pyright restartserver command.
+- **Test Coverage Map** — `get_test_coverage_map` tool mapping source symbols to test references.
+- **Security Scan** — `security_scan` tool with AST-based SAST rules.
 
 ---
 
 ## Tests & Documentation
 
 - Status: `open`
-  Area: integration tests
-  Item: Add end-to-end integration smoke tests for `introduce_parameter` and `encapsulate_field`.
-
-- Status: `open`
-  Area: integration tests
-  Item: Expand failure-path integration scenarios (bad line/position, invalid rename target).
-
-- Status: `open`
   Area: documentation
   Item: Complete prompt example bank coverage for all tools in `ai_docs/domains/python-refactor/mcp-checklist.md`.
 
-- Status: `open`
-  Area: unit tests
-  Item: Finish invalid-input unit-test coverage for tools lacking explicit negative tests.
+Items completed in this batch:
+- Integration smoke tests for `introduce_parameter` and `encapsulate_field`.
+- Failure-path integration scenarios (invalid position rename, invalid extract range, nonexistent file).
+- Invalid-input unit tests (jedi fallback exception, both-backends-fail, rope error propagation, invalid op validation).

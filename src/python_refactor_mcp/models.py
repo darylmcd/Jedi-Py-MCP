@@ -501,3 +501,57 @@ class PublicAPIItem(BaseModel):
     kind: str
     line: int
     file_path: str
+
+
+class EnvironmentInfo(BaseModel):
+    """Python environment metadata."""
+
+    path: str
+    python_version: str
+    is_virtualenv: bool
+
+
+class HistoryEntry(BaseModel):
+    """Single entry from refactoring history."""
+
+    description: str
+    date: str
+    files_affected: list[str]
+
+
+class TestCoverageEntry(BaseModel):
+    """Symbol-to-test mapping entry."""
+
+    symbol_name: str
+    file_path: str
+    line: int
+    test_references: list[str]
+    covered: bool
+
+
+class TestCoverageMap(BaseModel):
+    """Test coverage mapping for source symbols."""
+
+    entries: list[TestCoverageEntry]
+    total_symbols: int
+    covered_count: int
+    coverage_pct: float
+
+
+class SecurityFinding(BaseModel):
+    """Single finding from security scan."""
+
+    rule_id: str
+    severity: str
+    file_path: str
+    line: int
+    message: str
+    snippet: str | None = None
+
+
+class SecurityScanResult(BaseModel):
+    """Aggregated security scan results."""
+
+    findings: list[SecurityFinding]
+    files_scanned: int
+    total_findings: int

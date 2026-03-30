@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -13,66 +14,74 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
-from python_refactor_mcp import __version__
 from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
 from python_refactor_mcp.errors import BackendError
-from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
 from python_refactor_mcp.models import (
 	CallHierarchyResult,
+	CodeMetricsResult,
 	CompletionItem,
 	ConstructorSite,
+	CouplingMetrics,
+	DependencyGraph,
 	Diagnostic,
 	DiffPreview,
 	DocumentationResult,
 	DocumentHighlight,
+	DuplicateGroup,
+	EnvironmentInfo,
 	FoldingRange,
+	HistoryEntry,
 	ImportSuggestion,
 	InferredType,
 	InlayHint,
+	InterfaceComparison,
+	LayerViolation,
 	Location,
 	NameEntry,
 	PaginatedDeadCode,
 	PaginatedDiagnosticSummary,
 	Position,
 	PrepareRenameResult,
+	ProtocolSource,
+	PublicAPIItem,
 	RefactorResult,
 	ReferenceResult,
 	ScopeContext,
+	SecurityScanResult,
 	SelectionRangeResult,
 	SemanticToken,
 	SignatureInfo,
 	SignatureOperation,
+	StaticError,
 	StructuralMatch,
 	SymbolInfo,
 	SymbolOutlineItem,
 	SyntaxErrorItem,
+	TestCoverageMap,
 	TextEdit,
 	TypeCoverageReport,
 	TypeHierarchyResult,
 	TypeHintResult,
 	TypeInfo,
-	CodeMetricsResult,
-	CouplingMetrics,
-	DependencyGraph,
-	DuplicateGroup,
-	InterfaceComparison,
-	LayerViolation,
-	ProtocolSource,
-	PublicAPIItem,
-	StaticError,
 	UnusedImport,
 )
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
+from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
+from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
+from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
 
 _READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 _ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Parameters that contain file paths requiring workspace boundary validation.
-_PATH_PARAMS = frozenset({"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"})
+_PATH_PARAMS = frozenset({
+    "file_path", "source_file", "destination_file",
+    "root_path", "source_path", "destination_package",
+})
 _LIST_PATH_PARAMS = frozenset({"file_paths"})
 
 # Parameters that must be valid Python identifiers.
@@ -150,10 +159,8 @@ def _tool_error_boundary(  # noqa: UP047
 		finally:
 			elapsed_ms = (time.perf_counter() - start) * 1000
 			if ctx is not None:
-				try:
+				with contextlib.suppress(Exception):
 					await ctx.debug(f"{func.__name__} completed in {elapsed_ms:.1f}ms")
-				except Exception:
-					pass
 
 	return _wrapped
 
@@ -221,7 +228,7 @@ Workflow tips:
 - Use prepare_rename before rename_symbol to verify the symbol is renameable.
 - Use get_diagnostics after applying refactorings to check for introduced errors.
 - Use diff_preview to visualize pending TextEdit lists before applying them.
-- Prefer get_type_info over get_hover_info unless you need hover-style formatting.
+- Use get_type_info for type inspection; it combines Pyright and Jedi results.
 """
 
 mcp = FastMCP(
@@ -259,7 +266,7 @@ async def find_references(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
-	"""Infer the type of a symbol or expression at a source position. Use when you need to understand what type a variable holds, what a function returns, or what class an object is. Tries Pyright first with Jedi fallback for dynamic code. Related: get_hover_info (same data, hover-style format), get_documentation."""
+	"""Infer the type of a symbol or expression at a source position. Use when you need to understand what type a variable holds, what a function returns, or what class an object is. Tries Pyright first with Jedi fallback for dynamic code. Related: get_documentation, get_type_hint_string."""
 	app = _get_app_context(ctx)
 	result = await analysis.get_type_info(app.pyright, app.jedi, file_path, line, character)
 	await ctx.debug(f"get_type_info source={result.source} type={result.type_string}")
@@ -268,23 +275,18 @@ async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: i
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
-async def get_hover_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
-	"""Get hover-style type and documentation for a symbol. Returns the same data as get_type_info but intended for IDE hover display. Prefer get_type_info for programmatic type checking. Related: get_type_info, get_documentation."""
-	app = _get_app_context(ctx)
-	result = await analysis.get_hover_info(app.pyright, app.jedi, file_path, line, character)
-	await ctx.debug(f"get_hover_info source={result.source} type={result.type_string}")
-	return result
-
-
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def get_completions(
-	ctx: MCPContext, file_path: str, line: int, character: int, limit: int | None = None,
+	ctx: MCPContext, file_path: str, line: int, character: int, limit: int | None = None, fuzzy: bool = False,
 ) -> list[CompletionItem]:
-	"""Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Related: get_signature_help (for call-site parameter info)."""
+	"""Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Set fuzzy=True for fuzzy matching (e.g., 'ooa' matches 'foobar'). Related: get_signature_help (for call-site parameter info)."""
 	app = _get_app_context(ctx)
-	result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
-	await ctx.debug(f"get_completions count={len(result)}")
+	if fuzzy:
+		result = await app.jedi.get_completions(file_path, line, character, fuzzy=True)
+		from python_refactor_mcp.util.shared import apply_limit  # noqa: PLC0415
+		result, _ = apply_limit(result, limit)
+	else:
+		result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
+	await ctx.debug(f"get_completions count={len(result)} fuzzy={fuzzy}")
 	return result
 
 
@@ -307,18 +309,6 @@ async def get_signature_help(ctx: MCPContext, file_path: str, line: int, charact
 	app = _get_app_context(ctx)
 	result = await analysis.get_signature_help(app.pyright, file_path, line, character, jedi=app.jedi)
 	await ctx.debug(f"get_signature_help found={result is not None}")
-	return result
-
-
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
-async def get_call_signatures_fallback(
-	ctx: MCPContext, file_path: str, line: int, character: int,
-) -> SignatureInfo | None:
-	"""Get Jedi-only signature help for dynamic call sites where Pyright returns nothing. Use only when get_signature_help returned None and you suspect dynamic typing is the cause. Related: get_signature_help (preferred, tries both backends)."""
-	app = _get_app_context(ctx)
-	result = await analysis.get_call_signatures_fallback(app.jedi, file_path, line, character)
-	await ctx.debug(f"get_call_signatures_fallback found={result is not None}")
 	return result
 
 
@@ -611,7 +601,7 @@ async def rename_symbol(
 	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str,
 	apply: bool = False, include_diff: bool = False,
 ) -> RefactorResult:
-	"""Rename a symbol across the entire project — updates all references, imports, and usages. Use prepare_rename first to verify the symbol is renameable. Defaults to preview mode (apply=False); set apply=True to write changes. Set include_diff=True to get unified diffs in preview. Uses Pyright validation + rope execution. Related: prepare_rename, smart_rename, find_references."""
+	"""Rename a symbol across the entire project — updates all references, imports, and usages. Use prepare_rename first to verify the symbol is renameable. Defaults to preview mode (apply=False); set apply=True to write changes. Set include_diff=True to get unified diffs in preview. Uses Pyright validation + rope execution. Related: prepare_rename, find_references."""
 	app = _get_app_context(ctx)
 	result = await refactoring.rename_symbol(
 		app.pyright, app.rope, file_path, line, character, new_name, apply, include_diff,
@@ -775,7 +765,7 @@ async def autoimport_search(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def prepare_rename(ctx: MCPContext, file_path: str, line: int, character: int) -> PrepareRenameResult | None:
-	"""Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, smart_rename."""
+	"""Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, find_references."""
 	app = _get_app_context(ctx)
 	result = await refactoring.prepare_rename(app.pyright, file_path, line, character)
 	await ctx.debug(f"prepare_rename valid={result is not None}")
@@ -1221,18 +1211,6 @@ async def get_module_public_api(ctx: MCPContext, file_path: str) -> list[PublicA
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
-@_tool_error_boundary
-async def smart_rename(
-	ctx: MCPContext, file_path: str, line: int, character: int, new_name: str, apply: bool = False,
-) -> RefactorResult:
-	"""Coordinated rename using Pyright reference discovery + rope execution. Functionally equivalent to rename_symbol but uses a different internal workflow. Prefer rename_symbol for most cases. Defaults to preview mode. Related: rename_symbol, prepare_rename."""
-	app = _get_app_context(ctx)
-	result = await composite.smart_rename(app.pyright, app.rope, file_path, line, character, new_name, apply)
-	await ctx.debug(f"smart_rename edits={len(result.edits)} applied={result.applied}")
-	return result
-
-
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPreview]:
@@ -1240,6 +1218,185 @@ async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPrevi
 	_ = _get_app_context(ctx)
 	result = await composite.diff_preview(edits)
 	await ctx.debug(f"diff_preview files={len(result)}")
+	return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  P4 Feature Tools
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_keyword_help(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> DocumentationResult:
+	"""Documentation for Python keywords and operators. Use for keywords like yield, async, with and operators, not just names. Powered by Jedi. Related: get_documentation."""
+	app = _get_app_context(ctx)
+	result = await app.jedi.get_help(file_path, line, character)
+	await ctx.debug(f"get_keyword_help entries={len(result.entries)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_sub_definitions(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> list[NameEntry]:
+	"""List sub-definitions of a name (e.g., methods of a class from a reference). Uses Jedi Name.defined_names(). Related: goto_definition, get_symbol_outline."""
+	app = _get_app_context(ctx)
+	result = await app.jedi.get_sub_definitions(file_path, line, character)
+	await ctx.debug(f"get_sub_definitions count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def simulate_execution(
+	ctx: MCPContext, file_path: str, line: int, character: int,
+) -> list[TypeInfo]:
+	"""Simulate calling a callable and return result types. Uses Jedi Name.execute(). Related: get_type_info, deep_type_inference."""
+	app = _get_app_context(ctx)
+	result = await app.jedi.simulate_execute(file_path, line, character)
+	await ctx.debug(f"simulate_execution count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def list_environments(ctx: MCPContext) -> list[EnvironmentInfo]:
+	"""Discover and list Python environments and virtualenvs. Uses Jedi environment detection. Related: get_context."""
+	app = _get_app_context(ctx)
+	result = await app.jedi.list_environments()
+	await ctx.debug(f"list_environments count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def project_search(
+	ctx: MCPContext, query: str, complete: bool = False,
+) -> list[SymbolInfo]:
+	"""Project-wide semantic search using Jedi analysis engine. Complements workspace/symbol with Jedi Project.search(). Set complete=True for completion-style search. Related: search_symbols."""
+	app = _get_app_context(ctx)
+	result = await app.jedi.project_search(query, complete)
+	await ctx.debug(f"project_search count={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def restart_server(ctx: MCPContext) -> str:
+	"""Discard cached type info and restart Pyright analysis. Use when type information appears stale or after significant external file changes. Related: get_diagnostics."""
+	app = _get_app_context(ctx)
+	result = await app.pyright.restart_server()
+	await ctx.debug(f"restart_server result={result}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def undo_refactoring(ctx: MCPContext, count: int = 1) -> RefactorResult:
+	"""Undo the last refactoring operations. Uses Rope history. Related: redo_refactoring, get_refactoring_history."""
+	app = _get_app_context(ctx)
+	result = await app.rope.undo(count)
+	await ctx.debug(f"undo_refactoring count={count}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def redo_refactoring(ctx: MCPContext, count: int = 1) -> RefactorResult:
+	"""Redo previously undone refactoring operations. Uses Rope history. Related: undo_refactoring, get_refactoring_history."""
+	app = _get_app_context(ctx)
+	result = await app.rope.redo(count)
+	await ctx.debug(f"redo_refactoring count={count}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_refactoring_history(ctx: MCPContext) -> list[HistoryEntry]:
+	"""Get the refactoring change history. Returns entries with description, date, and affected files. Related: undo_refactoring, redo_refactoring."""
+	app = _get_app_context(ctx)
+	result = await app.rope.get_history()
+	await ctx.debug(f"get_refactoring_history entries={len(result)}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
+async def begin_change_stack(ctx: MCPContext) -> str:
+	"""Start an atomic change stack for chaining multiple refactorings. All changes are applied together on commit. Related: commit_change_stack, rollback_change_stack."""
+	app = _get_app_context(ctx)
+	result = await app.rope.begin_change_stack()
+	await ctx.debug(f"begin_change_stack: {result}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def commit_change_stack(ctx: MCPContext) -> RefactorResult:
+	"""Commit and apply the current change stack atomically. Related: begin_change_stack, rollback_change_stack."""
+	app = _get_app_context(ctx)
+	result = await app.rope.commit_change_stack()
+	await ctx.debug(f"commit_change_stack: applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def rollback_change_stack(ctx: MCPContext) -> str:
+	"""Discard the current change stack without applying. Related: begin_change_stack, commit_change_stack."""
+	app = _get_app_context(ctx)
+	result = await app.rope.rollback_change_stack()
+	await ctx.debug(f"rollback_change_stack: {result}")
+	return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def multi_project_rename(
+	ctx: MCPContext,
+	additional_roots: list[str],
+	file_path: str,
+	line: int,
+	character: int,
+	new_name: str,
+	apply: bool = False,
+) -> RefactorResult:
+	"""Rename a symbol across multiple Rope projects simultaneously. Provide additional workspace roots beyond the primary project. Related: rename_symbol."""
+	app = _get_app_context(ctx)
+	result = await app.rope.multi_project_rename(additional_roots, file_path, line, character, new_name, apply)
+	await ctx.debug(f"multi_project_rename edits={len(result.edits)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def get_test_coverage_map(
+	ctx: MCPContext,
+	file_path: str | None = None,
+	file_paths: list[str] | None = None,
+) -> TestCoverageMap:
+	"""Map source symbols to test references. Shows which functions/classes have test coverage. Related: find_references, dead_code_detection."""
+	app = _get_app_context(ctx)
+	result = await _get_test_coverage_map(app.pyright, file_path, file_paths)
+	await ctx.debug(f"get_test_coverage_map total={result.total_symbols} covered={result.covered_count}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def security_scan(
+	ctx: MCPContext,
+	file_path: str | None = None,
+	file_paths: list[str] | None = None,
+) -> SecurityScanResult:
+	"""AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Related: get_diagnostics, dead_code_detection."""
+	_ = _get_app_context(ctx)
+	result = await _security_scan(file_path, file_paths)
+	await ctx.debug(f"security_scan files={result.files_scanned} findings={result.total_findings}")
 	return result
 
 

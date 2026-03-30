@@ -17,20 +17,13 @@ from python_refactor_mcp.models import (
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 from python_refactor_mcp.util.paths import uri_to_path
 from python_refactor_mcp.util.shared import (
+    DiagnosticsNotifier,
     attach_post_apply_diagnostics,
 )
 
 
-class PyrightRefactoringBackend(Protocol):
+class PyrightRefactoringBackend(DiagnosticsNotifier, Protocol):
     """Protocol describing Pyright methods used in apply validation paths."""
-
-    async def notify_file_changed(self, file_path: str) -> None:
-        """Notify backend that file contents changed on disk."""
-        ...
-
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return diagnostics for one file or the full workspace."""
-        ...
 
     async def get_code_actions(
         self,

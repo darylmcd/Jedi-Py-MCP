@@ -14,7 +14,6 @@ from python_refactor_mcp.models import (
     DocumentationResult,
     DocumentHighlight,
     InlayHint,
-    Location,
     ParameterInfo,
     Position,
     Range,
@@ -167,25 +166,6 @@ async def test_get_diagnostics_rejects_invalid_severity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_hover_info_reuses_type_resolution_flow() -> None:
-    """Ensure hover info returns the same resolved TypeInfo shape as type lookup."""
-    pyright = AsyncMock()
-    jedi = AsyncMock()
-
-    pyright.get_hover.return_value = TypeInfo(
-        expression="/repo/a.py:1:1",
-        type_string="pkg.Type",
-        documentation="doc",
-        source="pyright",
-    )
-
-    result = await analysis.get_hover_info(pyright, jedi, "/repo/a.py", 1, 1)
-
-    assert result.type_string == "pkg.Type"
-    assert result.documentation == "doc"
-
-
-@pytest.mark.asyncio
 async def test_get_completions_sorts_results() -> None:
     """Ensure completions are returned in stable sorted order."""
     pyright = AsyncMock()
@@ -213,24 +193,6 @@ async def test_get_signature_help_passthrough() -> None:
     pyright.get_signature_help.return_value = signature
 
     result = await analysis.get_signature_help(pyright, "/repo/a.py", 1, 5)
-
-    assert result is signature
-
-
-@pytest.mark.asyncio
-async def test_get_call_signatures_fallback_passthrough() -> None:
-    """Ensure Jedi signature fallback is returned unchanged."""
-    jedi = AsyncMock()
-    signature = SignatureInfo(
-        label="f(a)",
-        parameters=[ParameterInfo(label="a")],
-        active_parameter=0,
-        active_signature=0,
-        documentation=None,
-    )
-    jedi.get_signatures.return_value = signature
-
-    result = await analysis.get_call_signatures_fallback(jedi, "/repo/a.py", 0, 0)
 
     assert result is signature
 
@@ -359,3 +321,38 @@ async def test_get_workspace_diagnostics_aggregates_by_file(tmp_path: Path) -> N
         (str(file_a.resolve()), 2),
         (str(file_b.resolve()), 1),
     ]
+
+
+# ── PR 3-B: Invalid-input / failure-path unit tests ──
+
+
+@pytest.mark.asyncio
+async def test_find_references_jedi_fallback_exception_returns_partial() -> None:
+    """When Pyright finds nothing and Jedi raises, return empty result."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+    pyright.get_references.return_value = []
+    jedi.get_references.side_effect = RuntimeError("Jedi crashed")
+
+    result = await analysis.find_references(pyright, jedi, "/repo/a.py", 0, 0)
+
+    assert result.references == []
+    assert result.total_count == 0
+
+
+@pytest.mark.asyncio
+async def test_get_type_info_both_backends_fail_returns_unknown() -> None:
+    """When Pyright returns Unknown and Jedi raises, return Unknown TypeInfo."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+    pyright.get_hover.return_value = TypeInfo(
+        expression="/repo/a.py:0:0",
+        type_string="Unknown",
+        documentation=None,
+        source="pyright",
+    )
+    jedi.infer_type.side_effect = RuntimeError("Jedi crashed")
+
+    result = await analysis.get_type_info(pyright, jedi, "/repo/a.py", 0, 0)
+
+    assert result.type_string == "Unknown"

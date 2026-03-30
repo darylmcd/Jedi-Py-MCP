@@ -29,10 +29,10 @@ def _resolve_module_to_file(module_name: str, workspace_root: Path) -> str | Non
         if package_path.exists():
             return str(package_path.resolve())
         # Try as module.py
-        if len(parts) > 1:
-            module_path = root / "/".join(parts[:-1]) / (parts[-1] + ".py")
-        else:
-            module_path = root / (parts[0] + ".py")
+        module_path = (
+            root / "/".join(parts[:-1]) / (parts[-1] + ".py") if len(parts) > 1
+            else root / (parts[0] + ".py")
+        )
         if module_path.exists():
             return str(module_path.resolve())
     return None

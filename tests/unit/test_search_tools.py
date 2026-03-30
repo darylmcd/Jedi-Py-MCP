@@ -153,3 +153,19 @@ async def test_search_symbols_merges_pyright_and_jedi_results() -> None:
     results = await search.search_symbols(pyright, jedi, "Widget")
 
     assert [item.name for item in results] == ["Widget", "WidgetFactory"]
+
+
+# ── PR 3-B: Invalid-input / failure-path unit tests ──
+
+
+@pytest.mark.asyncio
+async def test_search_symbols_both_fail_returns_empty() -> None:
+    """When both Pyright and Jedi raise, return empty list."""
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+    pyright.search_symbols.side_effect = RuntimeError("pyright crashed")
+    jedi.search_symbols.side_effect = RuntimeError("jedi crashed")
+
+    results = await search.search_symbols(pyright, jedi, "Widget")
+
+    assert results == []

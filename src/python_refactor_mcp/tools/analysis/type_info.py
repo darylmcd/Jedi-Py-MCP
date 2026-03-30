@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.models import (
     DocumentationResult,
     TypeInfo,
@@ -16,6 +14,8 @@ from python_refactor_mcp.tools.analysis._protocols import (
 from python_refactor_mcp.tools.analysis._protocols import (
     PyrightAnalysisBackend as _PyrightAnalysisBackend,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _is_unknown_type(type_info: TypeInfo | None) -> bool:
@@ -57,17 +57,6 @@ async def get_type_info(
         documentation=None,
         source="combined",
     )
-
-
-async def get_hover_info(
-    pyright: _PyrightAnalysisBackend,
-    jedi: _JediAnalysisBackend,
-    file_path: str,
-    line: int,
-    character: int,
-) -> TypeInfo:
-    """Get hover-style symbol information with Jedi fallback for unknown results."""
-    return await get_type_info(pyright, jedi, file_path, line, character)
 
 
 async def get_documentation(

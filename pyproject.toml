@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "python-refactor-mcp"
-version = "0.2.1"
+version = "0.3.0"
 description = "MCP server for Python code analysis and refactoring"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -39,6 +39,15 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tool docstrings in server.py are intentionally long (LLM-facing descriptions).
+"src/python_refactor_mcp/server.py" = ["E501"]
+# Pre-existing long lines in contract tests and navigation helpers.
+"tests/contract/test_mcp_protocol.py" = ["E501"]
+"src/python_refactor_mcp/tools/navigation/public_api.py" = ["E501"]
+"src/python_refactor_mcp/tools/navigation/hierarchy.py" = ["UP047"]
+"tests/unit/test_refactoring_tools.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["python_refactor_mcp"]

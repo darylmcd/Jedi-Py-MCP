@@ -100,11 +100,10 @@ async def get_workspace_diagnostics(
     effective_root = Path(root_path).resolve() if root_path else config.workspace_root
     suppress_set = set(suppress_codes) if suppress_codes else None
 
-    target_files: list[Path]
-    if file_paths is not None:
-        target_files = [Path(p).resolve() for p in file_paths]
-    else:
-        target_files = python_files(effective_root)
+    target_files: list[Path] = (
+        [Path(p).resolve() for p in file_paths] if file_paths is not None
+        else python_files(effective_root)
+    )
 
     # Parallelize with bounded concurrency.
     sem = asyncio.Semaphore(10)

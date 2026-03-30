@@ -25,10 +25,7 @@ def _cognitive_complexity(node: ast.AST, depth: int = 0) -> int:
     for child in ast.iter_child_nodes(node):
         increment = 0
         nesting_increment = 0
-        if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor)):
-            increment = 1
-            nesting_increment = depth
-        elif isinstance(child, ast.ExceptHandler):
+        if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.ExceptHandler)):
             increment = 1
             nesting_increment = depth
         elif isinstance(child, ast.BoolOp):
@@ -45,7 +42,8 @@ def _max_nesting_depth(node: ast.AST, current: int = 0) -> int:
     """Calculate maximum nesting depth."""
     max_depth = current
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.With, ast.AsyncWith, ast.Try, ast.ExceptHandler)):
+        _nesting_types = (ast.If, ast.While, ast.For, ast.AsyncFor, ast.With, ast.AsyncWith, ast.Try, ast.ExceptHandler)
+        if isinstance(child, _nesting_types):
             max_depth = max(max_depth, _max_nesting_depth(child, current + 1))
         else:
             max_depth = max(max_depth, _max_nesting_depth(child, current))

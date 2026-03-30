@@ -6,8 +6,6 @@ import ast
 import logging
 from pathlib import Path
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.models import (
     Location,
     ReferenceResult,
@@ -20,6 +18,9 @@ from python_refactor_mcp.tools.analysis._protocols import (
 )
 from python_refactor_mcp.util.shared import apply_limit
 from python_refactor_mcp.util.shared import location_key as _location_key
+
+_LOGGER = logging.getLogger(__name__)
+
 
 _apply_limit = apply_limit
 
@@ -35,6 +36,7 @@ def _snap_to_symbol(file_path: str, line: int, character: int) -> tuple[int, int
         source = Path(file_path).read_text(encoding="utf-8")
         tree = ast.parse(source)
     except (OSError, SyntaxError):
+        _LOGGER.debug("_snap_to_symbol failed for %s", file_path, exc_info=True)
         return None
 
     source_lines = source.splitlines()

@@ -18,8 +18,8 @@ from python_refactor_mcp.models import (
 
 from ._helpers import (
     DIAGNOSTIC_TAG_UNNECESSARY,
-    name_position,
     PyrightSearchBackend,
+    name_position,
     python_files,
 )
 

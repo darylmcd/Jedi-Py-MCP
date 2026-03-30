@@ -9,8 +9,6 @@ import logging
 import os
 from pathlib import Path
 
-_LOGGER = logging.getLogger(__name__)
-
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import PyrightError
 from python_refactor_mcp.models import (
@@ -34,7 +32,6 @@ from python_refactor_mcp.models import (
     TypeInfo,
 )
 from python_refactor_mcp.util.lsp_client import JSONDict, JSONValue, LSPClient
-from python_refactor_mcp.util.timing import timed
 from python_refactor_mcp.util.lsp_converters import (
     DOCUMENT_HIGHLIGHT_KIND,
     SEMANTIC_TOKEN_MODIFIERS,
@@ -55,6 +52,80 @@ from python_refactor_mcp.util.lsp_converters import (
     type_hierarchy_item_to_model,
 )
 from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_path
+from python_refactor_mcp.util.timing import timed
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
+    """Convert a single LSP DocumentSymbol or SymbolInformation to a model item."""
+    name = as_str(entry.get("name"), "")
+    if not name:
+        return None
+
+    kind_value = as_int(entry.get("kind", 13), 13)
+    range_value = entry.get("range")
+    selection_value = entry.get("selectionRange")
+
+    if not isinstance(range_value, dict):
+        location_value = entry.get("location")
+        if isinstance(location_value, dict):
+            range_value = location_value.get("range")
+            uri_value = location_value.get("uri")
+            if isinstance(uri_value, str):
+                fallback_path = uri_to_path(uri_value)
+
+    if not isinstance(range_value, dict):
+        return None
+    if not isinstance(selection_value, dict):
+        selection_value = range_value
+
+    file_uri = entry.get("uri")
+    resolved_path = uri_to_path(file_uri) if isinstance(file_uri, str) else fallback_path
+
+    children: list[SymbolOutlineItem] = []
+    raw_children = entry.get("children")
+    if isinstance(raw_children, list):
+        for child in raw_children:
+            if not isinstance(child, dict):
+                continue
+            converted_child = _convert_document_symbol(child, resolved_path)
+            if converted_child is not None:
+                children.append(converted_child)
+
+    container = entry.get("containerName")
+    return SymbolOutlineItem(
+        name=name,
+        kind=SYMBOL_KIND.get(kind_value, "symbol"),
+        file_path=resolved_path,
+        range=model_range(range_value),
+        selection_range=model_range(selection_value),
+        detail=as_str(entry.get("detail"), "") or None,
+        container=container if isinstance(container, str) else None,
+        children=children,
+    )
+
+
+def _reconstruct_symbol_hierarchy(symbols: list[SymbolOutlineItem]) -> list[SymbolOutlineItem]:
+    """Reconstruct parent/child hierarchy from flat SymbolInformation format."""
+    has_containers = any(s.container for s in symbols)
+    has_children = any(s.children for s in symbols)
+    if not has_containers or has_children:
+        return symbols
+
+    by_name: dict[str, list[SymbolOutlineItem]] = {}
+    for sym in symbols:
+        by_name.setdefault(sym.name, []).append(sym)
+
+    roots: list[SymbolOutlineItem] = []
+    for sym in symbols:
+        if sym.container and sym.container in by_name:
+            parent = by_name[sym.container][0]
+            if parent is not sym:
+                parent.children.append(sym)
+                continue
+        roots.append(sym)
+    return roots
 
 
 class PyrightLSPClient:
@@ -448,53 +519,6 @@ class PyrightLSPClient:
         if not isinstance(result, list):
             return []
 
-        def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
-            name = as_str(entry.get("name"), "")
-            if not name:
-                return None
-
-            kind_value = as_int(entry.get("kind", 13), 13)
-            range_value = entry.get("range")
-            selection_value = entry.get("selectionRange")
-
-            if not isinstance(range_value, dict):
-                location_value = entry.get("location")
-                if isinstance(location_value, dict):
-                    range_value = location_value.get("range")
-                    uri_value = location_value.get("uri")
-                    if isinstance(uri_value, str):
-                        fallback_path = uri_to_path(uri_value)
-
-            if not isinstance(range_value, dict):
-                return None
-            if not isinstance(selection_value, dict):
-                selection_value = range_value
-
-            file_uri = entry.get("uri")
-            resolved_path = uri_to_path(file_uri) if isinstance(file_uri, str) else fallback_path
-
-            children: list[SymbolOutlineItem] = []
-            raw_children = entry.get("children")
-            if isinstance(raw_children, list):
-                for child in raw_children:
-                    if not isinstance(child, dict):
-                        continue
-                    converted_child = _convert_document_symbol(child, resolved_path)
-                    if converted_child is not None:
-                        children.append(converted_child)
-
-            container = entry.get("containerName")
-            return SymbolOutlineItem(
-                name=name,
-                kind=SYMBOL_KIND.get(kind_value, "symbol"),
-                file_path=resolved_path,
-                range=model_range(range_value),
-                selection_range=model_range(selection_value),
-                detail=as_str(entry.get("detail"), "") or None,
-                container=container if isinstance(container, str) else None,
-                children=children,
-            )
-
         symbols: list[SymbolOutlineItem] = []
         for entry in result:
             if not isinstance(entry, dict):
@@ -503,25 +527,7 @@ class PyrightLSPClient:
             if converted is not None:
                 symbols.append(converted)
 
-        # Reconstruct hierarchy from flat SymbolInformation format.
-        has_containers = any(s.container for s in symbols)
-        has_children = any(s.children for s in symbols)
-        if has_containers and not has_children:
-            by_name: dict[str, list[SymbolOutlineItem]] = {}
-            for sym in symbols:
-                by_name.setdefault(sym.name, []).append(sym)
-
-            roots: list[SymbolOutlineItem] = []
-            for sym in symbols:
-                if sym.container and sym.container in by_name:
-                    parent = by_name[sym.container][0]
-                    if parent is not sym:
-                        parent.children.append(sym)
-                        continue
-                roots.append(sym)
-            symbols = roots
-
-        return symbols
+        return _reconstruct_symbol_hierarchy(symbols)
 
     async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:
         """Return completion candidates for a source position."""
@@ -1348,7 +1354,30 @@ class PyrightLSPClient:
         if "error" in response:
             if is_unhandled_method_error(response):
                 raise PyrightError(
-                    f"createtypestub is not supported by this version of Pyright"
+                    "createtypestub is not supported by this version of Pyright"
                 )
             raise PyrightError(f"createtypestub failed: {response['error']}")
         return True
+
+    async def restart_server(self) -> str:
+        """Restart Pyright analysis, discarding cached type information."""
+        response = await self._request(
+            "workspace/executeCommand",
+            {
+                "command": "pyright.restartserver",
+                "arguments": [],
+            },
+        )
+        self._diagnostics.clear()
+        self._file_versions.clear()
+        self._content_hashes.clear()
+        self._open_files.clear()
+        self._diagnostics_events.clear()
+        if "error" in response:
+            if is_unhandled_method_error(response):
+                _LOGGER.debug("pyright.restartserver not supported, performing manual restart")
+                await self.shutdown()
+                await self.start()
+                return "Pyright server restarted (manual restart)"
+            raise PyrightError(f"restartserver failed: {response['error']}")
+        return "Pyright server restarted successfully"

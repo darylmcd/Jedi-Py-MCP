@@ -7,9 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, SignatureOperation, TextEdit
+from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, SignatureOperation
 from python_refactor_mcp.tools import refactoring
-from tests.helpers import make_diag as _diag, make_edit as _edit
+from tests.helpers import make_diag as _diag
+from tests.helpers import make_edit as _edit
 
 
 @pytest.mark.asyncio
@@ -376,3 +377,24 @@ async def test_autoimport_search_returns_suggestions() -> None:
     assert result[0].module == "pathlib"
     assert result[0].import_statement == "from pathlib import Path"
     rope.autoimport_search.assert_awaited_once_with("Path")
+
+
+# ── PR 3-B: Invalid-input / failure-path unit tests ──
+
+
+@pytest.mark.asyncio
+async def test_rename_symbol_rope_raises_propagates() -> None:
+    """When rope raises during rename, the error propagates."""
+    pyright = AsyncMock()
+    rope = AsyncMock()
+    pyright.prepare_rename.return_value = object()
+    rope.rename.side_effect = ValueError("rope failed")
+
+    with pytest.raises(ValueError, match="rope failed"):
+        await refactoring.rename_symbol(pyright, rope, "/repo/a.py", 0, 0, "new_name", apply=False)
+
+
+def test_change_signature_invalid_op_raises() -> None:
+    """When an unsupported operation is passed, Pydantic validation rejects it."""
+    with pytest.raises(ValueError, match="Invalid operation"):
+        SignatureOperation(op="bad_op")

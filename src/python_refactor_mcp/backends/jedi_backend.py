@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -12,8 +13,10 @@ import jedi  # type: ignore[import-untyped]
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import JediError
 from python_refactor_mcp.models import (
+    CompletionItem,
     DocumentationEntry,
     DocumentationResult,
+    EnvironmentInfo,
     ImportSuggestion,
     InferredType,
     Location,
@@ -551,3 +554,234 @@ class JediBackend:
             return result
         except Exception as exc:
             raise JediError(f"Jedi get_names failed for {file_path}") from exc
+
+    async def get_completions(
+        self, file_path: str, line: int, character: int, fuzzy: bool = False,
+    ) -> list[CompletionItem]:
+        """Return fuzzy completion candidates for a source position."""
+
+        def _work() -> list[CompletionItem]:
+            script = self._make_script(file_path)
+            completions = script.complete(line=line + 1, column=character, fuzzy=fuzzy)
+            items: list[CompletionItem] = []
+            for c in completions:
+                name = getattr(c, "name", "")
+                if not isinstance(name, str) or not name:
+                    continue
+                kind_value = getattr(c, "type", "unknown")
+                kind = kind_value if isinstance(kind_value, str) else "unknown"
+                description = getattr(c, "description", None)
+                detail = description if isinstance(description, str) else None
+                doc: str | None = None
+                try:
+                    raw_doc = c.docstring()
+                    doc = raw_doc if isinstance(raw_doc, str) and raw_doc else None
+                except Exception:
+                    pass
+                items.append(
+                    CompletionItem(
+                        label=name,
+                        kind=kind,
+                        detail=detail,
+                        insert_text=name,
+                        documentation=doc,
+                    )
+                )
+            return items
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_completions returned %d items for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_completions failed for {file_path}:{line}:{character}") from exc
+
+    get_keyword_help = get_help
+
+    async def get_sub_definitions(
+        self, file_path: str, line: int, character: int,
+    ) -> list[NameEntry]:
+        """Return sub-definitions (defined names) of the name at a position."""
+
+        def _work() -> list[NameEntry]:
+            script = self._make_script(file_path)
+            names = script.goto(line=line + 1, column=character)
+            if not names:
+                return []
+            first = names[0]
+            defined_names_fn = getattr(first, "defined_names", None)
+            if not callable(defined_names_fn):
+                return []
+            sub_names = defined_names_fn()
+            results: list[NameEntry] = []
+            for name in sub_names:  # type: ignore[union-attr]
+                entry_name = getattr(name, "name", "")
+                if not isinstance(entry_name, str) or not entry_name:
+                    continue
+                kind = str(getattr(name, "type", "statement"))
+                full_name = getattr(name, "full_name", None)
+                full_name = full_name if isinstance(full_name, str) else None
+                description = getattr(name, "description", None)
+                description = description if isinstance(description, str) else None
+                module_path = _to_absolute_path(getattr(name, "module_path", None))
+                results.append(NameEntry(
+                    name=entry_name,
+                    kind=kind,
+                    file_path=module_path,
+                    line=_jedi_start_line(name),
+                    character=_jedi_start_character(name),
+                    full_name=full_name,
+                    description=description,
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi get_sub_definitions returned %d names for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi get_sub_definitions failed for {file_path}:{line}:{character}") from exc
+
+    async def simulate_execute(
+        self, file_path: str, line: int, character: int,
+    ) -> list[TypeInfo]:
+        """Simulate calling a callable at the given position and return result types."""
+
+        def _work() -> list[TypeInfo]:
+            script = self._make_script(file_path)
+            names = script.goto(line=line + 1, column=character)
+            if not names:
+                return []
+            first = names[0]
+            execute_fn = getattr(first, "execute", None)
+            if not callable(execute_fn):
+                return []
+            executed = execute_fn()
+            results: list[TypeInfo] = []
+            for name in executed:  # type: ignore[union-attr]
+                entry_name = getattr(name, "name", "")
+                if not isinstance(entry_name, str):
+                    entry_name = ""
+                full_name = getattr(name, "full_name", None)
+                type_string = (
+                    full_name if isinstance(full_name, str) and full_name
+                    else str(getattr(name, "type", "unknown"))
+                )
+                doc: str | None = None
+                try:
+                    raw_doc = name.docstring(raw=True)
+                    doc = raw_doc if isinstance(raw_doc, str) and raw_doc else None
+                except Exception:
+                    pass
+                expression = str(Path(file_path).resolve()) + f":{line}:{character}"
+                results.append(TypeInfo(
+                    expression=expression,
+                    type_string=type_string,
+                    documentation=doc,
+                    source="jedi",
+                ))
+            return results
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi simulate_execute returned %d types for %s", len(result), file_path)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi simulate_execute failed for {file_path}:{line}:{character}") from exc
+
+    async def list_environments(self) -> list[EnvironmentInfo]:
+        """List available Python environments discovered by Jedi."""
+
+        def _work() -> list[EnvironmentInfo]:
+            envs: list[EnvironmentInfo] = []
+            seen_paths: set[str] = set()
+
+            for env in jedi.find_virtualenvs():
+                env_path = str(getattr(env, "executable", getattr(env, "path", "")))
+                if not env_path or env_path in seen_paths:
+                    continue
+                seen_paths.add(env_path)
+                version_info = getattr(env, "version_info", None)
+                version = None
+                if version_info is not None:
+                    with contextlib.suppress(Exception):
+                        version = ".".join(str(v) for v in version_info[:3])
+                envs.append(EnvironmentInfo(
+                    path=env_path,
+                    python_version=version or "unknown",
+                    is_virtualenv=True,
+                ))
+
+            for env in jedi.find_system_environments():
+                env_path = str(getattr(env, "executable", getattr(env, "path", "")))
+                if not env_path or env_path in seen_paths:
+                    continue
+                seen_paths.add(env_path)
+                version_info = getattr(env, "version_info", None)
+                version = None
+                if version_info is not None:
+                    with contextlib.suppress(Exception):
+                        version = ".".join(str(v) for v in version_info[:3])
+                envs.append(EnvironmentInfo(
+                    path=env_path,
+                    python_version=version or "unknown",
+                    is_virtualenv=False,
+                ))
+
+            return envs
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi list_environments returned %d environments", len(result))
+            return result
+        except Exception as exc:
+            raise JediError("Jedi list_environments failed") from exc
+
+    async def project_search(self, query: str, complete: bool = False) -> list[SymbolInfo]:
+        """Search project symbols by name, optionally using completion-style search."""
+
+        def _work() -> list[SymbolInfo]:
+            project = self._require_project()
+            names = project.complete_search(query) if complete else project.search(query, all_scopes=True)
+            symbols: list[SymbolInfo] = []
+            seen: set[tuple[str, str, int, int, str]] = set()
+            for name in names:
+                location = _name_to_location(name)
+                if location is None:
+                    continue
+
+                symbol_name = getattr(name, "name", "")
+                if not isinstance(symbol_name, str) or not symbol_name:
+                    continue
+
+                kind_value = getattr(name, "type", "variable")
+                kind = kind_value if isinstance(kind_value, str) and kind_value else "variable"
+                module_name = getattr(name, "module_name", None)
+                container = module_name if isinstance(module_name, str) and module_name else None
+                key = (
+                    symbol_name,
+                    location.file_path,
+                    location.range.start.line,
+                    location.range.start.character,
+                    container or "",
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                symbols.append(
+                    SymbolInfo(
+                        name=symbol_name,
+                        kind=kind,
+                        file_path=location.file_path,
+                        range=location.range,
+                        container=container,
+                    )
+                )
+            return symbols
+
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
+            _LOGGER.debug("Jedi project_search returned %d results for %s", len(result), query)
+            return result
+        except Exception as exc:
+            raise JediError(f"Jedi project_search failed for query {query}") from exc
