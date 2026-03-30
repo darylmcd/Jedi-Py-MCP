@@ -7,7 +7,13 @@ from collections import defaultdict
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import CouplingMetrics, DependencyGraph, InterfaceComparison, LayerViolation, ProtocolSource
+from python_refactor_mcp.models import (
+    CouplingMetrics,
+    DependencyGraph,
+    InterfaceComparison,
+    LayerViolation,
+    ProtocolSource,
+)
 
 
 async def get_coupling_metrics(

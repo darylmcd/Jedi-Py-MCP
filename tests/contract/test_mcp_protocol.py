@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from python_refactor_mcp import __version__, server
+from python_refactor_mcp import server
 
 
 @pytest.mark.asyncio
@@ -99,11 +99,11 @@ async def test_annotation_variants_exist() -> None:
 async def test_path_params_are_validated() -> None:
     """All known path parameter names should be in the validation set."""
     expected_path_params = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
-    assert server._PATH_PARAMS == expected_path_params  # pyright: ignore[reportPrivateUsage]
+    assert expected_path_params == server._PATH_PARAMS  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio
 async def test_identifier_params_are_validated() -> None:
     """All known identifier parameter names should be in the validation set."""
     expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
-    assert server._IDENTIFIER_PARAMS == expected  # pyright: ignore[reportPrivateUsage]
+    assert expected == server._IDENTIFIER_PARAMS  # pyright: ignore[reportPrivateUsage]

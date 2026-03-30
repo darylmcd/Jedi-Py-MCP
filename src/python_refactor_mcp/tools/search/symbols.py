@@ -9,9 +9,9 @@ _LOGGER = logging.getLogger(__name__)
 from python_refactor_mcp.models import SymbolInfo
 
 from ._helpers import (
-    apply_limit_items,
     JediSearchBackend,
     PyrightSearchBackend,
+    apply_limit_items,
 )
 
 

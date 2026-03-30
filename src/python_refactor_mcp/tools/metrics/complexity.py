@@ -25,10 +25,7 @@ def _cognitive_complexity(node: ast.AST, depth: int = 0) -> int:
     for child in ast.iter_child_nodes(node):
         increment = 0
         nesting_increment = 0
-        if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor)):
-            increment = 1
-            nesting_increment = depth
-        elif isinstance(child, ast.ExceptHandler):
+        if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor)) or isinstance(child, ast.ExceptHandler):
             increment = 1
             nesting_increment = depth
         elif isinstance(child, ast.BoolOp):
