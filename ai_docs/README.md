@@ -18,9 +18,9 @@ Read order is defined by `../AGENTS.md`.
 ## Preferred Active References
 
 - `architecture.md`: compact system architecture reference
-- `domains/python-refactor/reference.md`: domain-specific entry point (75 tools)
+- `domains/python-refactor/reference.md`: domain-specific entry point (87 tools)
 - `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
-- `mcp_best_practices.md`: general MCP server best practices reference
+- `references/mcp_best_practices.md`: general MCP server best practices reference
 - `references/testing.md`: stable test strategy and command reference
 - `references/tooling/python.md`: Python/runtime tooling reference
 - `prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
