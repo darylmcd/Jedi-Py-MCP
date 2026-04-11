@@ -1,4 +1,5 @@
 # Python Tooling Reference
+<!-- purpose: Python runtime, packages, and build tooling reference. -->
 
 Purpose: stable reference for Python-related tooling used in this repository.
 

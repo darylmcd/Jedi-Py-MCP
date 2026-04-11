@@ -1,4 +1,5 @@
 # Release Handoff Procedure
+<!-- purpose: Repeatable merge-ready handoff procedure. -->
 
 Purpose: repeatable procedure for merge-ready handoff.
 

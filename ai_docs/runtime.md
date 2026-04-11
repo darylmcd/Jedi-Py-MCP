@@ -1,6 +1,9 @@
 # Runtime
+<!-- purpose: Verified environment, commands, and integration facts for this repository. -->
 
 Scope: verified environment, shell, tool, editor, and integration facts for this repository.
+
+All commands below are available as `just` recipes. Run `just --list` for the full menu, or `just ci` to run the complete local CI gate.
 
 ## Snapshot
 
@@ -12,7 +15,8 @@ Scope: verified environment, shell, tool, editor, and integration facts for this
 | Host OS | Windows |
 | Shell | PowerShell |
 | Virtual environment | .venv |
-| Hosted CI | Not configured |
+| Hosted CI | `.github/workflows/ci.yml` — lint, type check, unit tests, integration tests on Python 3.14 (Windows) |
+| Task runner | `justfile` — run `just --list` for all recipes, `just ci` for full local CI gate |
 | rg availability | Not installed |
 
 ## Standard Commands

@@ -1,4 +1,5 @@
 # Architecture
+<!-- purpose: Compact system architecture reference — backends, tool surface, runtime flow. -->
 
 Purpose: compact architecture reference for AI contributors.
 

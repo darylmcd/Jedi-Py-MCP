@@ -27,7 +27,7 @@ Purpose: minimal canonical bootstrap path for AI sessions.
 - Environment and command facts: `ai_docs/runtime.md`
 - Execution flow, branching, and PR workflow: `ai_docs/workflow.md`
 - Validation and merge-gate policy: `CI_POLICY.md`
-- Open follow-up work only: `ai_docs/backlog.md`
+- Open follow-up work only: `ai_docs/backlog.md` (see its `## Agent contract` for rules)
 - Reminder-only operational checklist: `.cursor/rules/operational-essentials.md`
 
 ## Fast Session Start

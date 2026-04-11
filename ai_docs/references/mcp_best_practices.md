@@ -1,4 +1,5 @@
 # MCP Server Implementation Best Practices
+<!-- purpose: Canonical reference for MCP server design, security, performance, and operations. -->
 
 **Purpose:** Canonical reference for MCP server design, security, performance, and operations — applicable to any MCP server implementation.
 
