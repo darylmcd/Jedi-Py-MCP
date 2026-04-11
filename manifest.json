@@ -2,7 +2,7 @@
 	"manifest_version": "0.3",
 	"name": "python-refactor-mcp",
 	"display_name": "Python Refactor MCP",
-	"version": "0.1.1",
+	"version": "0.4.0",
 	"description": "MCP server for Python code analysis and refactoring using Pyright, Jedi, and rope backends.",
 	"author": "darylmcd",
 	"license": "MIT",

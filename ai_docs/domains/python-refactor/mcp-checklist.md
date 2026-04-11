@@ -1,4 +1,5 @@
 # MCP Tooling Checklist (Current + New)
+<!-- purpose: Checklist for validating MCP tools against best practices; includes prompt example bank. -->
 
 Purpose: a practical checklist for validating current MCP tools and any new tool/prompt additions against MCP best practices.
 
@@ -60,7 +61,7 @@ Use this for each existing or proposed tool.
 
 ## C. Current Surface Coverage (Snapshot)
 
-Current server exposes 75 tools across analysis/navigation/refactoring/search/metrics/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
+Current server exposes 87 tools across analysis/navigation/refactoring/search/metrics/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
 
 Minimum per-release checks for current tools:
 - [ ] Tool table in `README.md` matches actual server registration.
@@ -104,7 +105,7 @@ Add a short prompt bank for every tool you expose.
 - Validation:
   - "Attempt `prepare_rename` on a string literal and explain why rename is invalid."
 - Chaining:
-  - "Use `prepare_rename` first; only if valid, call `smart_rename` with `apply=false` and summarize impact."
+  - "Use `prepare_rename` first; only if valid, call `rename_symbol` with `apply=false` and summarize impact."
 
 ### New Tool Prompt Bank (Implemented)
 
@@ -132,10 +133,10 @@ Add a short prompt bank for every tool you expose.
   - Goal: "Run `get_folding_ranges` and return only start_line/end_line/kind."
   - Validation: "Run `get_folding_ranges` on an invalid path and report the tool error."
   - Chaining: "Use `get_folding_ranges` to split file sections, then call `get_symbol_outline` per section target."
-- `get_call_signatures_fallback`:
-  - Goal: "Run `get_call_signatures_fallback` at callsite and return signature label + active parameter."
-  - Validation: "Run `get_call_signatures_fallback` outside a call expression and show null response handling."
-  - Chaining: "Call `get_signature_help`; if null, call `get_call_signatures_fallback` and continue with returned signature context."
+- `get_signature_help`:
+  - Goal: "Run `get_signature_help` at callsite and return signature label + active parameter."
+  - Validation: "Run `get_signature_help` outside a call expression and show null response handling."
+  - Chaining: "Call `get_signature_help`; if null, call `get_documentation` for fallback context."
 - `introduce_parameter`:
   - Goal: "Run `introduce_parameter` with `apply=false` and summarize files_affected and edits count."
   - Validation: "Run `introduce_parameter` on non-callable symbol and show corrective error guidance."

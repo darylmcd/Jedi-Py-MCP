@@ -1,4 +1,5 @@
 # Workflow
+<!-- purpose: Session workflow, branching, PR handling, backlog closure rules. -->
 
 Scope: session workflow, task scoping, branching, worktrees, PR handling, and delivery rhythm.
 
@@ -49,6 +50,12 @@ Scope: session workflow, task scoping, branching, worktrees, PR handling, and de
 - Before handoff, confirm the branch is synchronized with base branch requirements when protection rules require it.
 - Re-run required checks after resolving base-branch drift.
 - Do not claim merge-readiness when required checks, required reviews, or branch protection conditions remain unmet.
+
+## Backlog Closure
+
+- When work closes backlog rows, update `ai_docs/backlog.md` in the **same PR** or an **immediate** follow-up commit.
+- Implementation plans must include a final step: `backlog: sync ai_docs/backlog.md`.
+- Do not leave resolved items in the backlog — remove the row, not mark it "done".
 
 ## Branch Cleanup
 

@@ -1,4 +1,5 @@
 # Testing Reference
+<!-- purpose: Stable reference for validation commands and test execution. -->
 
 Purpose: stable reference for validation and test execution.
 

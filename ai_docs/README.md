@@ -1,4 +1,5 @@
 # AI Docs Index
+<!-- purpose: Canonical routing map for AI-facing documentation. -->
 
 Purpose: canonical routing map for AI-facing documentation.
 
@@ -10,7 +11,7 @@ Purpose: canonical routing map for AI-facing documentation.
 - `../CI_POLICY.md`: validation and merge-gating policy
 - `workflow.md`: branch/worktree/PR execution flow
 - `runtime.md`: verified environment and command facts
-- `backlog.md`: open follow-up work only
+- `backlog.md`: open follow-up work only (sync after closing items — see its `## Agent contract`)
 - `../.cursor/rules/operational-essentials.md`: compact reminder layer aligned with workflow
 
 Read order is defined by `../AGENTS.md`.

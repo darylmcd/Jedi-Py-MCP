@@ -1,4 +1,5 @@
 # Python Refactor Domain Reference
+<!-- purpose: Domain reference — 87 tools, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
@@ -47,7 +48,7 @@ The canonical tool list is `server.py`. Tools are organized into these categorie
 
 ### Explore an unfamiliar file
 1. `get_symbol_outline(file_path=<file>)` — get the symbol tree.
-2. `get_hover_info` on interesting symbols — confirm types and docs.
+2. `get_type_info` on interesting symbols — confirm types and docs.
 3. `goto_definition` — navigate to source of imported symbols.
 
 ### Find and fix a diagnostic error
