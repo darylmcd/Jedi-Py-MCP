@@ -6,7 +6,7 @@ import keyword
 from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, Location, Position
+from python_refactor_mcp.models import Diagnostic, Location, Position, RefactorResult
 
 
 class DiagnosticsNotifier(Protocol):
@@ -69,8 +69,6 @@ async def attach_post_apply_diagnostics(
     Operates on any object with ``applied``, ``files_affected``, and
     ``diagnostics_after`` attributes (i.e. ``RefactorResult``).
     """
-    from python_refactor_mcp.models import RefactorResult  # noqa: PLC0415
-
     if not isinstance(result, RefactorResult) or not result.applied:
         return result
 
