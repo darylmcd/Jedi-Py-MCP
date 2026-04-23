@@ -9,6 +9,7 @@ Purpose: canonical routing map for AI-facing documentation.
 - `../CLAUDE.md`: bootstrap alignment for Claude-style sessions
 - `../.github/copilot-instructions.md`: behavior guardrails and policy pointers
 - `../CI_POLICY.md`: validation and merge-gating policy
+- `planning_index.md`: planning router and next-step protocol
 - `workflow.md`: branch/worktree/PR execution flow
 - `runtime.md`: verified environment and command facts
 - `backlog.md`: open follow-up work only (sync after closing items — see its `## Agent contract`)
@@ -40,6 +41,14 @@ Read order is defined by `../AGENTS.md`.
 - `../src/python_refactor_mcp/tools/`: tool modules
 - `../tests/unit/`: current automated coverage
 - `../tests/integration/`: transport and end-to-end coverage
+
+## Read By Task
+
+- Next-step or planning question: `planning_index.md` then `backlog.md`
+- Build, test, run, package, or validation command: `runtime.md`
+- Branching, validation flow, or handoff process: `workflow.md` and `../CI_POLICY.md`
+- Tool surface, workflows, and MCP domain details: `domains/python-refactor/reference.md`
+- Testing expectations and commands: `references/testing.md`
 
 ## Organization Rules
 

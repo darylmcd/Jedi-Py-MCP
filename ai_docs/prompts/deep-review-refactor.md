@@ -1,4 +1,5 @@
 # Deep Code Review & Refactor Agent Prompt — Python (Jedi/Pyright/Rope MCP)
+<!-- purpose: Reusable deep review prompt for exercising the full Python refactor MCP tool surface. -->
 
 <!-- KEEP THIS FILE: This is a reusable prompt template. Update it when tools are added or removed. Do not delete — always keep in sync with the current tool surface in server.py. -->
 

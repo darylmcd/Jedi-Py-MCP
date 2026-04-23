@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "python-refactor": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "python_refactor_mcp", "C:/Code-Repo/Jedi-Py-MCP"]
+    }
+  }
+}
