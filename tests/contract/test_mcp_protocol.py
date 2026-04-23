@@ -97,13 +97,25 @@ async def test_annotation_variants_exist() -> None:
 
 @pytest.mark.asyncio
 async def test_path_params_are_validated() -> None:
-    """All known path parameter names should be in the validation set."""
-    expected_path_params = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
-    assert expected_path_params == server._PATH_PARAMS  # pyright: ignore[reportPrivateUsage]
+    """All known path parameter names should be in the validation tuple.
+
+    Order matters: source/subject paths must come before destination paths so
+    that move/copy tools anchor workspace resolution on the source, not the
+    destination.
+    """
+    path_params = server._PATH_PARAMS  # pyright: ignore[reportPrivateUsage]
+    expected_members = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
+    assert expected_members == set(path_params)
+    # Source/subject paths must precede destination paths.
+    for src in ("file_path", "source_file", "source_path"):
+        for dst in ("destination_file", "destination_package"):
+            assert path_params.index(src) < path_params.index(dst), (
+                f"{src!r} must come before {dst!r} in _PATH_PARAMS"
+            )
 
 
 @pytest.mark.asyncio
 async def test_identifier_params_are_validated() -> None:
-    """All known identifier parameter names should be in the validation set."""
+    """All known identifier parameter names should be in the validation tuple."""
     expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
-    assert expected == server._IDENTIFIER_PARAMS  # pyright: ignore[reportPrivateUsage]
+    assert expected == set(server._IDENTIFIER_PARAMS)  # pyright: ignore[reportPrivateUsage]

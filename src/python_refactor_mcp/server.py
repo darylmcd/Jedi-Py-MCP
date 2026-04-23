@@ -70,7 +70,7 @@ from python_refactor_mcp.models import (
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
 from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
-from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
+from python_refactor_mcp.util.shared import apply_limit, validate_identifier, validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 _READONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
@@ -78,16 +78,24 @@ _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempot
 _ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Parameters that contain file paths requiring workspace boundary validation.
-_PATH_PARAMS = frozenset({
-    "file_path", "source_file", "destination_file",
-    "root_path", "source_path", "destination_package",
-})
-_LIST_PATH_PARAMS = frozenset({"file_paths"})
+# Order is deliberate: when a tool accepts multiple path params, the first
+# entry present in kwargs anchors workspace resolution. Source/subject paths
+# come before destination paths so move/copy tools resolve to the source
+# workspace rather than the destination.
+_PATH_PARAMS: tuple[str, ...] = (
+    "file_path",
+    "source_file",
+    "source_path",
+    "root_path",
+    "destination_file",
+    "destination_package",
+)
+_LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
 
 # Parameters that must be valid Python identifiers.
-_IDENTIFIER_PARAMS = frozenset({
+_IDENTIFIER_PARAMS: tuple[str, ...] = (
     "new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname",
-})
+)
 
 
 # ── Multi-workspace context ──────────────────────────────────────────────
@@ -101,6 +109,7 @@ class MultiWorkspaceContext:
 
 	registry: WorkspaceRegistry
 	cli_workspace_root: Path | None
+	roots_fetched: bool = False
 
 
 _workspace_root: Path | None = None
@@ -109,10 +118,6 @@ MCPContext = Context  # type: ignore[type-arg]
 # ContextVar set by _tool_error_boundary so tool functions can read their
 # resolved WorkspaceBackends without signature changes.
 _current_backends: contextvars.ContextVar[WorkspaceBackends] = contextvars.ContextVar("_current_backends")
-
-# Module-level flags for lazy MCP roots/list fetching.
-_roots_fetched: bool = False
-_roots_dirty: bool = False
 
 
 def _get_current_backends() -> WorkspaceBackends:
@@ -142,14 +147,9 @@ def _get_multi_context(ctx: MCPContext) -> MultiWorkspaceContext:
 	return lifespan_context
 
 
-async def _maybe_fetch_roots(ctx: MCPContext, registry: WorkspaceRegistry) -> None:
-	"""Lazily fetch MCP roots from the client on first call or when dirty."""
-	global _roots_fetched, _roots_dirty  # noqa: PLW0603
-
-	if _roots_fetched and not _roots_dirty:
-		return
-	# Only fetch if we have no known roots (or roots changed).
-	if _roots_fetched and not _roots_dirty and registry.get_known_roots():
+async def _maybe_fetch_roots(ctx: MCPContext, multi_ctx: MultiWorkspaceContext) -> None:
+	"""Lazily fetch MCP roots from the client once per lifespan."""
+	if multi_ctx.roots_fetched:
 		return
 
 	try:
@@ -164,13 +164,12 @@ async def _maybe_fetch_roots(ctx: MCPContext, registry: WorkspaceRegistry) -> No
 			except Exception:
 				_LOGGER.warning("Failed to convert root URI: %s", root.uri)
 		if root_paths:
-			await registry.set_roots(root_paths)
+			await multi_ctx.registry.set_roots(root_paths)
 			_LOGGER.info("Updated workspace roots from MCP client: %s", root_paths)
 	except Exception:
 		_LOGGER.debug("MCP roots/list not available from client", exc_info=True)
 
-	_roots_fetched = True
-	_roots_dirty = False
+	multi_ctx.roots_fetched = True
 
 
 def _tool_error_boundary(  # noqa: UP047
@@ -198,7 +197,7 @@ def _tool_error_boundary(  # noqa: UP047
 			registry = multi_ctx.registry
 
 			# Lazy MCP roots fetch.
-			await _maybe_fetch_roots(ctx, registry)
+			await _maybe_fetch_roots(ctx, multi_ctx)
 
 			# Find the primary file path from kwargs.
 			primary_path: str | None = None
@@ -364,7 +363,6 @@ async def get_completions(
 	app = _get_current_backends()
 	if fuzzy:
 		result = await app.jedi.get_completions(file_path, line, character, fuzzy=True)
-		from python_refactor_mcp.util.shared import apply_limit  # noqa: PLC0415
 		result, _ = apply_limit(result, limit)
 	else:
 		result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
