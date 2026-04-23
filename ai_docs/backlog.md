@@ -1,7 +1,8 @@
 # Backlog
 <!-- purpose: Open follow-up work items only — remove entries when completed. -->
+<!-- scope: in-repo -->
 
-**updated_at:** 2026-04-11T16:00:00Z
+**updated_at:** 2026-04-22T00:00:00Z
 
 ## Agent contract
 
@@ -14,6 +15,7 @@
 
 - Best practices reference: `ai_docs/references/mcp_best_practices.md`.
 - Historical plans, audits, and reports removed — originals preserved in git history.
+- Priority tiers: Critical > High > Medium > Low > Defer.
 
 ## Open items
 

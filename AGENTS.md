@@ -1,49 +1,42 @@
-# Agent Bootstrap
+# Agent Guidelines
 
-Purpose: minimal canonical bootstrap path for AI sessions.
+Context for AI agents working on this project.
 
-## Required Read Order
+## Canonical Rule Sources
+
+- Implementation quality and safety: `.github/copilot-instructions.md`
+- Planning router and next-step protocol: `ai_docs/planning_index.md`
+- AI-doc routing and project map: `ai_docs/README.md`
+- Workflow and collaboration: `ai_docs/workflow.md`
+- CI policy: `CI_POLICY.md`
+- Build/run/test commands: `ai_docs/runtime.md`
+- Open work / backlog rules: `ai_docs/backlog.md` (see **Agent contract** in that file)
+- Operational reminder layer: `.cursor/rules/operational-essentials.md`
+- Claude pointer: `CLAUDE.md` points to this file (collapsed-pointer form — no mirror)
+
+## Session Start (Required)
+
+At the start of every new session, read these files before doing work:
 
 1. `.github/copilot-instructions.md`
-2. `CLAUDE.md`
-3. `ai_docs/README.md`
+2. `ai_docs/workflow.md`
+3. `CI_POLICY.md`
 4. `ai_docs/runtime.md`
-5. `ai_docs/workflow.md`
-6. `CI_POLICY.md`
-7. `ai_docs/backlog.md`
-8. `.cursor/rules/operational-essentials.md`
+5. `ai_docs/planning_index.md`
+6. `.cursor/rules/operational-essentials.md`
 
-## Precedence
+After the required reads, use `ai_docs/README.md` to pull additional docs on demand for the current task.
 
-1. Direct user request
-2. Canonical repository docs listed in this file
-3. Archived or non-canonical notes
+Next-step protocol:
 
-## Canonical Owners
+1. User named NO specific repo / adapter / ecosystem / integration / cross-repo term -> scope = in-repo -> read `backlog.md` -> STOP. Do not open `ai_docs/ecosystem/**`.
+2. User named another repo / adapter / ecosystem / integration / cross-repo work -> scope = cross-project -> there is no local `ai_docs/ecosystem/` router in this repo; use only explicitly named external context.
+3. Both scopes named -> answer each as a separate question; do not merge into one recommendation.
 
-- Implementation behavior, safety, and definition of done: `.github/copilot-instructions.md`
-- Claude-specific bootstrap alignment: `CLAUDE.md`
-- AI doc routing and project map: `ai_docs/README.md`
-- Environment and command facts: `ai_docs/runtime.md`
-- Execution flow, branching, and PR workflow: `ai_docs/workflow.md`
-- Validation and merge-gate policy: `CI_POLICY.md`
-- Open follow-up work only: `ai_docs/backlog.md` (see its `## Agent contract` for rules)
-- Reminder-only operational checklist: `.cursor/rules/operational-essentials.md`
+## Conflict Precedence
 
-## Fast Session Start
-
-1. Confirm active branch and workspace root.
-2. Read the required docs above in order.
-3. Verify command surface from `ai_docs/runtime.md`.
-4. Execute using `ai_docs/workflow.md` and validate per `CI_POLICY.md`.
-
-## Standard Validation Commands
-
-- `python -m ruff check .`
-- `python -m pyright .`
-- `python -m mypy .`
-- `python -m pytest tests/unit/ -v`
-- `./scripts/test-integration.ps1`
-- `./scripts/build.ps1`
-
-Keep this file short and route detail updates to owning docs.
+- For implementation quality and safety conflicts, follow `.github/copilot-instructions.md`.
+- For planning and open-work routing conflicts, follow `ai_docs/planning_index.md` and `ai_docs/backlog.md`.
+- For workflow and collaboration conflicts, follow `ai_docs/workflow.md`.
+- For CI policy conflicts, follow `CI_POLICY.md`.
+- For build/run environment details, follow `ai_docs/runtime.md`.

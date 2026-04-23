@@ -25,6 +25,9 @@ dist/
 
 # IDE/editor
 .vscode/
+!.vscode/
+.vscode/*
+!.vscode/mcp.json
 .idea/
 
 # OS

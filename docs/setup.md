@@ -63,6 +63,24 @@ just build-release    # via scripts/build.ps1
 just build-onefile    # single-file executable
 ```
 
+## Validation And Local CI
+
+Use the task runner when you want the supported command surface:
+
+```powershell
+just validate   # lint + pyright + unit tests
+just ci         # mirrors .github/workflows/ci.yml
+just --list     # show all available recipes
+```
+
+Direct commands:
+
+- `python -m ruff check .` validates lint cleanliness.
+- `python -m pyright .` validates the Pyright lane used by CI.
+- `python -m mypy .` validates the strict mypy lane used by CI.
+- `python -m pytest tests/unit/ -v` runs the unit suite.
+- `.\scripts\test-integration.ps1` runs the integration suite against the supported test harness.
+
 ## Configuration
 
 Workspace discovery is automatic and happens from the workspace root argument.
