@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def timed(logger: logging.Logger, operation: str) -> AsyncIterator[None]:
+async def timed(logger: logging.Logger, operation: str) -> AsyncGenerator[None]:
     """Log start and elapsed time for an async operation at DEBUG level.
 
     Usage::

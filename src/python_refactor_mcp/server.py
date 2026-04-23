@@ -7,7 +7,7 @@ import contextvars
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
@@ -273,7 +273,7 @@ def _tool_error_boundary(  # noqa: UP047
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[MultiWorkspaceContext]:
+async def app_lifespan(server: FastMCP) -> AsyncGenerator[MultiWorkspaceContext]:
 	"""Create workspace registry and optionally pre-warm the CLI workspace."""
 	_ = server
 	max_ws = int(os.environ.get("MAX_WORKSPACES", "3"))
