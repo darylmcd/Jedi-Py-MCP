@@ -2,7 +2,7 @@
 <!-- purpose: Open follow-up work items only — remove entries when completed. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-24T00:00:00Z
+**updated_at:** 2026-04-24T12:00:00Z
 
 ## Agent contract
 
@@ -23,7 +23,6 @@
 | id | priority | area | item | blocker |
 |----|----------|------|------|---------|
 | known-rope-annotations | Low | upstream | `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer`). Documented in `backends/rope_backend.py`. | rope upstream |
-| mcp-checklist-prompts | Low | docs | Complete prompt example bank for all tools in `ai_docs/domains/python-refactor/mcp-checklist.md`. | none |
 
 ## Refs
 
