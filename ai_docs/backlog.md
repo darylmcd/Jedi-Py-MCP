@@ -2,13 +2,14 @@
 <!-- purpose: Open follow-up work items only — remove entries when completed. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-22T00:00:00Z
+**updated_at:** 2026-04-24T00:00:00Z
 
 ## Agent contract
 
 - This file contains **unfinished work only**. Remove or update rows when work ships.
-- MUST NOT add completed-history sections or use the backlog as a changelog — git history is the history.
+- MUST NOT add completed-history sections or use the backlog as a changelog — `CHANGELOG.md` is the human-facing history, git history is the canonical record, and this backlog holds only open work.
 - Implementation plans MUST include a final step: `backlog: sync ai_docs/backlog.md`.
+- Release-affecting changes MUST add a bullet under `## [Unreleased]` in `CHANGELOG.md` in the same PR that ships the change.
 - Each row has a stable `id` for grep-friendly referencing.
 
 ## Standing rules
