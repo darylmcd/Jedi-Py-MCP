@@ -8,7 +8,7 @@ Purpose: compact architecture reference for AI contributors.
 | Path | Role |
 |------|------|
 | `src/python_refactor_mcp/__main__.py` | Entry point |
-| `src/python_refactor_mcp/server.py` | Server lifecycle, tool registration (87 tools) |
+| `src/python_refactor_mcp/server.py` | Server lifecycle, tool registration (88 tools) |
 | `src/python_refactor_mcp/config.py` | Runtime and workspace discovery |
 | `src/python_refactor_mcp/models.py` | Shared Pydantic response models |
 | `src/python_refactor_mcp/backends/` | Pyright LSP, Jedi, and rope integrations |
@@ -25,7 +25,7 @@ Purpose: compact architecture reference for AI contributors.
 
 ## Tool Surface
 
-87 tools in 7 categories: Analysis (16), Navigation (10), Refactoring (29), Search (8), Metrics & Architecture (10), History & Change Management (6), Composite & Utilities (8).
+88 tools in 7 categories: Analysis (16), Navigation (10), Refactoring (30), Search (8), Metrics & Architecture (10), History & Change Management (6), Composite & Utilities (8).
 
 See `domains/python-refactor/reference.md` for the full categorized list.
 

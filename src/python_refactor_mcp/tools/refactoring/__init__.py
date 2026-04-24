@@ -2,6 +2,7 @@
 
 from .code_actions import apply_code_action, organize_imports
 from .extract import extract_method, extract_variable, inline_method, inline_parameter, inline_variable
+from .format import format_code
 from .imports import (
     autoimport_search,
     expand_star_imports,
@@ -34,6 +35,7 @@ __all__ = [
     "extract_method",
     "extract_variable",
     "fix_module_names",
+    "format_code",
     "froms_to_imports",
     "generate_code",
     "handle_long_imports",

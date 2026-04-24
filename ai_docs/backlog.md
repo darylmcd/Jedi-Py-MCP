@@ -2,7 +2,7 @@
 <!-- purpose: Open follow-up work items only — remove entries when completed. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-24T22:00:00Z
+**updated_at:** 2026-04-24T23:00:00Z
 
 ## Agent contract
 
@@ -23,7 +23,6 @@
 | id | priority | area | item | blocker |
 |----|----------|------|------|---------|
 | known-rope-annotations | Low | upstream | `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer`). Documented in `backends/rope_backend.py`. | rope upstream |
-| cand-format-code | Medium | infrastructure | New tool `format_code` — ruff-format wrapper (subprocess) with preview/apply and optional range. Respects project `pyproject.toml`/`ruff.toml`. Closes the "format via MCP" gap; ruff already a declared dep. | none |
 | cand-apply-lint-fixes | Medium | infrastructure | New tool `apply_lint_fixes` — ruff `--fix` wrapper; pairs with `get_diagnostics`/`find_errors_static` to close the auto-fix loop. | none |
 | cand-find-type-users | Medium | search | New tool `find_type_users` — inverse of `find_references` scoped to a type: annotate/instantiate/subclass sites for a class or Protocol. Composition of existing `find_references` + Pyright type resolution. | none |
 | cand-apply-type-annotations | Medium | refactoring | New tool `apply_type_annotations` — materialize inferred types (same source as `get_inlay_hints`) into real annotations; pairs with `get_type_coverage` for a closed-loop improvement. Requires a CST apply path. | custom-cst |

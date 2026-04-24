@@ -789,6 +789,18 @@ async def organize_imports(
 
 @mcp.tool(annotations=_ADDITIVE)
 @_tool_error_boundary
+async def format_code(
+	ctx: MCPContext, file_path: str, apply: bool = False, file_paths: list[str] | None = None,
+) -> RefactorResult:
+	"""Run ruff-format on one or more files (respects project pyproject.toml / ruff.toml). Use to normalize formatting before commit or after a refactoring pass. Returns whole-file replace edits for changed files; already-formatted files are omitted. Defaults to preview mode. Related: organize_imports, get_diagnostics."""
+	app = _get_current_backends()
+	result = await refactoring.format_code(app.pyright, file_path, apply, file_paths)
+	await ctx.debug(f"format_code files={len(result.files_affected)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
 async def expand_star_imports(
 	ctx: MCPContext, file_path: str, apply: bool = False,
 ) -> RefactorResult:

@@ -61,7 +61,7 @@ Use this for each existing or proposed tool.
 
 ## C. Current Surface Coverage (Snapshot)
 
-Current server exposes 87 tools across analysis/navigation/refactoring/search/metrics/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
+Current server exposes 88 tools across analysis/navigation/refactoring/search/metrics/composite. Coverage should be reviewed against sections A and B whenever tools are added or modified.
 
 Minimum per-release checks for current tools:
 - [ ] Tool table in `README.md` matches actual server registration.
@@ -413,6 +413,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `organize_imports` on `src/python_refactor_mcp/server.py` with `apply=false`, then summarize proposed edits count."
   - Validation: "Run `organize_imports` on a non-existent file and show the exact error returned."
   - Chaining: "Preview `organize_imports`, then feed edits to `diff_preview` and summarize top 3 hunks."
+- `format_code`:
+  - Goal: "Run `format_code` on `src/python_refactor_mcp/server.py` with `apply=false` and report whether ruff-format would change the file."
+  - Validation: "Run `format_code` on a file that is already ruff-formatted and confirm zero edits and `applied=false`."
+  - Chaining: "Run `organize_imports` with `apply=true`, then `format_code` with `apply=true` to normalize layout + whitespace in one sweep, and compare diagnostics before/after."
 - `apply_code_action`:
   - Goal: "Run `apply_code_action` for a quick-fix at a diagnostic and return the resulting text edits."
   - Validation: "Run `apply_code_action` with an unknown action id and show the not-found error."

@@ -398,3 +398,147 @@ def test_change_signature_invalid_op_raises() -> None:
     """When an unsupported operation is passed, Pydantic validation rejects it."""
     with pytest.raises(ValueError, match="Invalid operation"):
         SignatureOperation(op="bad_op")
+
+
+# ── format_code (ruff-format subprocess wrapper) ──
+
+
+@pytest.mark.asyncio
+async def test_format_code_preview_does_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Preview mode returns a whole-file edit but leaves disk untouched."""
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    target = tmp_path / "m.py"
+    original = "x=1\n"
+    formatted = "x = 1\n"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_run(file_path: str, content: str) -> str:
+        assert content == original
+        return formatted
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_run)
+    pyright = AsyncMock()
+
+    result = await format_mod.format_code(pyright, str(target), apply=False)
+
+    assert result.applied is False
+    assert len(result.edits) == 1
+    assert result.edits[0].new_text == formatted
+    assert result.files_affected == [str(target)]
+    assert target.read_text(encoding="utf-8") == original
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_format_code_apply_writes_and_refreshes_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apply mode writes formatted content and notifies Pyright."""
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    target = tmp_path / "m.py"
+    original = "x=1\n"
+    formatted = "x = 1\n"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_run(_fp: str, _content: str) -> str:
+        return formatted
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_run)
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await format_mod.format_code(pyright, str(target), apply=True)
+
+    assert result.applied is True
+    assert target.read_text(encoding="utf-8") == formatted
+    pyright.notify_file_changed.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_format_code_noop_when_already_formatted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file that round-trips unchanged yields zero edits."""
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    target = tmp_path / "m.py"
+    content = "x = 1\n"
+    target.write_text(content, encoding="utf-8")
+
+    async def fake_run(_fp: str, c: str) -> str:
+        return c
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_run)
+    pyright = AsyncMock()
+
+    result = await format_mod.format_code(pyright, str(target), apply=True)
+
+    assert result.applied is False
+    assert result.edits == []
+    assert result.files_affected == []
+
+
+@pytest.mark.asyncio
+async def test_format_code_batch_mode_filters_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batch mode includes only files that ruff actually changed."""
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    dirty = tmp_path / "dirty.py"
+    clean = tmp_path / "clean.py"
+    dirty.write_text("a=1\n", encoding="utf-8")
+    clean.write_text("b = 2\n", encoding="utf-8")
+
+    async def fake_run(fp: str, c: str) -> str:
+        return "a = 1\n" if fp == str(dirty) else c
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_run)
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await format_mod.format_code(
+        pyright, file_path=str(dirty), apply=False, file_paths=[str(dirty), str(clean)],
+    )
+
+    assert len(result.edits) == 1
+    assert result.files_affected == [str(dirty)]
+
+
+@pytest.mark.asyncio
+async def test_format_code_ruff_failure_raises_backend_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-zero ruff exit propagates as BackendError."""
+    from python_refactor_mcp.errors import BackendError
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    target = tmp_path / "m.py"
+    target.write_text("x=1\n", encoding="utf-8")
+
+    async def fake_run(_fp: str, _c: str) -> str:
+        raise BackendError("ruff format failed for m.py: parse error")
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_run)
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="ruff format failed"):
+        await format_mod.format_code(pyright, str(target), apply=False)
+
+
+@pytest.mark.asyncio
+async def test_format_code_missing_ruff_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """When ruff is not on PATH, the wrapper raises a clear BackendError."""
+    from python_refactor_mcp.errors import BackendError
+    from python_refactor_mcp.tools.refactoring import format as format_mod
+
+    target = tmp_path / "m.py"
+    target.write_text("x=1\n", encoding="utf-8")
+
+    monkeypatch.setattr(format_mod.shutil, "which", lambda _: None)
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="ruff executable not found"):
+        await format_mod.format_code(pyright, str(target), apply=False)
