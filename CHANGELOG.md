@@ -17,6 +17,8 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 ### Maintenance
 
+- **Maintenance:** Completed the prompt-example bank in `ai_docs/domains/python-refactor/mcp-checklist.md` — every tool on the current server (85 total across navigation, analysis, search, refactoring, metrics, history, and infrastructure) now has a Goal / Validation / Chaining prompt triple. Closes `mcp-checklist-prompts`.
+
 ## [0.4.1] - 2026-04-24
 
 ### Fixed
