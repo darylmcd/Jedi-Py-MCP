@@ -79,6 +79,29 @@ For each candidate from the roadmap:
 - [ ] Add at least one integration smoke test.
 - [ ] Add prompt examples to this checklist section (see template below).
 
+### D.1 Roadmap candidates
+
+Ranked by expected agent-value × backend-readiness. Use section F rubric to re-sort when picking up work. Each candidate names the backend it would build on and the rationale for inclusion given the current 87-tool surface.
+
+| id | candidate | category | backend | rationale / gap filled |
+|----|-----------|----------|---------|------------------------|
+| cand-extract-superclass | `extract_superclass` | refactoring | rope `ExtractSuperclass` | Complements `extract_protocol`/`extract_method`/`method_object`; promotes common members to a new base class — a classic refactor not currently exposed. |
+| cand-extract-class | `extract_class` | refactoring | rope `ExtractMethod` + scaffold | Moves a cohesive subset of fields/methods into a new collaborator class; pairs with existing `method_object` but at field granularity. |
+| cand-convert-to-dataclass | `convert_to_dataclass` | refactoring | Pyright + CST codemod | Modernization target; high demand from agents doing Python 3.7+ cleanups. Can build on `get_type_info` for field annotation. |
+| cand-apply-type-annotations | `apply_type_annotations` | refactoring | Pyright inference + AST edit | Materializes inferred types (same source as `get_inlay_hints`) into real annotations. Big agent win — pairs with `get_type_coverage` as a closed-loop improvement tool. |
+| cand-convert-func-method | `convert_function_to_method` / `convert_method_to_function` | refactoring | rope + manual CST | Symmetric pair; classic OO refactor absent from current surface. Callers auto-rewritten via `find_references`. |
+| cand-split-module | `split_module` | refactoring | rope `Move` batch | Partitions a single module into N modules by symbol selection. Complements `module_to_package` (which only promotes one file to a package shell). |
+| cand-format-code | `format_code` | infrastructure | ruff-format / black (subprocess) | Formatting pass on file or range, with diff preview. Closes a quality-gate gap — agents currently rely on external invocation. Should respect project config. |
+| cand-apply-lint-fixes | `apply_lint_fixes` | infrastructure | ruff `--fix` (subprocess) | Bulk auto-fix for lint diagnostics; complements `get_diagnostics`/`find_errors_static` with an apply path. |
+| cand-find-cyclic-imports | `find_cyclic_imports` | analysis | existing `get_module_dependencies` graph | Dedicated report that flags import cycles with node lists — common agent question, currently requires graph post-processing. |
+| cand-find-type-users | `find_type_users` | search | Pyright + `find_references` | Inverse of `find_references` scoped to a type: lists all sites that *consume* (annotate/instantiate/subclass) a given class or Protocol. Useful before breaking-change refactors. |
+
+### D.2 Deferred / under consideration
+
+- `semantic_diff` — AST-level diff between two revisions of a file; high cost, niche demand. Defer until a concrete agent workflow requests it.
+- `convert_sync_to_async` — scope is broad and failure modes are subtle; revisit after mid-tier candidates ship.
+- `merge_modules` — inverse of `split_module`; re-evaluate after split lands to see if there's real demand.
+
 ## E. Prompt Example Template (Per Tool)
 
 Add a short prompt bank for every tool you expose.
