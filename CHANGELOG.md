@@ -18,6 +18,7 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 ### Maintenance
 
 - **Maintenance:** Completed the prompt-example bank in `ai_docs/domains/python-refactor/mcp-checklist.md` — every tool on the current server (87 total across navigation, analysis, search, refactoring, metrics, history, and infrastructure) now has a Goal / Validation / Chaining prompt triple. Closes `mcp-checklist-prompts`.
+- **Maintenance:** Rehomed the new-tool roadmap from `mcp-checklist.md` D.1/D.2 into `ai_docs/backlog.md` (governed by the existing Agent contract) with verified `blocker` values: dropped two non-viable entries (`cand-extract-superclass` — rope 1.14 has no `ExtractSuperclass`; `cand-find-cyclic-imports` — redundant with `get_module_dependencies.circular_dependencies`) and re-flagged four rope-assumed candidates as `custom-cst`. `mcp-checklist.md` now points at the backlog for candidate storage and keeps only the intake process.
 
 ## [0.4.1] - 2026-04-24
 
