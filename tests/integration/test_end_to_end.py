@@ -751,3 +751,26 @@ async def test_find_references_nonexistent_file_returns_error(
     )
 
     assert result.isError is True
+
+
+@pytest.mark.asyncio
+async def test_format_code_preview_returns_refactor_payload(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure format_code returns a standard RefactorResult preview over real ruff."""
+    target = sample_workspace / "src" / "needs_format.py"
+    target.write_text("x=1\ny    =2\n", encoding="utf-8")
+
+    result = await mcp_session.call_tool(
+        "format_code",
+        {"file_path": str(target), "apply": False},
+    )
+
+    assert result.isError is False
+    payload = _unwrap_result_payload(result.structuredContent)
+    _assert_refactor_preview_payload(payload)
+    assert isinstance(payload, dict)
+    assert payload["files_affected"] == [str(target)]
+    # ruff should not have written the file in preview mode.
+    assert target.read_text(encoding="utf-8") == "x=1\ny    =2\n"

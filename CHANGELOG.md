@@ -15,6 +15,8 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 ### Added
 
+- **Added:** New tool `format_code` — thin async wrapper around `ruff format --stdin-filename` that respects the project's `pyproject.toml`/`ruff.toml`, supports single-file and batch mode, and follows the existing preview/apply contract (whole-file replace edit per changed file; unchanged files are omitted). Closes `cand-format-code`. Server surface: 87 → 88 tools.
+
 ### Maintenance
 
 - **Maintenance:** Completed the prompt-example bank in `ai_docs/domains/python-refactor/mcp-checklist.md` — every tool on the current server (87 total across navigation, analysis, search, refactoring, metrics, history, and infrastructure) now has a Goal / Validation / Chaining prompt triple. Closes `mcp-checklist-prompts`.

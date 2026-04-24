@@ -11,5 +11,5 @@ from python_refactor_mcp import server
 async def test_server_registers_all_stage_one_tools() -> None:
     """Ensure the expanded MCP tool surface is registered on the MCP instance."""
     tools = await server.mcp.list_tools()
-    assert len(tools) == 87
+    assert len(tools) == 88
     assert all("ctx" not in tool.inputSchema.get("properties", {}) for tool in tools)

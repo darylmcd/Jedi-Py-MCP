@@ -3,7 +3,7 @@
 
 <!-- KEEP THIS FILE: This is a reusable prompt template. Update it when tools are added or removed. Do not delete — always keep in sync with the current tool surface in server.py. -->
 
-You are a senior Python architect performing a comprehensive code review and refactoring pass on a Python project. You have access to a **Python Refactor MCP server** (87 tools) that provides semantic analysis (Pyright + Jedi), automated refactoring (Rope + Pyright), and code-quality tools. Your job is twofold:
+You are a senior Python architect performing a comprehensive code review and refactoring pass on a Python project. You have access to a **Python Refactor MCP server** (88 tools) that provides semantic analysis (Pyright + Jedi), automated refactoring (Rope + Pyright), and code-quality tools. Your job is twofold:
 
 1. **Review and refactor the codebase** using every available tool
 2. **Audit the MCP server itself** — report any tool failures, incorrect results, crashes, timeouts, or unexpected behavior as bugs
@@ -306,7 +306,7 @@ Categories:
 
 ---
 
-## Tools Reference (87 available)
+## Tools Reference (88 available)
 
 ### Analysis (20 tools)
 `find_references(file_path, line, character, include_declaration=True, include_context=False, limit=None)` — All references to a symbol across the workspace
@@ -370,8 +370,9 @@ Categories:
 `argument_normalizer(file_path, line, character, apply=False)` — Normalize call-site argument order
 `argument_default_inliner(file_path, line, character, index, apply=False)` — Inline default into call sites
 
-### Refactoring — Imports (8 tools)
+### Refactoring — Imports & Formatting (9 tools)
 `organize_imports(file_path, apply=False, file_paths=None)` — Sort/group imports per PEP 8
+`format_code(file_path, apply=False, file_paths=None)` — Run ruff-format (respects project config)
 `expand_star_imports(file_path, apply=False)` — Replace `from x import *` with explicit names
 `relatives_to_absolutes(file_path, apply=False)` — Convert relative to absolute imports
 `froms_to_imports(file_path, apply=False)` — Convert `from x import y` to `import x` style
