@@ -801,6 +801,22 @@ async def format_code(
 
 @mcp.tool(annotations=_ADDITIVE)
 @_tool_error_boundary
+async def apply_lint_fixes(
+	ctx: MCPContext,
+	file_path: str,
+	apply: bool = False,
+	file_paths: list[str] | None = None,
+	unsafe_fixes: bool = False,
+) -> RefactorResult:
+	"""Run `ruff check --fix` on one or more files (respects project pyproject.toml / ruff.toml). Use to auto-resolve fixable diagnostics surfaced by `get_diagnostics` or `find_errors_static` — closes the auto-fix loop. Returns whole-file replace edits for changed files; files with no fixable issues are omitted. Set `unsafe_fixes=true` to also apply ruff's unsafe fixes. Defaults to preview mode. Related: format_code, organize_imports, get_diagnostics."""
+	app = _get_current_backends()
+	result = await refactoring.apply_lint_fixes(app.pyright, file_path, apply, file_paths, unsafe_fixes)
+	await ctx.debug(f"apply_lint_fixes files={len(result.files_affected)} applied={result.applied}")
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
 async def expand_star_imports(
 	ctx: MCPContext, file_path: str, apply: bool = False,
 ) -> RefactorResult:

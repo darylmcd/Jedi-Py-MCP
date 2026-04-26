@@ -542,3 +542,175 @@ async def test_format_code_missing_ruff_raises(monkeypatch: pytest.MonkeyPatch, 
 
     with pytest.raises(BackendError, match="ruff executable not found"):
         await format_mod.format_code(pyright, str(target), apply=False)
+
+
+# ── apply_lint_fixes (ruff check --fix subprocess wrapper) ──
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_preview_does_not_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preview mode returns a whole-file edit but leaves disk untouched."""
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    original = "import os\nx = 1\n"
+    fixed = "x = 1\n"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_run(file_path: str, content: str, unsafe_fixes: bool = False) -> str:
+        assert content == original
+        assert unsafe_fixes is False
+        return fixed
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+
+    result = await lint_mod.apply_lint_fixes(pyright, str(target), apply=False)
+
+    assert result.applied is False
+    assert len(result.edits) == 1
+    assert result.edits[0].new_text == fixed
+    assert result.files_affected == [str(target)]
+    assert target.read_text(encoding="utf-8") == original
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_apply_writes_and_refreshes_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apply mode writes fixed content and notifies Pyright."""
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    original = "import os\nx = 1\n"
+    fixed = "x = 1\n"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_run(_fp: str, _c: str, unsafe_fixes: bool = False) -> str:
+        return fixed
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await lint_mod.apply_lint_fixes(pyright, str(target), apply=True)
+
+    assert result.applied is True
+    assert target.read_text(encoding="utf-8") == fixed
+    pyright.notify_file_changed.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_noop_when_no_fixable_issues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file with no fixable lint issues yields zero edits."""
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    content = "x = 1\n"
+    target.write_text(content, encoding="utf-8")
+
+    async def fake_run(_fp: str, c: str, unsafe_fixes: bool = False) -> str:
+        return c
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+
+    result = await lint_mod.apply_lint_fixes(pyright, str(target), apply=True)
+
+    assert result.applied is False
+    assert result.edits == []
+    assert result.files_affected == []
+    assert "No fixable" in result.description
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_batch_mode_filters_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batch mode includes only files that ruff actually changed."""
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    dirty = tmp_path / "dirty.py"
+    clean = tmp_path / "clean.py"
+    dirty.write_text("import os\nx = 1\n", encoding="utf-8")
+    clean.write_text("y = 2\n", encoding="utf-8")
+
+    async def fake_run(fp: str, c: str, unsafe_fixes: bool = False) -> str:
+        return "x = 1\n" if fp == str(dirty) else c
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await lint_mod.apply_lint_fixes(
+        pyright, file_path=str(dirty), apply=False, file_paths=[str(dirty), str(clean)],
+    )
+
+    assert len(result.edits) == 1
+    assert result.files_affected == [str(dirty)]
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_unsafe_flag_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`unsafe_fixes=True` is forwarded to the subprocess wrapper."""
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    captured: dict[str, bool] = {}
+
+    async def fake_run(_fp: str, c: str, unsafe_fixes: bool = False) -> str:
+        captured["unsafe_fixes"] = unsafe_fixes
+        return c
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+
+    await lint_mod.apply_lint_fixes(pyright, str(target), apply=False, unsafe_fixes=True)
+
+    assert captured["unsafe_fixes"] is True
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_ruff_failure_raises_backend_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuine ruff failure (parse error) propagates as BackendError."""
+    from python_refactor_mcp.errors import BackendError
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    async def fake_run(_fp: str, _c: str, unsafe_fixes: bool = False) -> str:
+        raise BackendError("ruff check --fix failed for m.py: parse error")
+
+    monkeypatch.setattr(lint_mod, "_ruff_fix_stdin", fake_run)
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="ruff check --fix failed"):
+        await lint_mod.apply_lint_fixes(pyright, str(target), apply=False)
+
+
+@pytest.mark.asyncio
+async def test_apply_lint_fixes_missing_ruff_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """When ruff is not on PATH, the wrapper raises a clear BackendError."""
+    from python_refactor_mcp.errors import BackendError
+    from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
+
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    monkeypatch.setattr(lint_mod.shutil, "which", lambda _: None)
+
+    with pytest.raises(BackendError, match="ruff executable not found"):
+        await lint_mod._ruff_fix_stdin(str(target), "x = 1\n")

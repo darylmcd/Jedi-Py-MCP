@@ -10,6 +10,7 @@ from .imports import (
     handle_long_imports,
     relatives_to_absolutes,
 )
+from .lint_fix import apply_lint_fixes
 from .rename import prepare_rename, rename_symbol
 from .signature import change_signature, introduce_parameter, restructure
 from .structure import (
@@ -28,6 +29,7 @@ from .structure import (
 
 __all__ = [
     "apply_code_action",
+    "apply_lint_fixes",
     "autoimport_search",
     "change_signature",
     "encapsulate_field",

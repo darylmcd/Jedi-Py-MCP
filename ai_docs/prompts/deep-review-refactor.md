@@ -370,9 +370,10 @@ Categories:
 `argument_normalizer(file_path, line, character, apply=False)` — Normalize call-site argument order
 `argument_default_inliner(file_path, line, character, index, apply=False)` — Inline default into call sites
 
-### Refactoring — Imports & Formatting (9 tools)
+### Refactoring — Imports & Formatting (10 tools)
 `organize_imports(file_path, apply=False, file_paths=None)` — Sort/group imports per PEP 8
 `format_code(file_path, apply=False, file_paths=None)` — Run ruff-format (respects project config)
+`apply_lint_fixes(file_path, apply=False, file_paths=None, unsafe_fixes=False)` — Apply ruff `--fix` auto-fixes
 `expand_star_imports(file_path, apply=False)` — Replace `from x import *` with explicit names
 `relatives_to_absolutes(file_path, apply=False)` — Convert relative to absolute imports
 `froms_to_imports(file_path, apply=False)` — Convert `from x import y` to `import x` style
