@@ -417,6 +417,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `format_code` on `src/python_refactor_mcp/server.py` with `apply=false` and report whether ruff-format would change the file."
   - Validation: "Run `format_code` on a file that is already ruff-formatted and confirm zero edits and `applied=false`."
   - Chaining: "Run `organize_imports` with `apply=true`, then `format_code` with `apply=true` to normalize layout + whitespace in one sweep, and compare diagnostics before/after."
+- `apply_lint_fixes`:
+  - Goal: "Run `apply_lint_fixes` on `src/python_refactor_mcp/server.py` with `apply=false` and report which lint diagnostics ruff would auto-fix."
+  - Validation: "Run `apply_lint_fixes` on a file with no fixable issues and confirm zero edits and `applied=false` with description `No fixable lint issues found`."
+  - Chaining: "Call `get_diagnostics` to see lint diagnostics, run `apply_lint_fixes` with `apply=true` and `unsafe_fixes=true`, then re-call `get_diagnostics` to confirm the fixable subset cleared."
 - `apply_code_action`:
   - Goal: "Run `apply_code_action` for a quick-fix at a diagnostic and return the resulting text edits."
   - Validation: "Run `apply_code_action` with an unknown action id and show the not-found error."

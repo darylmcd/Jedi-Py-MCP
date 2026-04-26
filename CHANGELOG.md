@@ -16,6 +16,7 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 ### Added
 
 - **Added:** New tool `format_code` — thin async wrapper around `ruff format --stdin-filename` that respects the project's `pyproject.toml`/`ruff.toml`, supports single-file and batch mode, and follows the existing preview/apply contract (whole-file replace edit per changed file; unchanged files are omitted). Closes `cand-format-code`. Server surface: 87 → 88 tools.
+- **Added:** New tool `apply_lint_fixes` — async wrapper around `ruff check --fix-only --stdin-filename` that mirrors `format_code`'s preview/apply contract and adds `unsafe_fixes` for ruff's unsafe auto-fix tier. Closes the auto-fix loop with `get_diagnostics` / `find_errors_static`. Closes `cand-apply-lint-fixes`. Server surface: 88 → 89 tools.
 
 ### Maintenance
 
