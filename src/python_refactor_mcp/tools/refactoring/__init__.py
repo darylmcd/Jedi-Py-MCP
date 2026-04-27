@@ -26,10 +26,12 @@ from .structure import (
     move_symbol,
     use_function,
 )
+from .type_annotations import apply_type_annotations
 
 __all__ = [
     "apply_code_action",
     "apply_lint_fixes",
+    "apply_type_annotations",
     "autoimport_search",
     "change_signature",
     "encapsulate_field",
