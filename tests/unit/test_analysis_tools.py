@@ -14,6 +14,7 @@ from python_refactor_mcp.models import (
     DocumentationResult,
     DocumentHighlight,
     InlayHint,
+    Location,
     ParameterInfo,
     Position,
     Range,
@@ -356,3 +357,241 @@ async def test_get_type_info_both_backends_fail_returns_unknown() -> None:
     result = await analysis.get_type_info(pyright, jedi, "/repo/a.py", 0, 0)
 
     assert result.type_string == "Unknown"
+
+
+# ── find_type_users (inverse of find_references — site classifier) ──
+
+
+def _foo_locations(file_path: str) -> dict[str, list[Location]]:
+    """Parse the bundled Foo-usage fixture and return Locations by expected kind.
+
+    The fixture file is constructed by ``_write_foo_fixture`` below; this helper finds
+    every ``Foo`` ``Name`` node and groups them so tests can pass the right Locations
+    to a mocked Pyright backend. Both sides use 0-based positions.
+    """
+    import ast as _ast
+
+    from python_refactor_mcp.models import Location as _Location  # local re-import for clarity
+    from python_refactor_mcp.models import Position as _Position
+    from python_refactor_mcp.models import Range as _Range
+
+    source = Path(file_path).read_text(encoding="utf-8")
+    tree = _ast.parse(source)
+
+    parents: dict[int, _ast.AST] = {}
+    for parent in _ast.walk(tree):
+        for child in _ast.iter_child_nodes(parent):
+            parents[id(child)] = parent
+
+    # Buckets the fixture is expected to emit.
+    out: dict[str, list[_Location]] = {
+        "annotation": [],
+        "instantiation": [],
+        "subclass": [],
+        "other": [],
+    }
+    annotation_roots: set[int] = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            if node.returns is not None:
+                annotation_roots.add(id(node.returns))
+            for arg in (*node.args.args, *node.args.kwonlyargs):
+                if arg.annotation is not None:
+                    annotation_roots.add(id(arg.annotation))
+        elif isinstance(node, _ast.AnnAssign) and node.annotation is not None:
+            annotation_roots.add(id(node.annotation))
+    subclass_bases: set[int] = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.ClassDef):
+            for base in node.bases:
+                subclass_bases.add(id(base))
+
+    def _is_descendant(node: _ast.AST, roots: set[int]) -> bool:
+        cur: _ast.AST | None = node
+        while cur is not None:
+            if id(cur) in roots:
+                return True
+            cur = parents.get(id(cur))
+        return False
+
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Name) or node.id != "Foo":
+            continue
+        loc = _Location(
+            file_path=file_path,
+            range=_Range(
+                start=_Position(line=node.lineno - 1, character=node.col_offset),
+                end=_Position(line=node.lineno - 1, character=node.col_offset + 3),
+            ),
+        )
+        if _is_descendant(node, annotation_roots):
+            out["annotation"].append(loc)
+        elif _is_descendant(node, subclass_bases):
+            out["subclass"].append(loc)
+        else:
+            parent = parents.get(id(node))
+            if isinstance(parent, _ast.Call) and parent.func is node:
+                out["instantiation"].append(loc)
+            else:
+                out["other"].append(loc)
+    return out
+
+
+def _write_foo_fixture(tmp_path: Path) -> Path:
+    """Write a Python file with one usage of ``Foo`` per classification bucket."""
+    target = tmp_path / "fixture.py"
+    target.write_text(
+        "\n".join(
+            [
+                "class Foo:",
+                "    pass",
+                "",
+                "x: Foo = None              # annotation (var)",
+                "",
+                "def f(y: Foo) -> Foo:      # annotation (param + return)",
+                "    return y",
+                "",
+                "obj = Foo()                # instantiation",
+                "",
+                "class Bar(Foo):            # subclass",
+                "    pass",
+                "",
+                "ok = isinstance(obj, Foo)  # other (isinstance arg)",
+                "",
+            ],
+        ),
+        encoding="utf-8",
+    )
+    return target
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_classifies_each_bucket(tmp_path: Path) -> None:
+    """Each AST context bucket is detected exactly once for the fixture."""
+    target = _write_foo_fixture(tmp_path)
+    by_kind = _foo_locations(str(target))
+    all_refs = [
+        loc
+        for kind in ("annotation", "instantiation", "subclass", "other")
+        for loc in by_kind[kind]
+    ]
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = all_refs
+    jedi = AsyncMock()
+    jedi.get_references.return_value = []  # Pyright already returned hits
+
+    result = await analysis.find_type_users(pyright, jedi, str(target), 0, 6)
+
+    assert result.by_kind["annotation"] == 3  # x:, y:, return
+    assert result.by_kind["instantiation"] == 1
+    assert result.by_kind["subclass"] == 1
+    assert result.by_kind["other"] == 1
+    assert result.total_count == 6
+    kinds_seen = {site.kind for site in result.sites}
+    assert kinds_seen == {"annotation", "instantiation", "subclass", "other"}
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_kinds_filter(tmp_path: Path) -> None:
+    """`kinds=['instantiation']` returns only that bucket; by_kind still totals all."""
+    target = _write_foo_fixture(tmp_path)
+    by_kind = _foo_locations(str(target))
+    all_refs = [loc for locs in by_kind.values() for loc in locs]
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = all_refs
+    jedi = AsyncMock()
+    jedi.get_references.return_value = []
+
+    result = await analysis.find_type_users(
+        pyright, jedi, str(target), 0, 6, kinds=["instantiation"],
+    )
+
+    assert {site.kind for site in result.sites} == {"instantiation"}
+    assert result.total_count == 1
+    # by_kind always reports every bucket
+    assert result.by_kind["annotation"] == 3
+    assert result.by_kind["subclass"] == 1
+    assert result.by_kind["other"] == 1
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_invalid_kind_raises(tmp_path: Path) -> None:
+    """Unknown kind values are rejected with a clear message."""
+    target = _write_foo_fixture(tmp_path)
+    pyright = AsyncMock()
+    jedi = AsyncMock()
+
+    with pytest.raises(ValueError, match="Unknown kinds"):
+        await analysis.find_type_users(
+            pyright, jedi, str(target), 0, 6, kinds=["misuse"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_empty_when_no_references(tmp_path: Path) -> None:
+    """If Pyright (and Jedi) find nothing, the result has zero sites."""
+    target = _write_foo_fixture(tmp_path)
+    pyright = AsyncMock()
+    pyright.get_references.return_value = []
+    jedi = AsyncMock()
+    jedi.get_references.return_value = []
+
+    result = await analysis.find_type_users(pyright, jedi, str(target), 0, 6)
+
+    assert result.sites == []
+    assert result.total_count == 0
+    assert result.by_kind == {kind: 0 for kind in sorted({"annotation", "instantiation", "subclass", "other"})}
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_truncates_to_limit(tmp_path: Path) -> None:
+    """`limit` truncates returned sites and sets ``truncated=True``."""
+    target = _write_foo_fixture(tmp_path)
+    by_kind = _foo_locations(str(target))
+    all_refs = [loc for locs in by_kind.values() for loc in locs]
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = all_refs
+    jedi = AsyncMock()
+    jedi.get_references.return_value = []
+
+    result = await analysis.find_type_users(
+        pyright, jedi, str(target), 0, 6, limit=2,
+    )
+
+    assert len(result.sites) == 2
+    assert result.truncated is True
+    # total_count reflects post-filter sites before truncation
+    assert result.total_count == 6
+
+
+@pytest.mark.asyncio
+async def test_find_type_users_unparsable_file_classifies_other(tmp_path: Path) -> None:
+    """A file that fails to parse falls back to ``other`` for sites in that file."""
+    from python_refactor_mcp.models import Location as _Location
+    from python_refactor_mcp.models import Position as _Position
+    from python_refactor_mcp.models import Range as _Range
+
+    target = tmp_path / "broken.py"
+    target.write_text("def oops(:\n", encoding="utf-8")  # syntax error
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = [
+        _Location(
+            file_path=str(target),
+            range=_Range(
+                start=_Position(line=0, character=0),
+                end=_Position(line=0, character=3),
+            ),
+        ),
+    ]
+    jedi = AsyncMock()
+    jedi.get_references.return_value = []
+
+    result = await analysis.find_type_users(pyright, jedi, str(target), 0, 0)
+
+    assert result.total_count == 1
+    assert result.sites[0].kind == "other"
+    assert result.by_kind["other"] == 1

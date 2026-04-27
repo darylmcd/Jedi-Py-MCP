@@ -80,6 +80,32 @@ class ReferenceResult(BaseModel):
     truncated: bool = False
 
 
+class TypeUserSite(BaseModel):
+    """One reference site classified by how it uses a type.
+
+    ``kind`` is one of ``annotation`` (type-hint position incl. subscripts like
+    ``list[Foo]``), ``instantiation`` (the type appears as the head of a call,
+    e.g. ``Foo(...)``), ``subclass`` (the type appears in a ``ClassDef.bases``
+    list), or ``other`` (everything else — e.g. ``isinstance(x, Foo)``,
+    ``Foo.classmethod``, attribute access).
+    """
+
+    location: Location
+    kind: str
+    context: str | None = None
+
+
+class TypeUsersResult(BaseModel):
+    """Aggregated type-user search result for a class or Protocol."""
+
+    symbol: str
+    sites: list[TypeUserSite]
+    by_kind: dict[str, int]
+    total_count: int
+    source: str
+    truncated: bool = False
+
+
 class TypeInfo(BaseModel):
     """Type information returned for an expression or symbol."""
 

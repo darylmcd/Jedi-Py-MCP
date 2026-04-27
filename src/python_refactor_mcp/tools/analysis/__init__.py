@@ -27,12 +27,14 @@ from python_refactor_mcp.tools.analysis.type_info import (
     get_type_info,
 )
 from python_refactor_mcp.tools.analysis.type_stubs import create_type_stubs
+from python_refactor_mcp.tools.analysis.type_users import find_type_users
 
 __all__ = [
     "create_type_stubs",
     "deep_type_inference",
     "find_errors_static",
     "find_references",
+    "find_type_users",
     "get_all_names",
     "get_completions",
     "get_context",
