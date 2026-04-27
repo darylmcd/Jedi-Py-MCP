@@ -65,6 +65,7 @@ from python_refactor_mcp.models import (
 	TypeHierarchyResult,
 	TypeHintResult,
 	TypeInfo,
+	TypeUsersResult,
 	UnusedImport,
 )
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
@@ -341,6 +342,28 @@ async def find_references(
 		app.pyright, app.jedi, file_path, line, character, include_declaration, include_context, limit,
 	)
 	await ctx.debug(f"find_references source={result.source} count={result.total_count}")
+	return result
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def find_type_users(
+	ctx: MCPContext,
+	file_path: str,
+	line: int,
+	character: int,
+	kinds: list[str] | None = None,
+	include_declaration: bool = False,
+	limit: int | None = None,
+) -> TypeUsersResult:
+	"""Inverse of `find_references` scoped to a type — classify every reference site as `annotation` (type-hint position incl. subscripts like `list[Foo]`), `instantiation` (head of a `Foo(...)` call), `subclass` (in a `ClassDef.bases` list), or `other` (e.g. `isinstance(x, Foo)`, `Foo.classmethod`). Returns per-site classification plus aggregate `by_kind` counts. Pass `kinds=['annotation']` to filter; defaults to all four buckets. `include_declaration` defaults to False (the class definition itself is rarely an interesting type *use*). Related: find_references, type_hierarchy, find_implementations."""
+	app = _get_current_backends()
+	result = await analysis.find_type_users(
+		app.pyright, app.jedi, file_path, line, character, kinds, include_declaration, limit,
+	)
+	await ctx.debug(
+		f"find_type_users by_kind={result.by_kind} total={result.total_count} truncated={result.truncated}",
+	)
 	return result
 
 

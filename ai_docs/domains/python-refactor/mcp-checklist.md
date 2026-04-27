@@ -135,6 +135,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `find_references` for a public API and return only file + line, deduped by file."
   - Validation: "Run `find_references` on an identifier inside a string literal and show the non-symbol response."
   - Chaining: "Before `rename_symbol`, run `find_references` to size impact; bail if >200 sites."
+- `find_type_users`:
+  - Goal: "Run `find_type_users` on a class definition and report the `by_kind` totals (annotation / instantiation / subclass / other)."
+  - Validation: "Run `find_type_users` with `kinds=['subclass']` and confirm only base-class sites are returned."
+  - Chaining: "Run `find_type_users` to scope the impact of changing a class API: count `subclass` and `instantiation` sites before invoking `change_signature` on its `__init__`."
 - `find_implementations`:
   - Goal: "Run `find_implementations` on a protocol method and list each concrete class."
   - Validation: "Run `find_implementations` on a non-abstract function and show the empty/invalid-target response."

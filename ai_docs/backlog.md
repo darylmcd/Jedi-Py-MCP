@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-26T01:00:00Z
+**updated_at:** 2026-04-27T00:00:00Z
 
 ## Agent contract
 
@@ -52,7 +52,6 @@
 
 | id | pri | deps | do |
 |----|-----|------|-----|
-| cand-find-type-users | Medium | none | New tool `find_type_users` — inverse of `find_references` scoped to a type (annotate / instantiate / subclass sites for a class or Protocol). Composition of existing `find_references` + Pyright type resolution. Anchors: `src/python_refactor_mcp/tools/references/`, `src/python_refactor_mcp/backends/pyright_lsp.py`. Weaker evidence — proposed candidate. |
 | cand-apply-type-annotations | Medium | custom-cst | New tool `apply_type_annotations` — materialize inferred types (same source as `get_inlay_hints`) into real annotations; pairs with `get_type_coverage` for a closed-loop improvement. Requires a CST apply path (no rope/Jedi equivalent). Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py` (inlay hints source), `src/python_refactor_mcp/util/` (CST helpers). Weaker evidence — proposed candidate. |
 
 ## Low

@@ -1,12 +1,13 @@
 # Tool Reference
 
-89 MCP tools organized by category.
+90 MCP tools organized by category.
 
-## Analysis (16)
+## Analysis (17)
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `find_references` | Find all references to a symbol. | `ReferenceResult` |
+| `find_type_users` | Inverse of `find_references` scoped to a type — classify sites as annotation / instantiation / subclass / other. | `TypeUsersResult` |
 | `get_type_info` | Resolve type information for an expression or symbol. | `TypeInfo` |
 | `get_completions` | Return completion candidates for a cursor location. | `list[CompletionItem]` |
 | `get_signature_help` | Return active signature and parameter help at a call site. | `SignatureInfo \| None` |

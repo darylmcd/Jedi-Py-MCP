@@ -306,10 +306,11 @@ Categories:
 
 ---
 
-## Tools Reference (88 available)
+## Tools Reference (90 available)
 
-### Analysis (20 tools)
+### Analysis (21 tools)
 `find_references(file_path, line, character, include_declaration=True, include_context=False, limit=None)` — All references to a symbol across the workspace
+`find_type_users(file_path, line, character, kinds=None, include_declaration=False, limit=None)` — Inverse of `find_references` scoped to a type — classify sites as annotation / instantiation / subclass / other
 `get_type_info(file_path, line, character)` — Infer type of a symbol or expression
 `get_completions(file_path, line, character, fuzzy=False, limit=None)` — Code completion candidates
 `get_documentation(file_path, line, character, source=None)` — Detailed docs and docstrings (Jedi)
