@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-27T00:00:00Z
+**updated_at:** 2026-04-27T17:00:00Z
 
 ## Agent contract
 
@@ -52,17 +52,17 @@
 
 | id | pri | deps | do |
 |----|-----|------|-----|
-| cand-apply-type-annotations | Medium | custom-cst | New tool `apply_type_annotations` — materialize inferred types (same source as `get_inlay_hints`) into real annotations; pairs with `get_type_coverage` for a closed-loop improvement. Requires a CST apply path (no rope/Jedi equivalent). Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py` (inlay hints source), `src/python_refactor_mcp/util/` (CST helpers). Weaker evidence — proposed candidate. |
+| cand-apply-type-annotations | Medium | none | New tool `apply_type_annotations` — materialize inferred types (same source as `get_inlay_hints`) into real annotations; pairs with `get_type_coverage` for a closed-loop improvement. CST apply foundation now exists. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation: `apply_cst_transformer` + batch variant), `src/python_refactor_mcp/backends/pyright_lsp.py` (inlay-hint source). Weaker evidence — proposed candidate. |
 
 ## Low
 
 | id | pri | deps | do |
 |----|-----|------|-----|
 | known-rope-annotations | Low | rope upstream | `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer`). Documented limitation; no workaround in current rope. Anchors: `src/python_refactor_mcp/backends/rope_backend.py`. Evidence: documented inline at the call site. |
-| cand-convert-to-dataclass | Low | custom-cst | New tool `convert_to_dataclass` — modernize a plain class to a `@dataclass`; field types come from Pyright inference. Requires custom CST rewrite. Anchors: `src/python_refactor_mcp/util/` (CST helpers), `src/python_refactor_mcp/backends/pyright_lsp.py` (type source). Weaker evidence — proposed candidate. |
-| cand-extract-class | Low | custom-cst | New tool `extract_class` — move a cohesive subset of fields/methods into a new collaborator class. Verified: rope 1.14 ships no `ExtractClass`; this is a custom CST implementation, not a rope wrapper. Anchors: `src/python_refactor_mcp/util/` (CST helpers). Weaker evidence — proposed candidate. |
-| cand-convert-function-method | Low | custom-cst | Symmetric pair `convert_function_to_method` / `convert_method_to_function`. No rope API — custom CST with caller rewrite via `find_references`. Anchors: `src/python_refactor_mcp/util/`, `src/python_refactor_mcp/tools/references/`. Weaker evidence — proposed candidate. |
-| cand-split-module | Low | custom-cst | New tool `split_module` — partition a single module into N modules by symbol selection. Rope `Move` exists but batch orchestration is custom. Anchors: `src/python_refactor_mcp/backends/rope_backend.py`, `src/python_refactor_mcp/tools/`. Weaker evidence — proposed candidate. |
+| cand-convert-to-dataclass | Low | none | New tool `convert_to_dataclass` — modernize a plain class to a `@dataclass`; field types come from Pyright inference. CST apply foundation now exists. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation), `src/python_refactor_mcp/backends/pyright_lsp.py` (type source). Weaker evidence — proposed candidate. |
+| cand-extract-class | Low | none | New tool `extract_class` — move a cohesive subset of fields/methods into a new collaborator class. Verified: rope 1.14 ships no `ExtractClass`; this uses the in-repo CST foundation. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation). Weaker evidence — proposed candidate. |
+| cand-convert-function-method | Low | none | Symmetric pair `convert_function_to_method` / `convert_method_to_function`. CST foundation exists; caller rewrites via `find_references`. Anchors: `src/python_refactor_mcp/util/cst_apply.py`, `src/python_refactor_mcp/tools/analysis/references.py`. Weaker evidence — proposed candidate. |
+| cand-split-module | Low | none | New tool `split_module` — partition a single module into N modules by symbol selection. Use the batch variant of the CST foundation for the multi-file emit; rope `Move` may handle import rewrites for a v1. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (`apply_cst_transformer_batch`), `src/python_refactor_mcp/backends/rope_backend.py`. Weaker evidence — proposed candidate. |
 
 ## Defer
 

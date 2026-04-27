@@ -18,6 +18,11 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Roslyn-MCP plugin's release-managed-edit override sentinel
+# (see eng/guard-release-managed-files.ps1 in the roslyn-mcp plugin —
+# applies to any repo whose hooks.json wires that guard).
+.release-managed-edit-allowed
 .pyright/
 
 # Rope
