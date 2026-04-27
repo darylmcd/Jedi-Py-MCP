@@ -53,7 +53,8 @@ def _annotation_root_ids(tree: ast.AST) -> set[int]:
             ):
                 if arg is not None and arg.annotation is not None:
                     roots.add(id(arg.annotation))
-        elif isinstance(node, ast.AnnAssign) and node.annotation is not None:
+        elif isinstance(node, ast.AnnAssign):
+            # AnnAssign.annotation is always present in the AST schema.
             roots.add(id(node.annotation))
     return roots
 
@@ -121,9 +122,8 @@ def _classify_site(
 
     # Instantiation: walk up across Attribute chains; if first non-Name/non-Attribute
     # ancestor is a Call and the node sits in Call.func, classify as instantiation.
-    cur: ast.AST | None = node
-    prev: ast.AST | None = None
-    while cur is not None:
+    cur: ast.AST = node
+    while True:
         parent = parents.get(id(cur))
         if parent is None:
             break
@@ -133,9 +133,7 @@ def _classify_site(
             break
         if not isinstance(parent, ast.Attribute):
             break
-        prev = cur
         cur = parent
-    _ = prev  # silence unused
     return "other"
 
 
