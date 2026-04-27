@@ -425,6 +425,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `apply_lint_fixes` on `src/python_refactor_mcp/server.py` with `apply=false` and report which lint diagnostics ruff would auto-fix."
   - Validation: "Run `apply_lint_fixes` on a file with no fixable issues and confirm zero edits and `applied=false` with description `No fixable lint issues found`."
   - Chaining: "Call `get_diagnostics` to see lint diagnostics, run `apply_lint_fixes` with `apply=true` and `unsafe_fixes=true`, then re-call `get_diagnostics` to confirm the fixable subset cleared."
+- `apply_type_annotations`:
+  - Goal: "Run `apply_type_annotations` on a target file with `apply=false` and report how many annotations Pyright would insert and which positions they would land at."
+  - Validation: "Run `apply_type_annotations` on a fully-annotated file and confirm zero edits with description `No inferable type annotations found`."
+  - Chaining: "Call `get_type_coverage` for a baseline, run `apply_type_annotations` with `apply=true`, then re-call `get_type_coverage` and report the coverage delta."
 - `apply_code_action`:
   - Goal: "Run `apply_code_action` for a quick-fix at a diagnostic and return the resulting text edits."
   - Validation: "Run `apply_code_action` with an unknown action id and show the not-found error."

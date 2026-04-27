@@ -840,6 +840,23 @@ async def apply_lint_fixes(
 
 @mcp.tool(annotations=_ADDITIVE)
 @_tool_error_boundary
+async def apply_type_annotations(
+	ctx: MCPContext,
+	file_path: str,
+	apply: bool = False,
+	file_paths: list[str] | None = None,
+) -> RefactorResult:
+	"""Materialize Pyright-inferred type hints into real source-level annotations. Pulls type-kind inlay hints across each target file and inserts them at the exact positions Pyright reports (return types, parameter annotations, variable annotations). Files where Pyright surfaces no type hints are silently dropped. Defaults to preview mode. Closes the loop with `get_inlay_hints` (read) and `get_type_coverage` (measure). Related: get_inlay_hints, get_type_coverage, format_code."""
+	app = _get_current_backends()
+	result = await refactoring.apply_type_annotations(app.pyright, file_path, apply, file_paths)
+	await ctx.debug(
+		f"apply_type_annotations edits={len(result.edits)} files={len(result.files_affected)} applied={result.applied}",
+	)
+	return result
+
+
+@mcp.tool(annotations=_ADDITIVE)
+@_tool_error_boundary
 async def expand_star_imports(
 	ctx: MCPContext, file_path: str, apply: bool = False,
 ) -> RefactorResult:

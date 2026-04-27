@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-04-27T17:00:00Z
+**updated_at:** 2026-04-27T18:00:00Z
 
 ## Agent contract
 
@@ -52,7 +52,7 @@
 
 | id | pri | deps | do |
 |----|-----|------|-----|
-| cand-apply-type-annotations | Medium | none | New tool `apply_type_annotations` — materialize inferred types (same source as `get_inlay_hints`) into real annotations; pairs with `get_type_coverage` for a closed-loop improvement. CST apply foundation now exists. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation: `apply_cst_transformer` + batch variant), `src/python_refactor_mcp/backends/pyright_lsp.py` (inlay-hint source). Weaker evidence — proposed candidate. |
+|    |     |      |    |
 
 ## Low
 

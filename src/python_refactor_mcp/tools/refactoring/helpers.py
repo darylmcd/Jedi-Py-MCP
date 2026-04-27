@@ -7,6 +7,7 @@ from typing import Protocol
 
 from python_refactor_mcp.models import (
     Diagnostic,
+    InlayHint,
     Position,
     PrepareRenameResult,
     Range,
@@ -36,6 +37,17 @@ class PyrightRefactoringBackend(DiagnosticsNotifier, Protocol):
 
     async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
         """Return rename preflight metadata for a source position."""
+        ...
+
+    async def get_inlay_hints(
+        self,
+        file_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+    ) -> list[InlayHint]:
+        """Return inlay hints for a source range."""
         ...
 
 

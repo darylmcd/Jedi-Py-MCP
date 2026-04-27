@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import Diagnostic, Position, Range, RefactorResult, SignatureOperation
+from python_refactor_mcp.models import Diagnostic, InlayHint, Position, Range, RefactorResult, SignatureOperation
 from python_refactor_mcp.tools import refactoring
 from tests.helpers import make_diag as _diag
 from tests.helpers import make_edit as _edit
@@ -714,3 +714,157 @@ async def test_apply_lint_fixes_missing_ruff_raises(
 
     with pytest.raises(BackendError, match="ruff executable not found"):
         await lint_mod._ruff_fix_stdin(str(target), "x = 1\n")
+
+
+# ── apply_type_annotations (Pyright inlay-hint materializer) ──
+
+
+def _hint(
+    line: int,
+    character: int,
+    label: str,
+    *,
+    padding_left: bool = False,
+    padding_right: bool = False,
+    kind: str | None = "type",
+) -> InlayHint:
+    """Construct a synthetic Pyright inlay hint at the given source position."""
+    return InlayHint(
+        position=Position(line=line, character=character),
+        label=label,
+        kind=kind,
+        padding_left=padding_left,
+        padding_right=padding_right,
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_preview_does_not_write(tmp_path: Path) -> None:
+    """Preview mode emits zero-width insertion edits but leaves disk untouched."""
+    source = "def f(x):\n    return x\n"
+    target = tmp_path / "m.py"
+    target.write_text(source, encoding="utf-8")
+
+    pyright = AsyncMock()
+    # ": int" inserted after "x" (line 0, character 7) — zero-width insert.
+    pyright.get_inlay_hints.return_value = [_hint(0, 7, ": int")]
+
+    result = await refactoring.apply_type_annotations(pyright, str(target), apply=False)
+
+    assert result.applied is False
+    assert len(result.edits) == 1
+    edit = result.edits[0]
+    assert edit.range.start == edit.range.end  # zero-width insert
+    assert edit.new_text == ": int"
+    assert result.files_affected == [str(target)]
+    # Preview mode — disk untouched.
+    assert target.read_text(encoding="utf-8") == source
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_apply_writes_and_refreshes(tmp_path: Path) -> None:
+    """``apply=True`` writes the inserted annotation and notifies Pyright."""
+    target = tmp_path / "m.py"
+    target.write_text("def f(x):\n    return x\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_inlay_hints.return_value = [_hint(0, 7, ": int")]
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.apply_type_annotations(pyright, str(target), apply=True)
+
+    assert result.applied is True
+    assert target.read_text(encoding="utf-8") == "def f(x: int):\n    return x\n"
+    pyright.notify_file_changed.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_filters_to_type_kind(tmp_path: Path) -> None:
+    """Parameter-name kind hints are dropped; only type hints become edits."""
+    target = tmp_path / "m.py"
+    target.write_text("def f(x):\n    return x\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_inlay_hints.return_value = [
+        _hint(0, 7, ": int", kind="type"),
+        _hint(1, 11, "x=", kind="parameter"),  # parameter-name hint at a call site
+    ]
+
+    result = await refactoring.apply_type_annotations(pyright, str(target), apply=False)
+
+    assert len(result.edits) == 1
+    assert result.edits[0].new_text == ": int"
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_honors_padding_flags(tmp_path: Path) -> None:
+    """``padding_left`` / ``padding_right`` flags add surrounding whitespace."""
+    target = tmp_path / "m.py"
+    target.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    # Return-type hint after `)` on `def f()`. Pyright emits `-> int` and may
+    # request leading + trailing spaces depending on tokenization.
+    pyright.get_inlay_hints.return_value = [
+        _hint(0, 7, "-> int", padding_left=True, padding_right=True),
+    ]
+
+    result = await refactoring.apply_type_annotations(pyright, str(target), apply=False)
+
+    assert len(result.edits) == 1
+    assert result.edits[0].new_text == " -> int "
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_no_hints_returns_empty(tmp_path: Path) -> None:
+    """A file with no type-kind hints yields no edits and a clear description."""
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_inlay_hints.return_value = []
+
+    result = await refactoring.apply_type_annotations(pyright, str(target), apply=True)
+
+    assert result.applied is False
+    assert result.edits == []
+    assert result.files_affected == []
+    assert "No inferable" in result.description
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_batch_mode_aggregates(tmp_path: Path) -> None:
+    """Batch mode walks every supplied path and aggregates per-file edits."""
+    a = tmp_path / "a.py"
+    b = tmp_path / "b.py"
+    a.write_text("def f(x):\n    return x\n", encoding="utf-8")
+    b.write_text("y = 1\n", encoding="utf-8")  # no hints
+
+    pyright = AsyncMock()
+
+    async def fake_hints(file_path: str, _sl: int, _sc: int, _el: int, _ec: int):  # noqa: ANN202
+        if file_path == str(a):
+            return [_hint(0, 7, ": int")]
+        return []
+
+    pyright.get_inlay_hints.side_effect = fake_hints
+
+    result = await refactoring.apply_type_annotations(
+        pyright, file_path=str(a), apply=False, file_paths=[str(a), str(b)],
+    )
+
+    assert len(result.edits) == 1
+    assert result.files_affected == [str(a)]
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_missing_file_raises(tmp_path: Path) -> None:
+    """Reading a missing file surfaces as a ``BackendError`` with read context."""
+    from python_refactor_mcp.errors import BackendError
+
+    missing = tmp_path / "nope.py"
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="Cannot read file for type annotation"):
+        await refactoring.apply_type_annotations(pyright, str(missing), apply=False)

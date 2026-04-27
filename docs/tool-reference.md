@@ -1,6 +1,6 @@
 # Tool Reference
 
-90 MCP tools organized by category.
+91 MCP tools organized by category.
 
 ## Analysis (17)
 
@@ -39,7 +39,7 @@
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (31)
+## Refactoring (32)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -69,6 +69,7 @@
 | `organize_imports` | Preview or apply import organization for a file. | `RefactorResult` |
 | `format_code` | Preview or apply ruff-format on one or more files. | `RefactorResult` |
 | `apply_lint_fixes` | Preview or apply ruff `--fix` on one or more files; supports `unsafe_fixes`. | `RefactorResult` |
+| `apply_type_annotations` | Materialize Pyright-inferred type hints into real source annotations. | `RefactorResult` |
 | `expand_star_imports` | Expand `import *` to explicit names. | `RefactorResult` |
 | `relatives_to_absolutes` | Convert relative imports to absolute. | `RefactorResult` |
 | `froms_to_imports` | Convert `from X import Y` to `import X.Y` form. | `RefactorResult` |
