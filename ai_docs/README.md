@@ -20,13 +20,13 @@ Read order is defined by `../AGENTS.md`.
 ## Preferred Active References
 
 - `architecture.md`: compact system architecture reference
-- `domains/python-refactor/reference.md`: domain-specific entry point (88 tools)
-- `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
-- `references/mcp_best_practices.md`: general MCP server best practices reference
-- `references/testing.md`: stable test strategy and command reference
-- `references/tooling/python.md`: Python/runtime tooling reference
-- `prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
-- `procedures/release-handoff.md`: repeatable handoff sequence
+- `ai_docs/domains/python-refactor/reference.md`: domain-specific entry point (91 tools)
+- `ai_docs/domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
+- `ai_docs/references/mcp_best_practices.md`: general MCP server best practices reference
+- `ai_docs/references/testing.md`: stable test strategy and command reference
+- `ai_docs/references/tooling/python.md`: Python/runtime tooling reference
+- `ai_docs/prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
+- `ai_docs/procedures/release-handoff.md`: repeatable handoff sequence
 
 ## Project Map
 
@@ -47,8 +47,8 @@ Read order is defined by `../AGENTS.md`.
 - Next-step or planning question: `planning_index.md` then `backlog.md`
 - Build, test, run, package, or validation command: `runtime.md`
 - Branching, validation flow, or handoff process: `workflow.md` and `../CI_POLICY.md`
-- Tool surface, workflows, and MCP domain details: `domains/python-refactor/reference.md`
-- Testing expectations and commands: `references/testing.md`
+- Tool surface, workflows, and MCP domain details: `ai_docs/domains/python-refactor/reference.md`
+- Testing expectations and commands: `ai_docs/references/testing.md`
 
 ## Organization Rules
 
