@@ -25,7 +25,7 @@ Purpose: compact architecture reference for AI contributors.
 
 ## Tool Surface
 
-88 tools in 7 categories: Analysis (16), Navigation (10), Refactoring (30), Search (8), Metrics & Architecture (10), History & Change Management (6), Composite & Utilities (8).
+91 tools in 7 categories: Analysis (17), Navigation (10), Refactoring (32), Search (8), Metrics & Architecture (10), History & Change Management (6), Composite & Utilities (8).
 
 See `domains/python-refactor/reference.md` for the full categorized list.
 
@@ -49,6 +49,6 @@ See `domains/python-refactor/reference.md` for the full categorized list.
 
 ## Known Gaps
 
-- `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer` upstream limitation). Documented in `backends/rope_backend.py`.
+- `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer` upstream limitation). Documented in `src/python_refactor_mcp/backends/rope_backend.py`.
 - `list_environments` may return empty results depending on virtualenv layout (known Jedi discovery limitation).
 - Pyright diagnostics on lines with `# type: ignore` may still surface in tool results (LSP filtering limitation).
