@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from python_refactor_mcp.models import RefactorResult
 
-from .helpers import (
-    PyrightRefactoringBackend,
-    RopeRefactoringBackend,
-    post_apply_diagnostics,
-)
+from .helpers import post_apply_diagnostics
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+    from python_refactor_mcp.backends.rope_backend import RopeBackend
 
 
 async def move_symbol(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     source_file: str,
     symbol_name: str,
     destination_file: str,
@@ -25,8 +27,8 @@ async def move_symbol(
 
 
 async def encapsulate_field(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -38,8 +40,8 @@ async def encapsulate_field(
 
 
 async def use_function(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -51,8 +53,8 @@ async def use_function(
 
 
 async def introduce_factory(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -73,8 +75,8 @@ async def introduce_factory(
 
 
 async def module_to_package(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     apply: bool = False,
 ) -> RefactorResult:
@@ -84,8 +86,8 @@ async def module_to_package(
 
 
 async def local_to_field(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -97,8 +99,8 @@ async def local_to_field(
 
 
 async def method_object(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -111,8 +113,8 @@ async def method_object(
 
 
 async def move_method(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -125,8 +127,8 @@ async def move_method(
 
 
 async def move_module(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     source_path: str,
     destination_package: str,
     apply: bool = False,
@@ -137,8 +139,8 @@ async def move_module(
 
 
 async def generate_code(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -151,8 +153,8 @@ async def generate_code(
 
 
 async def fix_module_names(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     apply: bool = False,
 ) -> RefactorResult:
     """Batch-rename modules to conform to PEP 8 lowercase naming."""

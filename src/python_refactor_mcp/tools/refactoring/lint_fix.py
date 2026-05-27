@@ -10,13 +10,17 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
 from python_refactor_mcp.util.diff import write_atomic
 from python_refactor_mcp.util.shared import end_position_for_content
 
-from .helpers import PyrightRefactoringBackend, post_apply_diagnostics
+from .helpers import post_apply_diagnostics
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 
 
 async def _ruff_fix_stdin(file_path: str, content: str, unsafe_fixes: bool = False) -> str:
@@ -65,7 +69,7 @@ def _whole_file_edit(file_path: str, original: str, fixed: str) -> TextEdit:
 
 
 async def apply_lint_fixes(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     apply: bool = False,
     file_paths: list[str] | None = None,

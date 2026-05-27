@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
 
 from .helpers import (
-    PyrightRefactoringBackend,
     full_file_range,
     post_apply_diagnostics,
     range_contains_position,
     result_from_text_edits,
     workspace_edit_to_text_edits,
 )
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 
 
 def _pick_code_action(actions: list[dict[str, object]], action_title: str | None = None) -> dict[str, object]:
@@ -34,7 +38,7 @@ def _pick_code_action(actions: list[dict[str, object]], action_title: str | None
 
 
 async def apply_code_action(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     line: int,
     character: int,
@@ -64,7 +68,7 @@ async def apply_code_action(
 
 
 async def organize_imports(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     apply: bool = False,
     file_paths: list[str] | None = None,

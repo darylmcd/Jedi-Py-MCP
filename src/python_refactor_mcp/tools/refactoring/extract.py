@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from python_refactor_mcp.models import RefactorResult
 
-from .helpers import (
-    PyrightRefactoringBackend,
-    RopeRefactoringBackend,
-    post_apply_diagnostics,
-)
+from .helpers import post_apply_diagnostics
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+    from python_refactor_mcp.backends.rope_backend import RopeBackend
 
 
 async def extract_method(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     start_line: int,
     start_character: int,
@@ -38,8 +40,8 @@ async def extract_method(
 
 
 async def extract_variable(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     start_line: int,
     start_character: int,
@@ -62,8 +64,8 @@ async def extract_variable(
 
 
 async def inline_variable(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -75,8 +77,8 @@ async def inline_variable(
 
 
 async def inline_method(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -88,8 +90,8 @@ async def inline_method(
 
 
 async def inline_parameter(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
