@@ -332,22 +332,21 @@ class DiagnosticSummary(BaseModel):
     total_count: int
 
 
-class PaginatedDiagnosticSummary(BaseModel):
-    """Paginated wrapper for workspace diagnostic summaries."""
+class Paginated[T](BaseModel):
+    """Generic paginated wrapper.
 
-    items: list[DiagnosticSummary]
+    Sliced by ``offset`` with ``truncated`` set when the caller-requested limit
+    cut the response short. ``total_count`` is the pre-slice size.
+    """
+
+    items: list[T]
     total_count: int
     offset: int = 0
     truncated: bool = False
 
 
-class PaginatedDeadCode(BaseModel):
-    """Paginated wrapper for dead code detection results."""
-
-    items: list[DeadCodeItem]
-    total_count: int
-    offset: int = 0
-    truncated: bool = False
+PaginatedDiagnosticSummary = Paginated[DiagnosticSummary]
+PaginatedDeadCode = Paginated[DeadCodeItem]
 
 
 class DiffPreview(BaseModel):
