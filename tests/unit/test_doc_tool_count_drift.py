@@ -25,6 +25,10 @@ ALLOWED_SOURCES = {
     "domains/python-refactor/reference.md",  # canonical
     "backlog.md",  # may legitimately reference counts in row descriptions
 }
+# Subtrees holding transient/generated artifacts that legitimately reference
+# the current tool count when capturing repo state at a point in time.
+# Reference docs (architecture, mcp-checklist, etc.) remain policed.
+EXCLUDED_SUBTREES = ("plans/", "reports/")
 # Counts at or above this are server-wide totals, not per-category subsets.
 # Today the server has 91 tools and the largest category (Refactoring) has 32;
 # 50 is comfortably between them and well below general LLM "tool sprawl"
@@ -38,6 +42,8 @@ def test_no_server_wide_tool_count_drift() -> None:
     for path in AI_DOCS.rglob("*.md"):
         rel = path.relative_to(AI_DOCS).as_posix()
         if rel in ALLOWED_SOURCES:
+            continue
+        if any(rel.startswith(prefix) for prefix in EXCLUDED_SUBTREES):
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for match in PATTERN.finditer(line):
