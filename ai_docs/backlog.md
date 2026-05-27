@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-27T02:00:00Z
+**updated_at:** 2026-05-27T03:00:00Z
 
 ## Agent contract
 
@@ -54,7 +54,6 @@
 | id | pri | deps | do |
 |----|-----|------|-----|
 | pyright-lsp-position-request-helper | Medium | none | `src/python_refactor_mcp/backends/pyright_lsp.py` (1427 lines) has ~40 `textDocument/*` methods (get_definition, get_implementation, get_declaration, get_type_definition, …) following the identical 25-line `normalize_path → ensure_file_open → _request(method, textDocument+position) → error-check → dict\|list dispatch` pattern. Extract `_position_request(method, file_path, line, char, result_converter, *, on_unhandled)` helper that owns the open/request/error/result-shape boilerplate. Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py`. Evidence: refactor audit (2026-05-27 discovery-sweep). |
-| server-py-indentation-fix | Medium | none | `src/python_refactor_mcp/server.py` is tab-indented; every other module in `src/` uses 4-space. No `.editorconfig` and no `[tool.ruff.format] indent-style` pin, so `ruff format` does not enforce the codebase convention. Convert server.py to 4-space indent, add `[tool.ruff.format] indent-style = "space"` (or commit an `.editorconfig`), re-run `ruff format` over the file. Anchors: `src/python_refactor_mcp/server.py`, `pyproject.toml`. Evidence: work-search audit (2026-05-27 discovery-sweep). |
 
 ## Low
 
