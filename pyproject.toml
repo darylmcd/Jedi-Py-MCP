@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.29"]
 build-backend = "hatchling.build"
 
 [project]
@@ -14,20 +14,20 @@ dependencies = [
   "mcp>=1.20",
   "pydantic>=2.0",
   "jedi>=0.19",
-  "rope>=1.13",
-  "pyright>=1.1.380",
-  "libcst>=1.1",
+  "rope>=1.14",
+  "pyright>=1.1.408",
+  "libcst>=1.8",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0",
+  "pytest>=9.0",
   "pytest-asyncio>=0.24",
-  "ruff>=0.8",
+  "ruff>=0.15",
   "mypy>=1.13",
 ]
 build = [
-  "pyinstaller>=6.0",
+  "pyinstaller>=6.19",
 ]
 
 [project.scripts]
