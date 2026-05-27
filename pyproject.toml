@@ -11,18 +11,18 @@ requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Jedi-Py-MCP Contributors" }]
 dependencies = [
-  "mcp>=1.20",
-  "pydantic>=2.0",
-  "jedi>=0.19",
+  "mcp>=1.27",
+  "pydantic>=2.13",
+  "jedi>=0.20",
   "rope>=1.14",
-  "pyright>=1.1.408",
+  "pyright>=1.1.409",
   "libcst>=1.8",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0",
-  "pytest-asyncio>=0.24",
+  "pytest-asyncio>=1.4",
   "ruff>=0.15",
   "mypy>=1.13",
 ]
