@@ -112,16 +112,25 @@ Resolved version comes from `uv.lock` (authoritative). "Latest stable" verified 
 - **PR body skeleton:**
   > `requirements.txt` duplicates `pyproject.toml` (with subtle classification drift — `hatchling` belongs in `[build-system].requires`, not the runtime/dev list). The lockfile (`uv.lock`) is the actual source of truth. {Drops the file outright | Regenerates it from `uv lock --export` and marks it generated}.
 
-### Batch 4: mypy 2.x major review (MAJOR-REVIEW — defer until release-notes review)
+### Batch 4: mypy 2.x major review (MAJOR-REVIEW — DEFERRED, filed as backlog row)
+
+**Status (updated 2026-05-27 post-probe):** Probe ran `uv lock --upgrade-package mypy` + `mypy .` on a throwaway branch. Result: **344 errors in 4 files**, concentrated in `src/python_refactor_mcp/server.py`. Three dominant patterns surfaced (each ~80 hits):
+
+1. `MCPContext` treated as variable-not-type — mypy 2.x is stricter about type-alias vs variable distinction; the existing alias style breaks.
+2. `MCPContext?` has no attribute `"debug"` — Optional-narrowing now required at every wrapper.
+3. `Untyped decorator makes function untyped` for every `@mcp.tool` wrapper — `@mcp.tool` lacks type stubs.
+
+Existing mypy override at `pyproject.toml:68-70` already disables `type-arg`/`unused-ignore` for `server.py` — but the new errors are NOT covered by that override.
+
+**Decision:** out of scope for a dep-bump PR. Filed as `mypy-2x-migration` (Medium) in `ai_docs/backlog.md`. The work bundles naturally with `server-tool-registration-table` (High), which collapses the 80 wrappers and would introduce a typed registration shape that solves all three patterns at the source. Per Standing Engineering Directive #1, no `# type: ignore` band-aids will be used.
+
+Original deliverable (preserved for reference if the operator wants to reopen):
 
 - **Batch ID:** `jedi-py-mcp-batch-4-mypy-2x`
 - **Scope:** `pyproject.toml` — bump `mypy>=1.13` to `mypy>=2.0` and let lock advance to 2.1.0. Almost certainly requires source edits to silence/fix new strict-mode errors.
-- **Pre-requisites:** Batches 1–3 merged. Operator approval to spend a session on the mypy 2.x migration (could surface 50+ new errors against a `strict = true` codebase).
-- **Validation:** `mypy .` clean; CI green; no `# type: ignore` insertions to silence regressions (per Standing Engineering Directive #1 — fix root cause, don't band-aid).
+- **Pre-requisites:** Batches 1–3 merged. Operator approval to spend a session on the mypy 2.x migration.
+- **Validation:** `mypy .` clean; CI green; no `# type: ignore` insertions to silence regressions.
 - **Rollback:** revert if regressions exceed budget; mypy 1.19 remains supported.
-- **PR title:** `chore(deps): upgrade mypy 1.19 → 2.x`
-- **PR body skeleton:**
-  > Major-version bump. mypy 2.0 dropped legacy flags and tightened inference. Repo runs `strict = true`, so expect new errors. This PR fixes them at the source level (no `# type: ignore` band-aids per Standing Engineering Directive #1).
 
 ## Replacement Recommendations (BLOCKED-EOL)
 

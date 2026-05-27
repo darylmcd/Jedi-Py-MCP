@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-27T05:00:00Z
+**updated_at:** 2026-05-27T22:30:00Z
 
 ## Agent contract
 
@@ -54,6 +54,7 @@
 | id | pri | deps | do |
 |----|-----|------|-----|
 | pyright-lsp-position-request-helper | Medium | none | `src/python_refactor_mcp/backends/pyright_lsp.py` (1427 lines) has ~40 `textDocument/*` methods (get_definition, get_implementation, get_declaration, get_type_definition, …) following the identical 25-line `normalize_path → ensure_file_open → _request(method, textDocument+position) → error-check → dict\|list dispatch` pattern. Extract `_position_request(method, file_path, line, char, result_converter, *, on_unhandled)` helper that owns the open/request/error/result-shape boilerplate. Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py`. Evidence: refactor audit (2026-05-27 discovery-sweep). |
+| mypy-2x-migration | Medium | none | Bump `mypy>=1.13` to `mypy>=2.0` in `pyproject.toml`. Probe on 2026-05-27 surfaced **344 errors in 4 files** (concentrated in `src/python_refactor_mcp/server.py`) under `strict = true`. Three dominant patterns: (a) `MCPContext` treated as variable-not-type (mypy 2.x stricter about type-alias distinction) — ~80 hits; (b) `MCPContext?` has no attribute `"debug"` requiring Optional-narrowing — ~80 hits; (c) `Untyped decorator makes function untyped` for every `@mcp.tool` wrapper — ~80 hits. Existing override at `pyproject.toml:68-70` already disables `type-arg`/`unused-ignore` for `server.py` — the new errors are NOT covered. Fix at source (NO `# type: ignore` band-aids per Standing Directive #1): introduce a proper `MCPContext` type-alias via `TypeAlias` annotation, add `@mcp.tool` type stubs or a typed wrapper, narrow `ctx` reads. Anchors: `src/python_refactor_mcp/server.py`, `pyproject.toml:62-70`. Evidence: ai_docs/reports/upgrade-eligibility-2026-05-27.md Batch 4 probe; deferred from that batch as out-of-scope for a dep-bump PR. **Related**: bundles well with `server-tool-registration-table` (High) — that refactor collapses the 80 wrappers and would naturally introduce a typed registration shape. |
 
 ## Low
 
