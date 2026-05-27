@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-27T03:00:00Z
+**updated_at:** 2026-05-27T04:00:00Z
 
 ## Agent contract
 
@@ -60,7 +60,6 @@
 | id | pri | deps | do |
 |----|-----|------|-----|
 | known-rope-annotations | Low | rope upstream | `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer`). Documented limitation; no workaround in current rope. Anchors: `src/python_refactor_mcp/backends/rope_backend.py`. Evidence: documented inline at the call site. |
-| paginated-generic-model | Low | none | `PaginatedDiagnosticSummary` and `PaginatedDeadCode` declare identical `items: list[T] / total_count: int / offset: int = 0 / truncated: bool = False`. Introduce `class Paginated[T](BaseModel)` (PEP 695 generic — project ≥3.14) and replace both with type aliases `PaginatedDiagnosticSummary = Paginated[DiagnosticSummary]`. Anchors: `src/python_refactor_mcp/models.py`. Evidence: refactor audit (2026-05-27 discovery-sweep). |
 | stale-tool-counts-residual | Low | none | Three doc files still reference `88 tools` after PR #37; current count is 91 (canonical in `reference.md`). Update `ai_docs/architecture.md:11`, `ai_docs/prompts/deep-review-refactor.md:6`, `ai_docs/domains/python-refactor/mcp-checklist.md:64` to `91 tools` (or to a pointer at `reference.md`); add a doc-audit lint rule that fails when `\d+ tools` appears in more than one file without a single source. Anchors: those three files plus the doc-audit lint config. Evidence: work-search audit (2026-05-27 discovery-sweep). |
 | cand-convert-to-dataclass | Low | none | New tool `convert_to_dataclass` — modernize a plain class to a `@dataclass`; field types come from Pyright inference. CST apply foundation now exists. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation), `src/python_refactor_mcp/backends/pyright_lsp.py` (type source). Weaker evidence — proposed candidate. |
 | cand-extract-class | Low | none | New tool `extract_class` — move a cohesive subset of fields/methods into a new collaborator class. Verified: rope 1.14 ships no `ExtractClass`; this uses the in-repo CST foundation. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation). Weaker evidence — proposed candidate. |
