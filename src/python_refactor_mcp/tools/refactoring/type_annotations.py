@@ -17,6 +17,7 @@ like ``convert_to_dataclass`` / ``extract_class`` legitimately need
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import (
@@ -26,11 +27,13 @@ from python_refactor_mcp.models import (
     TextEdit,
 )
 from python_refactor_mcp.tools.refactoring.helpers import (
-    PyrightRefactoringBackend,
     post_apply_diagnostics,
     result_from_text_edits,
 )
 from python_refactor_mcp.util.shared import end_position_for_content
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 
 
 def _hint_to_edit(file_path: str, hint: InlayHint) -> TextEdit:
@@ -48,7 +51,7 @@ def _hint_to_edit(file_path: str, hint: InlayHint) -> TextEdit:
 
 
 async def _hints_for_file(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
 ) -> list[InlayHint]:
     """Fetch inlay hints across the whole file, filtered to type hints."""
@@ -63,7 +66,7 @@ async def _hints_for_file(
 
 
 async def apply_type_annotations(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     apply: bool = False,
     file_paths: list[str] | None = None,

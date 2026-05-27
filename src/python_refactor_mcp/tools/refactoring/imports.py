@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from python_refactor_mcp.models import ImportSuggestion, RefactorResult
 
-from .helpers import (
-    PyrightRefactoringBackend,
-    RopeRefactoringBackend,
-    post_apply_diagnostics,
-)
+from .helpers import post_apply_diagnostics
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+    from python_refactor_mcp.backends.rope_backend import RopeBackend
 
 
 async def expand_star_imports(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     apply: bool = False,
 ) -> RefactorResult:
@@ -23,8 +25,8 @@ async def expand_star_imports(
 
 
 async def relatives_to_absolutes(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     apply: bool = False,
 ) -> RefactorResult:
@@ -34,8 +36,8 @@ async def relatives_to_absolutes(
 
 
 async def froms_to_imports(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     apply: bool = False,
 ) -> RefactorResult:
@@ -45,8 +47,8 @@ async def froms_to_imports(
 
 
 async def handle_long_imports(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     apply: bool = False,
 ) -> RefactorResult:
@@ -56,7 +58,7 @@ async def handle_long_imports(
 
 
 async def autoimport_search(
-    rope: RopeRefactoringBackend,
+    rope: RopeBackend,
     name: str,
 ) -> list[ImportSuggestion]:
     """Search for importable names using rope's AutoImport SQLite cache."""

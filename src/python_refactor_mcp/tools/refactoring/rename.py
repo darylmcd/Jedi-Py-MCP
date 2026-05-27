@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult, TextEdit
 from python_refactor_mcp.util.diff import build_unified_diff
 
-from .helpers import (
-    PyrightRefactoringBackend,
-    RopeRefactoringBackend,
-    post_apply_diagnostics,
-)
+from .helpers import post_apply_diagnostics
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+    from python_refactor_mcp.backends.rope_backend import RopeBackend
 
 
 async def ensure_renameable(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     line: int,
     character: int,
@@ -43,8 +44,8 @@ async def ensure_renameable(
 
 
 async def rename_symbol(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -73,7 +74,7 @@ async def rename_symbol(
 
 
 async def prepare_rename(
-    pyright: PyrightRefactoringBackend,
+    pyright: PyrightLSPClient,
     file_path: str,
     line: int,
     character: int,

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from python_refactor_mcp.models import RefactorResult, SignatureOperation
 
-from .helpers import (
-    PyrightRefactoringBackend,
-    RopeRefactoringBackend,
-    post_apply_diagnostics,
-)
+from .helpers import post_apply_diagnostics
 from .rename import ensure_renameable
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+    from python_refactor_mcp.backends.rope_backend import RopeBackend
 
 
 async def change_signature(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -28,8 +30,8 @@ async def change_signature(
 
 
 async def introduce_parameter(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     file_path: str,
     line: int,
     character: int,
@@ -50,8 +52,8 @@ async def introduce_parameter(
 
 
 async def restructure(
-    pyright: PyrightRefactoringBackend,
-    rope: RopeRefactoringBackend,
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
     pattern: str,
     goal: str,
     checks: dict[str, str] | None = None,
