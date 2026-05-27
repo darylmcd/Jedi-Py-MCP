@@ -27,6 +27,20 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG entry (draft) | Refactor: replace 83 identical per-tool wrapper functions in `server.py` with a declarative registration table in `tool_registry.py`; reduces `server.py` from 1815 lines to ~450 lines. No behavior changes. |
 | Backlog sync | Close rows: [server-tool-registration-table]. |
 
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates (canonical 5-line wrapper to collapse into table rows):** `src/python_refactor_mcp/server.py:330-354` (`find_references`) and `:386-393` (`get_type_info`) — these are the pure shape: `app = _get_current_backends()` → `await <module>.<name>(app.<backend>, ...)` → `await ctx.debug(f"...")` → `return result`. The `debug_fmt_fn` field on `ToolRecord` must produce strings of this exact form (per-tool `f"..."` formatting reads result attributes, e.g. `result.source`, `result.total_count`).
+- **Non-trivial wrappers — keep as explicit `async def` in `server.py`, do NOT force into table:** `get_completions` at `server.py:398-414` (fuzzy branch dispatches to `app.jedi` vs `analysis`); `get_inlay_hints` at `:460-485` (reads file line count with `FileNotFoundError`/`OSError` handling); `security_scan` at `:1788-1797` (uses `_ = _get_current_backends()` no-op + imported alias `_security_scan`); `get_test_coverage_map` at `:1786` area (uses imported alias `_get_test_coverage_map`). Also keep any wrapper whose body has >1 `await` or a conditional — grep `^async def` returns 93 hits; with 91 registered tools, expect ~8 to remain explicit.
+- **Registration call site:** the `mcp` instance is constructed at `:318-322` — registration must execute at import time after `mcp` exists. Insert `register_tools(mcp)` immediately after construction at `:322` (before the first `@mcp.tool` block at the original `:330`).
+- **Test target:** `tests/unit/test_server.py:14` — keep `== 91` unchanged. Re-run after refactor; if the count drifts, the table is missing entries or double-registering. Do NOT edit the assertion to make it pass.
+- **Edge cases to cover in `ToolRecord` / `register_tools`:** (1) FastMCP derives tool *name* and *schema* from the wrapped function's `__name__` and signature introspection — `_tool_error_boundary` already uses `@wraps(func)`, so preserve that; the table entry's callable must be the *undecorated* delegate, and `register_tools` applies `_tool_error_boundary` then `mcp.tool(annotations=...)` in that order (mirror `:330-332` decorator stacking). (2) Each delegate's signature must match the public tool surface exactly (param names, types, defaults) — FastMCP exposes these in `inputSchema`; the `test_server_registers_all_stage_one_tools` test at `:15` asserts `"ctx" not in inputSchema.properties`, so the synthesized wrapper must accept `ctx: MCPContext` as first param and have it stripped by `_tool_error_boundary`'s existing pathway. (3) Annotation constants (`_READONLY`/`_DESTRUCTIVE`/`_ADDITIVE` at `:77-79`) must be passed through unchanged per-tool — do not collapse to a single default.
+- **Negative space:** do NOT modify `_tool_error_boundary` (`:180-272`), `_get_current_backends`, `app_lifespan` (`:278-297`), `_SERVER_INSTRUCTIONS` (`:300`), `mcp` construction (`:318-322`), or `run_server` (`:1805-1815`) — those are public-surface infrastructure and out of scope. Do NOT touch the `from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan` aliasing at `:72-73` — the non-trivial wrappers keep these. Do NOT update `tests/unit/test_doc_tool_count_drift.py` (threshold is doc-file-only, well below 91).
+
+</details>
+
 ### 2. backend-threaded-decorator
 
 | Field | Content |
@@ -44,6 +58,19 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG category | Maintenance |
 | CHANGELOG entry (draft) | Extracted shared `run_in_thread` async helper into `backends/_threading.py`, eliminating 47 duplicate `asyncio.wait_for / to_thread / except` boilerplate blocks across `RopeBackend` and `JediBackend`. No behaviour change. |
 | Backlog sync | Close rows: [backend-threaded-decorator]. |
+
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates:** the canonical rope shape is `src/python_refactor_mcp/backends/rope_backend.py:295-309` (`rename` — `_work` closure + `async with timed(...)` + `wait_for(to_thread(...))` + post-await `_LOGGER.debug` + `except Exception → RopeError(...) from exc`). The canonical jedi shape is `src/python_refactor_mcp/backends/jedi_backend.py:165-183` (`get_references` — `_work` + `wait_for(to_thread(...))` + post-await `_LOGGER.debug` + `except Exception → JediError(...) from exc`, no `timed`). `timed` is defined at `src/python_refactor_mcp/util/timing.py:11-26`; `BackendError` at `src/python_refactor_mcp/errors.py:4-17`.
+- **Helper signature:** `async def run_in_thread(fn, *, timeout, error_cls, op_name, logger=None) -> T`. When `logger` is non-None wrap the await in `async with timed(logger, op_name):`; when None skip it (do not import `timed` conditionally — import at module top, just gate the `async with`). Re-raise as `error_cls(f"{op_name} failed: {exc}") from exc`. Do NOT filter `asyncio.TimeoutError` — current `except Exception` catches it and the helper must too.
+- **Per-method debug preservation:** several rope methods log post-await (e.g. `rope_backend.py:306` `"rope rename produced %d edits"`). These are method-specific format strings — leave them in the caller after `await run_in_thread(...)`, not absorbed into the helper.
+- **Test target:** add `tests/unit/test__threading.py` (new file, sibling of existing `tests/unit/test_rope_backend.py`). Cover: (a) `TimeoutError` re-raises as `RopeError`/`JediError` with `__cause__` chain; (b) generic exception path same; (c) `logger=None` skips `timed` (no debug lines); (d) `logger=_LOGGER` emits start+completed debug lines via `caplog`.
+- **Negative space:** do NOT touch `rope_backend.py:994` `begin_change_stack`, `:1003` `commit_change_stack`, `:1014` `rollback_change_stack` — they are thin delegations without the `_work`/`wait_for` shell. Do NOT modify `src/python_refactor_mcp/backends/pyright_lsp.py` — that's the LSP backend, separate refactor (initiative 3).
+
+</details>
 
 ### 3. pyright-lsp-position-request-helper
 
@@ -63,6 +90,20 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG entry (draft) | Refactor `PyrightLSPClient`: extract `_position_request` helper to deduplicate the normalize/open/request/error boilerplate shared across 11 `textDocument/*` position methods, reducing `pyright_lsp.py` by ~110 lines. No behavior change. |
 | Backlog sync | Close rows: [pyright-lsp-position-request-helper]. |
 
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates:** mirror `src/python_refactor_mcp/backends/pyright_lsp.py:511-540` (`get_hover`) for the canonical normalize → `ensure_file_open` → build `textDocument`+`position` params → `_request` → `if "error" in response` → result dispatch sequence. The new `_position_request` helper owns lines equivalent to `:514` (ensure) + `:516-522` (request build/call) and returns the raw response dict; callers retain their own `:523-524` error-check and `:526+` result dispatch.
+- **Helper insertion point:** add `_position_request` immediately before line 511 (right after the `# ── Analysis features ──` banner at `:509`). Use `_request` (defined at `:184`) for the underlying call. Param construction: `params = {"textDocument": {"uri": path_to_uri(absolute_path)}, "position": {"line": line, "character": char}}; if extra_params: params.update(extra_params)` — explicitly do NOT use `{**extra_params, **base}` ordering that would let callers clobber `textDocument`/`position`.
+- **Per-method coordinates (all 11):** `get_hover` `:511`, `get_completions` `:570` (note nested `result.get("items")` dispatch at `:586`), `get_references` `:617` (passes `extra_params={"context": {"includeDeclaration": include_declaration}}`), `get_definition` `:659`, `get_implementation` `:685`, plus `:715`, `:847`, `:915`, `get_declaration` `:1077` (KEEP the `is_unhandled_method_error` → `get_definition` fallback at `:1090-1091` in the caller, NOT in the helper), `get_type_definition` `:1105` (KEEP `is_unhandled_method_error` → `return []` branch at `:1118-1119`), `get_document_highlights` `:1133`, `prepare_rename` `:1163` (KEEP `is_unhandled_method_error` → `return None` at `:1176-1177` AND the post-result placeholder-from-file logic at `:1180+`).
+- **Test target:** extend `tests/unit/test_pyright_lsp.py` (612 lines, flat async-def style with module-level `FakeLSPClient` fixture at `:25` and `PyrightClientHarness` at `:70`). Add a new parameterized `async def test_position_request_*` near the bottom — do NOT create a new test file, do NOT introduce a `class TestPositionRequest:` wrapper (the file convention is flat functions). Mirror `test_completion_mapping_returns_items` at `:288` and `test_declaration_and_type_definition_mapping` at `:466` for the `FakeLSPClient(...)` setup shape. Cover: (a) `textDocument/definition` (no extras), (b) `textDocument/hover` (no extras), (c) `textDocument/references` with `extra_params` carrying `context.includeDeclaration=True` — assert the recorded request payload contains exactly the expected `textDocument`, `position`, and `context` keys.
+- **Edge cases the helper must NOT swallow:** (1) `is_unhandled_method_error` branches in `get_declaration`/`get_type_definition`/`prepare_rename` stay in the caller — the helper is unaware of LSP-method-unsupported semantics; (2) `prepare_rename`'s file-read placeholder fallback (`:1197+`) is post-dispatch and stays put; (3) `get_completions`' nested `result.get("items")` extraction stays in the caller; (4) `get_definition`/`get_declaration`/`get_type_definition`/`get_implementation` dual dict-or-list result handling stays in the caller. The helper returns the raw JSONDict response and nothing else.
+- **Negative space:** do NOT touch the 9 file-only methods (`get_document_symbols` `:542`, `get_folding_ranges`, `get_semantic_tokens`, etc.) — they lack the `position` envelope and are out of scope. Do NOT modify `_request` `:184`, `ensure_file_open`, `path_to_uri`, `normalize_path`, or `PyrightError`. Do NOT change any public method signature, return type, or docstring. Do NOT add a backwards-compat shim or optional `position=None` overload — direct call-site rewrite only (private-repo policy).
+
+</details>
+
 ### 4. cand-unused-symbol-sweep
 
 | Field | Content |
@@ -80,6 +121,23 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG category | Added |
 | CHANGELOG entry (draft) | Added `unused_symbol_sweep` tool — project-wide audit of exported and private members with zero inbound cross-file references. Unlike `dead_code_detection`, this tool includes decorated symbols and differentiates exported (`__all__`) members from private ones, enabling targeted public-API dead-surface analysis. |
 | Backlog sync | Close rows: [cand-unused-symbol-sweep]. |
+
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates:**
+  - Module-symbol iteration: `src/python_refactor_mcp/tools/search/dead_code.py:49-112` — copy `_iter_module_level_symbols` but DROP the decorator-skip guard at lines 60-64 and DROP the `__all__` skip at line 85 (you need `__all__` to classify exports).
+  - Reference check: `src/python_refactor_mcp/tools/search/dead_code.py:161-199` — `_check_symbol`; reuse semantics (cross-file refs only) verbatim with `asyncio.Semaphore(10)` as at line 220.
+  - Exports reader: `src/python_refactor_mcp/tools/metrics/unused.py:60-81` — `_read_all_exports` returns `set[str]`; import or re-implement, do not duplicate-and-divergence.
+  - Server wrapper: mirror `src/python_refactor_mcp/server.py:1397-1423` (`dead_code_detection`) — same `@mcp.tool(annotations=_READONLY) + @_tool_error_boundary` shape, same `_get_current_backends()` + `ctx.debug` trailer.
+- **Test target:** add `test_unused_symbol_sweep_*` cases to `tests/unit/test_search_tools.py` after line 94 (sibling of `test_dead_code_detection_marks_unreferenced_symbols` at line 74); mirror that fixture's `AsyncMock` pyright shape and `_config(tmp_path)` helper. Do NOT create a new test file.
+- **Tool-count gate:** `tests/unit/test_server.py:14` asserts `len(tools) == 91` — bump to 92. Also re-run `tests/unit/test_doc_tool_count_drift.py` (line 36) and update any doc tables it parses.
+- **Edge cases to cover:** (1) `__all__` present + exported name with zero cross-file refs → reported; (2) decorated function (`@some_decorator`) with zero cross-file refs → reported (contrast with `dead_code_detection`); (3) symbol with cross-file ref → absent; (4) `__all__` absent → treat non-underscore names as exported; (5) pagination `offset=1, limit=1` slice + `truncated=True`.
+- **Negative space:** do NOT modify `dead_code.py:_iter_module_level_symbols` or `_check_symbol` — fork the pattern into the new file. Do NOT touch `tools/metrics/unused.py` (that's the *import* sweep, different scope). Do NOT collapse into the registration-table form — that belongs to `server-tool-registration-table`.
+
+</details>
 
 ### 5. cand-extract-superclass
 
@@ -99,6 +157,20 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG entry (draft) | Added `extract_superclass` tool — pull a named subset of methods and class-level fields from a class up into a new base class via the LibCST foundation. Defaults to preview mode; set `apply=True` to write. |
 | Backlog sync | Close rows: [cand-extract-superclass]. |
 
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates (correction):** The plan cites `type_annotations.py:68-103` as the CST pattern, but that tool does NOT use `apply_cst_transformer` (see its own docstring at `src/python_refactor_mcp/util/cst_apply.py:9-14`). There are currently ZERO consumers of `apply_cst_transformer` in `src/` — `superclass.py` will be the first. Build directly against the foundation contract at `src/python_refactor_mcp/util/cst_apply.py:58-92`: call it, get `(edits, files_affected)`, wrap in `RefactorResult` via `result_from_text_edits` (`tools/refactoring/helpers.py`), then `await post_apply_diagnostics(pyright, result)` only when `apply=True` (mirror `type_annotations.py:100-103`).
+- **Server registration coordinate:** insert the new `@mcp.tool(annotations=_DESTRUCTIVE)` + `@_tool_error_boundary` wrapper at `src/python_refactor_mcp/server.py` after `move_symbol` ending at line 899 (alongside the other refactoring tools). Mirror the wrapper shape at `server.py:810-838` (`extract_method`). Do NOT add `rope` parameter — superclass is pure-CST, no Rope backend involved.
+- **Test target:** add the two async tests to `tests/unit/test_refactoring_tools.py` (do NOT create a new test file). Mirror sibling fixtures `test_apply_type_annotations_preview_does_not_write` (line 742) and `test_apply_type_annotations_apply_writes_and_refreshes` (line 766) — same `tmp_path`, `AsyncMock` pyright, `assert_not_awaited` / `assert_awaited` shape. Add a section header comment matching the style at line 719.
+- **Tool count bump:** `tests/unit/test_server.py:14` from `== 91` to `== 92` — easy to forget; CI will fail without it.
+- **Edge cases to cover (Risks #1 — reject explicitly, do not silently mishandle):** raise `BackendError` from the transformer when a hoisted member is (a) decorated with `@classmethod`/`@staticmethod`/`@property`, (b) referenced in `__slots__`, (c) an `__init__` instance attribute (only class-level assignments are hoistable), or (d) not found in the source class body. Test at least one rejection path.
+- **Negative space:** do NOT modify `type_annotations.py`, `extract.py`, or any Rope-backed refactoring tool — superclass is a brand-new file. Do NOT touch `util/cst_apply.py` (foundation is stable; PR #35 owns it). Do NOT add a Rope backend probe — `extract_superclass` is pure-CST per the plan's Diagnosis (Rope 1.14 has no equivalent).
+
+</details>
+
 ### 6. cand-test-impact-selector
 
 | Field | Content |
@@ -116,3 +188,24 @@ Selection rationale: top-of-backlog by correctness risk → blast radius → fea
 | CHANGELOG category | Added |
 | CHANGELOG entry (draft) | Added `test_impact_select` tool — given a list of changed symbols (file + position), traverses the call hierarchy to return the pytest node IDs of affected test functions, enabling precise test selection after a refactor. |
 | Backlog sync | Close rows: [cand-test-impact-selector]. |
+
+<details>
+<summary>Sonnet handoff notes</summary>
+
+**Sonnet handoff:**
+
+- **Pattern coordinates:**
+  - Traversal substrate: `src/python_refactor_mcp/tools/navigation/hierarchy.py:107-115` (`async def call_hierarchy(pyright, file_path, line, character, direction, depth, max_items)`). Call with `direction="callers"`; iterate `result.callers` (list of `CallHierarchyItem`).
+  - Test-file heuristic to mirror verbatim: `src/python_refactor_mcp/tools/metrics/test_map.py:60-63` — `"test" in Path(ref.file_path).name.lower() or "tests" in str(ref.file_path).lower()`. Reuse this exact predicate; do not invent a new one.
+  - Server tool registration shape: `src/python_refactor_mcp/server.py:632-650` (`call_hierarchy` wrapper). Mirror decorator stack `@mcp.tool(annotations=_READONLY)` + `@_tool_error_boundary`, `_get_current_backends()`, delegate, then `await ctx.debug(...)`.
+  - Analysis re-export shape: `src/python_refactor_mcp/tools/analysis/__init__.py:1-51` — add the import and append to `__all__` alphabetically (new key `test_impact_select` goes at end of `__all__`).
+- **Test target:** create new file `tests/unit/test_test_impact.py` (no existing `test_metrics_tools.py` / `test_test_map.py` to extend). Mirror the mock-pyright + `tmp_path` fixture shape used by `tests/unit/test_analysis_tools.py:469` (`test_find_type_users_classifies_each_bucket`) and the truncation assertion at line 549. Use `AsyncMock` for the `pyright` arg; do NOT spin up a real Pyright LSP.
+- **Edge cases to cover:** (1) caller in a test file → pytest node ID emitted as `<path>::<item.name>`; (2) caller in non-test file → excluded; (3) any seed traversal returns `truncated=True` → propagates to `TestImpactResult.entries[i].truncated`; (4) zero seeds → returns empty `entries`, `total_affected_tests=0`; (5) duplicate test files across multiple seeds → `affected_test_files` deduplicated per entry (use `sorted(set(...))` like `test_map.py:60`); (6) `CallHierarchyItem` with empty `name` → skip (do not emit `path::` with trailing colon).
+- **Tool-count gate:** `tests/unit/test_doc_tool_count_drift.py:36` enforces tool count against docs. Adding one MCP tool requires updating whatever doc table that test reads (likely `ai_docs/runtime/tools.md` or similar) — find via the test body before committing, or the suite will fail.
+- **Negative space:**
+  - Do NOT modify `src/python_refactor_mcp/tools/metrics/test_map.py` — `TestCoverageMap` is the inverse direction (symbol → tests via references); this initiative uses `call_hierarchy` traversal, not `get_references`.
+  - Do NOT touch `hierarchy.py:36` `_traverse_hierarchy` or `hierarchy.py:107` `call_hierarchy` — consume them as-is.
+  - Do NOT add a sibling `call_hierarchy`-only variant in `server.py`; the new tool is `test_impact_select` and lives in the analysis section, not navigation.
+  - Do NOT execute concurrently with initiative #1 (`server-tool-registration-table`) — both touch `server.py`.
+
+</details>
