@@ -37,6 +37,9 @@ python-refactor-mcp = "python_refactor_mcp.__main__:main"
 target-version = "py314"
 line-length = 120
 
+[tool.ruff.format]
+indent-style = "space"
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
