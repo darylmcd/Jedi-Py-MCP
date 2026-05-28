@@ -46,6 +46,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 # Tool docstrings in server.py are intentionally long (LLM-facing descriptions).
 "src/python_refactor_mcp/server.py" = ["E501"]
+# tool_registry.py carries the same LLM-facing tool docstrings moved out of server.py.
+"src/python_refactor_mcp/tool_registry.py" = ["E501"]
 # Pre-existing long lines in contract tests and navigation helpers.
 "tests/contract/test_mcp_protocol.py" = ["E501"]
 "src/python_refactor_mcp/tools/navigation/public_api.py" = ["E501"]
@@ -65,6 +67,11 @@ strict = true
 packages = ["python_refactor_mcp"]
 exclude = ["tests/.*", "build/.*", "dist/.*"]
 
+# The MCP tool wrappers in server.py and the delegate table in tool_registry.py
+# both annotate the injected context as the bare generic ``MCPContext`` (= FastMCP
+# ``Context``); the framework supplies the type parameters at call time, so the
+# strict ``type-arg`` check (and the resulting ``unused-ignore`` noise) is waived
+# for exactly these two modules.
 [[tool.mypy.overrides]]
-module = ["python_refactor_mcp.server"]
+module = ["python_refactor_mcp.server", "python_refactor_mcp.tool_registry"]
 disable_error_code = ["type-arg", "unused-ignore"]
