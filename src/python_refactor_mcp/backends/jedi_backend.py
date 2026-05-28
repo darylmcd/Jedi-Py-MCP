@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 
 import jedi  # type: ignore[import-untyped]
 
+from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import JediError
 from python_refactor_mcp.models import (
@@ -175,12 +175,11 @@ class JediBackend:
                     locations.append(location)
             return locations
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_references resolved %d locations for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_references failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_references",
+        )
+        _LOGGER.debug("Jedi get_references resolved %d locations for %s", len(result), file_path)
+        return result
 
     async def goto_definition(self, file_path: str, line: int, character: int) -> list[Location]:
         """Return definitions for a symbol position using Jedi goto."""
@@ -195,12 +194,11 @@ class JediBackend:
                     locations.append(location)
             return locations
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi goto_definition resolved %d locations for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi goto_definition failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.goto_definition",
+        )
+        _LOGGER.debug("Jedi goto_definition resolved %d locations for %s", len(result), file_path)
+        return result
 
     async def infer_type(self, file_path: str, line: int, character: int) -> TypeInfo | None:
         """Infer type information for a symbol position using Jedi inference."""
@@ -225,12 +223,11 @@ class JediBackend:
                 source="jedi",
             )
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi infer_type returned %s for %s", "value" if result else "none", file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi infer_type failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.infer_type",
+        )
+        _LOGGER.debug("Jedi infer_type returned %s for %s", "value" if result else "none", file_path)
+        return result
 
     async def search_names(self, symbol: str) -> list[ImportSuggestion]:
         """Search project names and convert them into import suggestions."""
@@ -263,12 +260,11 @@ class JediBackend:
                 )
             return suggestions
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi search_names returned %d suggestions for %s", len(result), symbol)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi search_names failed for symbol {symbol}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.search_names",
+        )
+        _LOGGER.debug("Jedi search_names returned %d suggestions for %s", len(result), symbol)
+        return result
 
     async def search_symbols(self, query: str) -> list[SymbolInfo]:
         """Search project symbols by name using Jedi project search."""
@@ -312,12 +308,11 @@ class JediBackend:
                 )
             return symbols
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi search_symbols returned %d results for %s", len(result), query)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi search_symbols failed for query {query}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.search_symbols",
+        )
+        _LOGGER.debug("Jedi search_symbols returned %d results for %s", len(result), query)
+        return result
 
     async def get_signatures(self, file_path: str, line: int, character: int) -> SignatureInfo | None:
         """Return call signatures for a source position using Jedi fallback APIs."""
@@ -357,12 +352,11 @@ class JediBackend:
                 documentation=None,
             )
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_signatures returned %s for %s", "value" if result else "none", file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_signatures failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_signatures",
+        )
+        _LOGGER.debug("Jedi get_signatures returned %s for %s", "value" if result else "none", file_path)
+        return result
 
     async def get_help(
         self,
@@ -421,12 +415,11 @@ class JediBackend:
                 entries=entries,
             )
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_help returned %d entries for %s", len(result.entries), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_help failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_help",
+        )
+        _LOGGER.debug("Jedi get_help returned %d entries for %s", len(result.entries), file_path)
+        return result
 
     async def deep_infer(self, file_path: str, line: int, character: int) -> list[InferredType]:
         """Follow imports and assignments to resolve final types via ``Script.infer()``."""
@@ -456,12 +449,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi deep_infer returned %d types for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi deep_infer failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.deep_infer",
+        )
+        _LOGGER.debug("Jedi deep_infer returned %d types for %s", len(result), file_path)
+        return result
 
     async def get_type_hint(self, file_path: str, line: int, character: int) -> list[TypeHintResult]:
         """Return ready-to-use type annotation strings via ``Name.get_type_hint()``."""
@@ -491,12 +483,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_type_hint returned %d results for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_type_hint failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_type_hint",
+        )
+        _LOGGER.debug("Jedi get_type_hint returned %d results for %s", len(result), file_path)
+        return result
 
     async def get_syntax_errors(self, file_path: str) -> list[SyntaxErrorItem]:
         """Detect syntax errors via Jedi's parser."""
@@ -523,12 +514,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_syntax_errors returned %d errors for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_syntax_errors failed for {file_path}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_syntax_errors",
+        )
+        _LOGGER.debug("Jedi get_syntax_errors returned %d errors for %s", len(result), file_path)
+        return result
 
     async def get_context(self, file_path: str, line: int, character: int) -> ScopeContext | None:
         """Return the enclosing function/class/module scope at a position.
@@ -566,12 +556,11 @@ class JediBackend:
                 full_name=full_name,
             )
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_context returned %s for %s", result.kind if result else "none", file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_context failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_context",
+        )
+        _LOGGER.debug("Jedi get_context returned %s for %s", result.kind if result else "none", file_path)
+        return result
 
     async def get_names(
         self, file_path: str, all_scopes: bool = True, references: bool = False,
@@ -603,12 +592,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_names returned %d names for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_names failed for {file_path}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_names",
+        )
+        _LOGGER.debug("Jedi get_names returned %d names for %s", len(result), file_path)
+        return result
 
     async def get_completions(
         self, file_path: str, line: int, character: int, fuzzy: bool = False,
@@ -644,12 +632,11 @@ class JediBackend:
                 )
             return items
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_completions returned %d items for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_completions failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_completions",
+        )
+        _LOGGER.debug("Jedi get_completions returned %d items for %s", len(result), file_path)
+        return result
 
     get_keyword_help = get_help
 
@@ -692,12 +679,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi get_sub_definitions returned %d names for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi get_sub_definitions failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.get_sub_definitions",
+        )
+        _LOGGER.debug("Jedi get_sub_definitions returned %d names for %s", len(result), file_path)
+        return result
 
     async def simulate_execute(
         self, file_path: str, line: int, character: int,
@@ -741,12 +727,11 @@ class JediBackend:
                 ))
             return results
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi simulate_execute returned %d types for %s", len(result), file_path)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi simulate_execute failed for {file_path}:{line}:{character}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.simulate_execute",
+        )
+        _LOGGER.debug("Jedi simulate_execute returned %d types for %s", len(result), file_path)
+        return result
 
     async def list_environments(self) -> list[EnvironmentInfo]:
         """List available Python environments discovered by Jedi and workspace detection."""
@@ -818,12 +803,11 @@ class JediBackend:
 
             return envs
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi list_environments returned %d environments", len(result))
-            return result
-        except Exception as exc:
-            raise JediError("Jedi list_environments failed") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.list_environments",
+        )
+        _LOGGER.debug("Jedi list_environments returned %d environments", len(result))
+        return result
 
     async def project_search(self, query: str, complete: bool = False) -> list[SymbolInfo]:
         """Search project symbols by name, optionally using completion-style search.
@@ -878,9 +862,8 @@ class JediBackend:
                 )
             return symbols
 
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("Jedi project_search returned %d results for %s", len(result), query)
-            return result
-        except Exception as exc:
-            raise JediError(f"Jedi project_search failed for query {query}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=JediError, op_name="jedi.project_search",
+        )
+        _LOGGER.debug("Jedi project_search returned %d results for %s", len(result), query)
+        return result
