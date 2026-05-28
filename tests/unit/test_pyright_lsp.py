@@ -610,3 +610,127 @@ async def test_inlay_semantic_and_folding_mapping(tmp_path: Path) -> None:
     assert tokens[0].token_type == "function"
     assert len(ranges) == 1
     assert ranges[0].start_line == 0
+
+
+def _position_harness(
+    tmp_path: Path, responses: dict[str, JSONDict | None]
+) -> tuple[PyrightClientHarness, FakeLSPClient, Path]:
+    """Build a Pyright harness with a fake transport seeded with ``responses``."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("value = other\n", encoding="utf-8")
+
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = PyrightClientHarness(config)
+    fake_client = FakeLSPClient(responses=responses)
+    backend.set_client(cast(LSPClient, fake_client))
+    return backend, fake_client, sample
+
+
+@pytest.mark.asyncio
+async def test_position_request_definition_builds_text_document_and_position(tmp_path: Path) -> None:
+    """_position_request sends the canonical textDocument+position envelope with no extras."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    await backend.get_definition(str(sample), 3, 7)
+
+    recorded = [params for method, params in fake_client.requests if method == "textDocument/definition"]
+    assert len(recorded) == 1
+    assert recorded[0] == {
+        "textDocument": {"uri": path_to_uri(str(sample.resolve()))},
+        "position": {"line": 3, "character": 7},
+    }
+    assert "context" not in recorded[0]
+
+
+@pytest.mark.asyncio
+async def test_position_request_hover_builds_text_document_and_position(tmp_path: Path) -> None:
+    """_position_request forms a hover payload with exactly textDocument and position keys."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/hover": {"jsonrpc": "2.0", "id": 1, "result": None}},
+    )
+
+    await backend.get_hover(str(sample), 1, 4)
+
+    recorded = [params for method, params in fake_client.requests if method == "textDocument/hover"]
+    assert len(recorded) == 1
+    assert recorded[0] == {
+        "textDocument": {"uri": path_to_uri(str(sample.resolve()))},
+        "position": {"line": 1, "character": 4},
+    }
+
+
+@pytest.mark.asyncio
+async def test_position_request_references_merges_extra_params_without_clobber(tmp_path: Path) -> None:
+    """_position_request merges extra_params (context) alongside the envelope keys."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/references": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    await backend.get_references(str(sample), 2, 5, include_declaration=True)
+
+    recorded = [params for method, params in fake_client.requests if method == "textDocument/references"]
+    assert len(recorded) == 1
+    assert recorded[0] == {
+        "textDocument": {"uri": path_to_uri(str(sample.resolve()))},
+        "position": {"line": 2, "character": 5},
+        "context": {"includeDeclaration": True},
+    }
+
+
+@pytest.mark.asyncio
+async def test_position_request_opens_file_before_request(tmp_path: Path) -> None:
+    """_position_request opens the document (didOpen) before issuing the request."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    await backend.get_definition(str(sample), 0, 0)
+
+    did_open = [name for name, _ in fake_client.notifications if name == "textDocument/didOpen"]
+    request_methods = [name for name, _ in fake_client.requests]
+    assert did_open == ["textDocument/didOpen"]
+    assert "textDocument/definition" in request_methods
+
+
+@pytest.mark.asyncio
+async def test_position_request_declaration_fallback_to_definition_preserved(tmp_path: Path) -> None:
+    """get_declaration still falls back to get_definition on an unhandled-method error."""
+    sample_uri = path_to_uri(str((tmp_path / "sample.py").resolve()))
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {
+            "textDocument/declaration": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {"code": -32601, "message": "Unhandled method textDocument/declaration"},
+            },
+            "textDocument/definition": {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {
+                    "uri": sample_uri,
+                    "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}},
+                },
+            },
+        },
+    )
+
+    locations = await backend.get_declaration(str(sample), 0, 0)
+
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/declaration" in requested
+    assert "textDocument/definition" in requested
+    assert len(locations) == 1

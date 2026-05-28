@@ -508,18 +508,36 @@ class PyrightLSPClient:
 
     # ── Analysis features ─────────────────────────────────────────────
 
+    async def _position_request(
+        self,
+        lsp_method: str,
+        absolute_path: str,
+        line: int,
+        char: int,
+        extra_params: dict[str, JSONValue] | None = None,
+    ) -> JSONDict:
+        """Open the file and issue an LSP ``textDocument``/``position`` request.
+
+        Builds the canonical ``{"textDocument": ..., "position": ...}`` envelope
+        shared by every position-based feature, merges any ``extra_params``
+        without letting them clobber the envelope keys, and returns the raw
+        response dict. Callers retain their own error-check and result dispatch.
+        """
+        await self.ensure_file_open(absolute_path)
+
+        params: dict[str, JSONValue] = {
+            "textDocument": {"uri": path_to_uri(absolute_path)},
+            "position": {"line": line, "character": char},
+        }
+        if extra_params:
+            params.update(extra_params)
+
+        return await self._request(lsp_method, params)
+
     async def get_hover(self, file_path: str, line: int, char: int) -> TypeInfo | None:
         """Get hover type information at a source position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/hover",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/hover", absolute_path, line, char)
         if "error" in response:
             raise PyrightError(f"Hover request failed: {response['error']}")
 
@@ -570,15 +588,7 @@ class PyrightLSPClient:
     async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:
         """Return completion candidates for a source position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/completion",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/completion", absolute_path, line, char)
         if "error" in response:
             raise PyrightError(f"completion request failed: {response['error']}")
 
@@ -623,15 +633,12 @@ class PyrightLSPClient:
     ) -> list[Location]:
         """Get symbol references from Pyright."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._position_request(
             "textDocument/references",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-                "context": {"includeDeclaration": include_declaration},
-            },
+            absolute_path,
+            line,
+            char,
+            extra_params={"context": {"includeDeclaration": include_declaration}},
         )
         if "error" in response:
             raise PyrightError(f"References request failed: {response['error']}")
@@ -659,15 +666,7 @@ class PyrightLSPClient:
     async def get_definition(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get symbol definitions from Pyright."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/definition",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/definition", absolute_path, line, char)
         if "error" in response:
             raise PyrightError(f"Definition request failed: {response['error']}")
 
@@ -685,15 +684,7 @@ class PyrightLSPClient:
     async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get symbol implementation locations from Pyright."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/implementation",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/implementation", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
                 # Pyright may not support textDocument/implementation for all symbol types
@@ -715,15 +706,7 @@ class PyrightLSPClient:
     async def get_signature_help(self, file_path: str, line: int, char: int) -> SignatureInfo | None:
         """Return signature help for a call position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/signatureHelp",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/signatureHelp", absolute_path, line, char)
         if "error" in response:
             raise PyrightError(f"signatureHelp request failed: {response['error']}")
 
@@ -851,14 +834,8 @@ class PyrightLSPClient:
     ) -> list[CallHierarchyItem]:
         """Prepare call hierarchy item(s) for a position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/prepareCallHierarchy",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
+        response = await self._position_request(
+            "textDocument/prepareCallHierarchy", absolute_path, line, char
         )
         if "error" in response:
             raise PyrightError(f"prepareCallHierarchy failed: {response['error']}")
@@ -915,14 +892,8 @@ class PyrightLSPClient:
     async def prepare_type_hierarchy(self, file_path: str, line: int, char: int) -> list[TypeHierarchyItem]:
         """Prepare type hierarchy item(s) for a source position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/prepareTypeHierarchy",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
+        response = await self._position_request(
+            "textDocument/prepareTypeHierarchy", absolute_path, line, char
         )
         if "error" in response:
             if is_unhandled_method_error(response):
@@ -1077,15 +1048,7 @@ class PyrightLSPClient:
     async def get_declaration(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get declaration locations for a symbol from Pyright."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/declaration",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/declaration", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
                 return await self.get_definition(file_path, line, char)
@@ -1105,15 +1068,7 @@ class PyrightLSPClient:
     async def get_type_definition(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get type-definition locations for a symbol from Pyright."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/typeDefinition",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/typeDefinition", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
                 return []
@@ -1133,14 +1088,8 @@ class PyrightLSPClient:
     async def get_document_highlights(self, file_path: str, line: int, char: int) -> list[DocumentHighlight]:
         """Get in-file highlights for a symbol at the provided position."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/documentHighlight",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
+        response = await self._position_request(
+            "textDocument/documentHighlight", absolute_path, line, char
         )
         if "error" in response:
             raise PyrightError(f"documentHighlight request failed: {response['error']}")
@@ -1163,15 +1112,7 @@ class PyrightLSPClient:
     async def prepare_rename(self, file_path: str, line: int, char: int) -> PrepareRenameResult | None:
         """Run LSP rename preflight and return editable range metadata if valid."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
-            "textDocument/prepareRename",
-            {
-                "textDocument": {"uri": path_to_uri(absolute_path)},
-                "position": {"line": line, "character": char},
-            },
-        )
+        response = await self._position_request("textDocument/prepareRename", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
                 return None
