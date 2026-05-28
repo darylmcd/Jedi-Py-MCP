@@ -14,7 +14,7 @@
     {
       "id": "server-tool-registration-table",
       "order": 1,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": ["server-tool-registration-table"],
       "productionFilesTouched": 2,
       "testFilesAdded": 0,
@@ -27,16 +27,16 @@
       "fanoutOversize": false,
       "deepenerStatus": "ok",
       "flags": { "judgmentHeavy": true, "anchorStale": false, "ruleOneBundleResolved": "n/a" },
-      "branch": null,
+      "branch": "remediation/server-tool-registration-table",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": "Two plausible Approach variants (full table vs. table + residual named functions); chose residual-named-functions for ~8 non-trivial wrappers."
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/52",
+      "mergedAt": "2026-05-28T18:35:15Z",
+      "notes": "Two plausible Approach variants (full table vs. table + residual named functions); chose residual-named-functions for ~8 non-trivial wrappers. Shipped as PR #52 (squash 5284eb6)."
     },
     {
       "id": "backend-threaded-decorator",
       "order": 2,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": ["backend-threaded-decorator"],
       "productionFilesTouched": 3,
       "testFilesAdded": 1,
@@ -48,16 +48,16 @@
       "fanoutOversize": false,
       "deepenerStatus": "ok",
       "flags": { "judgmentHeavy": false, "anchorStale": false, "ruleOneBundleResolved": "n/a" },
-      "branch": null,
+      "branch": "remediation/backend-threaded-decorator",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": "47 occurrences (30 rope + 17 jedi) verified by grep."
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/51",
+      "mergedAt": "2026-05-28T18:34:39Z",
+      "notes": "47 occurrences (30 rope + 17 jedi) verified by grep. Shipped as PR #51 (squash 22b9560); incidentally fixed rope.restructure literal-{exc} error message."
     },
     {
       "id": "pyright-lsp-position-request-helper",
       "order": 3,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": ["pyright-lsp-position-request-helper"],
       "productionFilesTouched": 1,
       "testFilesAdded": 1,
@@ -69,11 +69,11 @@
       "fanoutOversize": false,
       "deepenerStatus": "ok",
       "flags": { "judgmentHeavy": true, "anchorStale": false, "ruleOneBundleResolved": "n/a" },
-      "branch": null,
+      "branch": "remediation/pyright-lsp-position-request-helper",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": "Backlog's '~40 methods' is significant overcount — actual position-method count is 11."
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/50",
+      "mergedAt": "2026-05-28T18:33:38Z",
+      "notes": "Backlog's '~40 methods' is significant overcount — position-method count was 12 (plan prose said 11; the line list always had 12). Shipped as PR #50 (squash fe6f0bc)."
     },
     {
       "id": "cand-unused-symbol-sweep",

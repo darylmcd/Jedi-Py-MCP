@@ -11,6 +11,8 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 ### Fixed
 
+- **Fixed:** `rope.restructure` error messages now interpolate the underlying exception. The previous message was a literal non-f-string (`"rope restructure failed: {exc}"`) that never substituted the cause; surfaced and fixed during the `run_in_thread` extraction (#51).
+
 ### Changed
 
 ### Added
@@ -22,6 +24,9 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 - **Maintenance:** Completed the prompt-example bank in `ai_docs/domains/python-refactor/mcp-checklist.md` — every tool on the current server (87 total across navigation, analysis, search, refactoring, metrics, history, and infrastructure) now has a Goal / Validation / Chaining prompt triple. Closes `mcp-checklist-prompts`.
 - **Maintenance:** Rehomed the new-tool roadmap from `mcp-checklist.md` D.1/D.2 into `ai_docs/backlog.md` (governed by the existing Agent contract) with verified `blocker` values: dropped two non-viable entries (`cand-extract-superclass` — rope 1.14 has no `ExtractSuperclass`; `cand-find-cyclic-imports` — redundant with `get_module_dependencies.circular_dependencies`) and re-flagged four rope-assumed candidates as `custom-cst`. `mcp-checklist.md` now points at the backlog for candidate storage and keeps only the intake process.
+- **Maintenance:** Replaced the 83 identical per-tool wrapper functions in `server.py` with a declarative registration table in new `tool_registry.py`; the registrar applies `_tool_error_boundary` + `mcp.tool(annotations=…)` per record. `server.py` drops from 1815 to ~430 lines while the ~8 non-trivial wrappers (e.g. `get_completions`, `get_inlay_hints`, `security_scan`) stay explicit. Tool surface and schemas unchanged. Closes `server-tool-registration-table` (#52).
+- **Maintenance:** Extracted a shared `run_in_thread` async helper into new `backends/_threading.py`, eliminating 47 duplicate `asyncio.wait_for` / `asyncio.to_thread` / `except` boilerplate blocks across `RopeBackend` (30) and `JediBackend` (17). Backend error messages now use a uniform `"<op_name> failed: <exc>"` form. No behaviour change. Closes `backend-threaded-decorator` (#51).
+- **Maintenance:** Extracted a `_position_request` helper in `PyrightLSPClient` to deduplicate the normalize / open / request / error boilerplate shared across 12 `textDocument/*` position methods, reducing `pyright_lsp.py` by ~59 lines. No behaviour change. Closes `pyright-lsp-position-request-helper` (#50).
 
 ## [0.4.1] - 2026-04-24
 
