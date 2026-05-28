@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import logging
 import os
 import re
@@ -40,12 +39,12 @@ from rope.refactor.restructure import Restructure  # type: ignore[import-untyped
 from rope.refactor.topackage import ModuleToPackage  # type: ignore[import-untyped]
 from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped]
 
+from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
 from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
-from python_refactor_mcp.util.timing import timed
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
@@ -300,13 +299,11 @@ class RopeBackend:
             changes = Rename(project, resource, offset).get_changes(new_name)
             return self._build_result(changes, f"Renamed symbol to '{new_name}'", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.rename"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            _LOGGER.debug("rope rename produced %d edits", len(result.edits))
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope rename failed for {file_path}:{line}:{character}: {exc}") from exc
+        result = await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.rename", logger=_LOGGER,
+        )
+        _LOGGER.debug("rope rename produced %d edits", len(result.edits))
+        return result
 
     async def extract_method(
         self,
@@ -330,12 +327,9 @@ class RopeBackend:
             changes = ExtractMethod(project, resource, start, end).get_changes(method_name, similar=similar)
             return self._build_result(changes, f"Extracted method '{method_name}'", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.extract_method"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope extract_method failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.extract_method", logger=_LOGGER,
+        )
 
     async def extract_variable(
         self,
@@ -358,12 +352,9 @@ class RopeBackend:
             changes = ExtractVariable(project, resource, start, end).get_changes(variable_name)
             return self._build_result(changes, f"Extracted variable '{variable_name}'", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.extract_variable"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope extract_variable failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.extract_variable", logger=_LOGGER,
+        )
 
     async def inline(self, file_path: str, line: int, character: int, apply: bool) -> RefactorResult:
         """Inline a symbol and optionally apply edits."""
@@ -376,12 +367,9 @@ class RopeBackend:
             changes = create_inline(project, resource, offset).get_changes()
             return self._build_result(changes, "Inlined symbol", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.inline"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope inline failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.inline", logger=_LOGGER,
+        )
 
     async def move(
         self,
@@ -406,12 +394,9 @@ class RopeBackend:
                 apply,
             )
 
-        try:
-            async with timed(_LOGGER, "rope.move"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope move failed for symbol {symbol_name}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.move", logger=_LOGGER,
+        )
 
     async def introduce_parameter(
         self,
@@ -439,14 +424,9 @@ class RopeBackend:
                 apply,
             )
 
-        try:
-            async with timed(_LOGGER, "rope.introduce_parameter"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(
-                f"rope introduce_parameter failed for {file_path}:{line}:{character}"
-            ) from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.introduce_parameter", logger=_LOGGER,
+        )
 
     async def encapsulate_field(
         self,
@@ -465,12 +445,9 @@ class RopeBackend:
             changes = EncapsulateField(project, resource, offset).get_changes()
             return self._build_result(changes, "Encapsulated field", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.encapsulate_field"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope encapsulate_field failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.encapsulate_field", logger=_LOGGER,
+        )
 
     async def change_signature(
         self,
@@ -500,12 +477,9 @@ class RopeBackend:
             changes = ChangeSignature(project, resource, offset).get_changes(changers)
             return self._build_result(changes, "Changed function signature", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.change_signature"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope change_signature failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.change_signature", logger=_LOGGER,
+        )
 
     async def restructure(
         self,
@@ -528,12 +502,9 @@ class RopeBackend:
             changes = refactor.get_changes(checks=checks, imports=imports, resources=resources)
             return self._build_result(changes, "Applied structural replacement", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.restructure"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError("rope restructure failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.restructure", logger=_LOGGER,
+        )
 
     async def use_function(
         self,
@@ -552,12 +523,9 @@ class RopeBackend:
             changes = UseFunction(project, resource, offset).get_changes()
             return self._build_result(changes, "Replaced duplicated code with function call", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.use_function"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope use_function failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.use_function", logger=_LOGGER,
+        )
 
     async def introduce_factory(
         self,
@@ -580,12 +548,9 @@ class RopeBackend:
             changes = refactor.get_changes(factory_name or default_name, global_factory=global_factory)
             return self._build_result(changes, "Introduced factory", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.introduce_factory"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope introduce_factory failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.introduce_factory", logger=_LOGGER,
+        )
 
     async def module_to_package(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert a module into a package preserving public imports."""
@@ -597,12 +562,9 @@ class RopeBackend:
             changes = ModuleToPackage(project, resource).get_changes()
             return self._build_result(changes, "Converted module to package", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.module_to_package"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope module_to_package failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.module_to_package", logger=_LOGGER,
+        )
 
     async def local_to_field(
         self,
@@ -621,12 +583,9 @@ class RopeBackend:
             changes = LocalToField(project, resource, offset).get_changes()
             return self._build_result(changes, "Promoted local to field", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.local_to_field"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope local_to_field failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.local_to_field", logger=_LOGGER,
+        )
 
     async def method_object(
         self,
@@ -646,12 +605,9 @@ class RopeBackend:
             changes = MethodObject(project, resource, offset).get_changes(classname=classname)
             return self._build_result(changes, "Extracted method object", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.method_object"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope method_object failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.method_object", logger=_LOGGER,
+        )
 
     async def inline_method(
         self,
@@ -670,12 +626,9 @@ class RopeBackend:
             changes = create_inline(project, resource, offset).get_changes()
             return self._build_result(changes, "Inlined method", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.inline_method"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope inline_method failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.inline_method", logger=_LOGGER,
+        )
 
     async def inline_parameter(
         self,
@@ -694,12 +647,9 @@ class RopeBackend:
             changes = create_inline(project, resource, offset).get_changes()
             return self._build_result(changes, "Inlined parameter", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.inline_parameter"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope inline_parameter failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.inline_parameter", logger=_LOGGER,
+        )
 
     async def move_method(
         self,
@@ -720,12 +670,9 @@ class RopeBackend:
             changes = mover.get_changes(cast(Any, destination_attr))
             return self._build_result(changes, f"Moved method to '{destination_attr}'", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.move_method"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope move_method failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.move_method", logger=_LOGGER,
+        )
 
     async def move_module(
         self,
@@ -748,12 +695,9 @@ class RopeBackend:
                 apply,
             )
 
-        try:
-            async with timed(_LOGGER, "rope.move_module"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope move_module failed for {source_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.move_module", logger=_LOGGER,
+        )
 
     async def generate_code(
         self,
@@ -784,12 +728,9 @@ class RopeBackend:
             changes = cast(ChangeSet | None, creator(project, resource, offset))
             return self._build_result(changes, f"Generated {kind_lower}", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.generate_code"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope generate_code failed for {file_path}:{line}:{character}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.generate_code", logger=_LOGGER,
+        )
 
     async def fix_module_names(self, apply: bool) -> RefactorResult:
         """Batch-rename modules to conform to PEP 8 lowercase naming."""
@@ -801,12 +742,9 @@ class RopeBackend:
             changes = fixer.get_changes()
             return self._build_result(changes, "Fixed module names to PEP 8 convention", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.fix_module_names"):
-                result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-            return result
-        except Exception as exc:
-            raise RopeError(f"rope fix_module_names failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.fix_module_names", logger=_LOGGER,
+        )
 
     # ── Import organizer methods ──────────────────────────────────────────
 
@@ -821,11 +759,9 @@ class RopeBackend:
             changes = organizer.expand_star_imports(resource)
             return self._build_result(changes, "Expanded star imports", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.expand_star_imports"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope expand_star_imports failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.expand_star_imports", logger=_LOGGER,
+        )
 
     async def relatives_to_absolutes(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert all relative imports to absolute imports."""
@@ -838,11 +774,9 @@ class RopeBackend:
             changes = organizer.relatives_to_absolutes(resource)
             return self._build_result(changes, "Converted relative imports to absolute", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.relatives_to_absolutes"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope relatives_to_absolutes failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.relatives_to_absolutes", logger=_LOGGER,
+        )
 
     async def froms_to_imports(self, file_path: str, apply: bool) -> RefactorResult:
         """Convert ``from module import name`` to ``import module`` style."""
@@ -855,11 +789,9 @@ class RopeBackend:
             changes = organizer.froms_to_imports(resource)
             return self._build_result(changes, "Converted from-imports to import statements", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.froms_to_imports"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope froms_to_imports failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.froms_to_imports", logger=_LOGGER,
+        )
 
     async def handle_long_imports(self, file_path: str, apply: bool) -> RefactorResult:
         """Break long import lines per project preferences."""
@@ -872,11 +804,9 @@ class RopeBackend:
             changes = organizer.handle_long_imports(resource)
             return self._build_result(changes, "Handled long imports", apply)
 
-        try:
-            async with timed(_LOGGER, "rope.handle_long_imports"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope handle_long_imports failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.handle_long_imports", logger=_LOGGER,
+        )
 
     # ── AutoImport cache ──────────────────────────────────────────────────
 
@@ -896,9 +826,10 @@ class RopeBackend:
                 return cast(list[tuple[str, str]], ai.search(name))
 
         try:
-            async with timed(_LOGGER, "rope.autoimport_search"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
+            return await run_in_thread(
+                _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.autoimport_search", logger=_LOGGER,
+            )
+        except RopeError as exc:
             _LOGGER.warning("rope autoimport_search failed for '%s': %s", name, exc, exc_info=True)
             return []
 
@@ -920,11 +851,9 @@ class RopeBackend:
                 })
             return results
 
-        try:
-            async with timed(_LOGGER, "rope.find_errors"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope find_errors failed for {file_path}: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.find_errors", logger=_LOGGER,
+        )
 
     # ── Undo/Redo History ──
 
@@ -940,11 +869,9 @@ class RopeBackend:
                 edits=[], files_affected=[], description=f"Undid {count} operation(s)", applied=True,
             )
 
-        try:
-            async with timed(_LOGGER, "rope.undo"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope undo failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.undo", logger=_LOGGER,
+        )
 
     async def redo(self, count: int = 1) -> RefactorResult:
         """Redo the last *count* undone refactoring operations."""
@@ -958,11 +885,9 @@ class RopeBackend:
                 edits=[], files_affected=[], description=f"Redid {count} operation(s)", applied=True,
             )
 
-        try:
-            async with timed(_LOGGER, "rope.redo"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope redo failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.redo", logger=_LOGGER,
+        )
 
     async def get_history(self) -> list[HistoryEntry]:
         """Return the refactoring history as a list of HistoryEntry objects."""
@@ -983,11 +908,9 @@ class RopeBackend:
                 ))
             return entries
 
-        try:
-            async with timed(_LOGGER, "rope.get_history"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope get_history failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.get_history", logger=_LOGGER,
+        )
 
     # ── Change Stack ──
 
@@ -1070,8 +993,6 @@ class RopeBackend:
                 for proj in other_projects:
                     proj.close()
 
-        try:
-            async with timed(_LOGGER, "rope.multi_project_rename"):
-                return await asyncio.wait_for(asyncio.to_thread(_work), timeout=self._timeout)
-        except Exception as exc:
-            raise RopeError(f"rope multi_project_rename failed: {exc}") from exc
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.multi_project_rename", logger=_LOGGER,
+        )
