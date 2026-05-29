@@ -868,3 +868,116 @@ async def test_apply_type_annotations_missing_file_raises(tmp_path: Path) -> Non
 
     with pytest.raises(BackendError, match="Cannot read file for type annotation"):
         await refactoring.apply_type_annotations(pyright, str(missing), apply=False)
+
+
+_SUPERCLASS_SOURCE = (
+    "class Foo:\n"
+    "    shared = 1\n\n"
+    "    def bar(self):\n"
+    "        return 1\n\n"
+    "    def baz(self):\n"
+    "        return 2\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_preview_does_not_write(tmp_path: Path) -> None:
+    """Preview mode emits a whole-file edit but leaves disk untouched."""
+    target = tmp_path / "m.py"
+    target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.extract_superclass(
+        pyright, str(target), "Foo", "Base", ["bar", "shared"], apply=False
+    )
+
+    assert result.applied is False
+    assert len(result.edits) == 1
+    new_text = result.edits[0].new_text
+    assert "class Base:" in new_text
+    assert "class Foo(Base):" in new_text
+    assert target.read_text(encoding="utf-8") == _SUPERCLASS_SOURCE
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_apply_writes_and_refreshes(tmp_path: Path) -> None:
+    """``apply=True`` rewrites the file and notifies Pyright."""
+    target = tmp_path / "m.py"
+    target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.extract_superclass(
+        pyright, str(target), "Foo", "Base", ["bar"], apply=True
+    )
+
+    assert result.applied is True
+    written = target.read_text(encoding="utf-8")
+    assert "class Base:" in written
+    assert "class Foo(Base):" in written
+    assert "def baz" in written  # baz stayed on Foo
+    pyright.notify_file_changed.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_missing_member_raises(tmp_path: Path) -> None:
+    """A requested member absent from the class body raises ``BackendError``."""
+    from python_refactor_mcp.errors import BackendError
+
+    target = tmp_path / "m.py"
+    target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="not found"):
+        await refactoring.extract_superclass(
+            pyright, str(target), "Foo", "Base", ["nonexistent"], apply=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_rejects_property_member(tmp_path: Path) -> None:
+    """A ``@property`` member cannot be hoisted."""
+    from python_refactor_mcp.errors import BackendError
+
+    target = tmp_path / "m.py"
+    target.write_text(
+        "class Foo:\n    @property\n    def value(self):\n        return 1\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="property"):
+        await refactoring.extract_superclass(
+            pyright, str(target), "Foo", "Base", ["value"], apply=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_missing_class_raises(tmp_path: Path) -> None:
+    """A class name absent from the file raises ``BackendError``."""
+    from python_refactor_mcp.errors import BackendError
+
+    target = tmp_path / "m.py"
+    target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="not found"):
+        await refactoring.extract_superclass(
+            pyright, str(target), "Missing", "Base", ["bar"], apply=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_empty_members_raises(tmp_path: Path) -> None:
+    """An empty members list raises ``BackendError``."""
+    from python_refactor_mcp.errors import BackendError
+
+    target = tmp_path / "m.py"
+    target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="at least one member"):
+        await refactoring.extract_superclass(
+            pyright, str(target), "Foo", "Base", [], apply=False
+        )

@@ -26,6 +26,7 @@ from .structure import (
     move_symbol,
     use_function,
 )
+from .superclass import extract_superclass
 from .type_annotations import apply_type_annotations
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "encapsulate_field",
     "expand_star_imports",
     "extract_method",
+    "extract_superclass",
     "extract_variable",
     "fix_module_names",
     "format_code",
