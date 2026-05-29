@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-28T18:38:30Z
+**updated_at:** 2026-05-29T02:55:42Z
 
 ## Agent contract
 
@@ -70,6 +70,7 @@
 | cand-docstring-sync | Low | none | New tool `docstring_sync` (brainstorm BRAIN-007) — diff function signatures vs docstring params and auto-update Google / NumPy / Sphinx style. Anchors: TBD (likely under `src/python_refactor_mcp/tools/refactoring/`). Weaker evidence — proposed candidate. |
 | pyright-position-request-param-merge-guard | Low | none | `_position_request` in `src/python_refactor_mcp/backends/pyright_lsp.py` builds the LSP `{textDocument, position}` envelope then calls `params.update(extra_params)`, letting a caller clobber the `textDocument`/`position` keys. Latent only — the sole caller (`get_references`) passes just `context` — but harden by merging extras under the base envelope (base keys win) or rejecting reserved keys with a `ValueError`. Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py` (`_position_request`). Evidence: surfaced during 2026-05-28 backlog-sweep wave-1 (PR #50). |
 | changelog-tool-count-drift | Low | none | `CHANGELOG.md` `[Unreleased]` narrates the server surface at 89 tools (`format_code` 87→88, `apply_lint_fixes` 88→89), but the live server registers 91 `@mcp.tool` and `tests/unit/test_server.py` asserts `== 91` — a 2-tool narrative gap. Identify the two unbumped additions and align the CHANGELOG (or correct the baseline). Anchors: `CHANGELOG.md`, `src/python_refactor_mcp/server.py`, `tests/unit/test_server.py`. Evidence: observed during 2026-05-28 backlog-sweep wave-1 reconcile. |
+| jedi-hierarchy-swallowed-exceptions | Low | none | Broad best-effort exception swallows lack boundary-marker comments: `jedi_backend.py` has 6 `except Exception: pass` sites (lines 397, 477, 622, 719, 762, 769); `hierarchy.py` has 2 bare `except (OSError, SyntaxError): pass` (lines 183, 256; the :157 site is documented). Narrow the caught type and/or add a one-line comment explaining why each swallow is safe (do not change behaviour — these are intentional fallbacks). Anchors: `src/python_refactor_mcp/backends/jedi_backend.py`, `src/python_refactor_mcp/tools/navigation/hierarchy.py`. Evidence: doc-audit bad-code-surfacing 2026-05-28. |
 
 ## Defer
 
@@ -78,6 +79,7 @@
 | id | pri | deps | do |
 |----|-----|------|-----|
 | cand-find-cyclic-imports | Defer | needs-per-edge-provenance | Earlier proposed as a dedicated cycle report. Redundant: `get_module_dependencies` already returns `circular_dependencies: list[list[str]]` via `tools/metrics/dependencies.py::_find_cycles`. Parked to prevent re-proposal; unblock only if per-edge provenance (file:line:col of offending import) is added as a real delta. Dep refreshed 2026-05-27: CST foundation landing does NOT unblock this row (gap is per-import-statement anchors in `dependencies.py`, unrelated to CST). Anchors: `src/python_refactor_mcp/tools/metrics/dependencies.py`. |
+| search-symbol-iter-dedup | Defer | cand-unused-symbol-sweep | When `cand-unused-symbol-sweep` ships it will fork `_iter_module_level_symbols` (minus the decorator-skip guard) into a new file, creating a 2nd ~60-line near-duplicate walker. Then extract a shared `_iter_module_level_symbols(path, *, skip_decorated: bool)` into `tools/search/_helpers.py` and have both `dead_code.py` and `unused_symbols.py` call it. Parked until that 2nd copy exists (no duplication today). Anchors: `src/python_refactor_mcp/tools/search/dead_code.py`, `src/python_refactor_mcp/tools/search/_helpers.py`. Evidence: handoff-prep flagged during 2026-05-28 re-prepare (plan 20260527T205134Z). |
 
 ## Refs
 
@@ -85,3 +87,4 @@
 - `ai_docs/architecture.md` — current system architecture
 - `ai_docs/references/mcp_best_practices.md` — MCP design reference
 - `../CI_POLICY.md` — merge gating policy
+- `../audit-reports/application-brainstorm.md` — not-yet-sized product/refactor ideas (BRAIN-014..017 current) for brainstorm/planning intake; promote a BRAIN row to a sized backlog row when its first slice is ready
