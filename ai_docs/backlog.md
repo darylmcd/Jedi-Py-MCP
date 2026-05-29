@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-29T03:33:08Z
+**updated_at:** 2026-05-29T03:44:17Z
 
 ## Agent contract
 
@@ -64,7 +64,6 @@
 | cand-extract-class | Low | none | New tool `extract_class` — move a cohesive subset of fields/methods into a new collaborator class. Verified: rope 1.14 ships no `ExtractClass`; this uses the in-repo CST foundation. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation). Weaker evidence — proposed candidate. |
 | cand-convert-function-method | Low | none | Symmetric pair `convert_function_to_method` / `convert_method_to_function`. CST foundation exists; caller rewrites via `find_references`. Anchors: `src/python_refactor_mcp/util/cst_apply.py`, `src/python_refactor_mcp/tools/analysis/references.py`. Weaker evidence — proposed candidate. |
 | cand-split-module | Low | none | New tool `split_module` — partition a single module into N modules by symbol selection. Use the batch variant of the CST foundation for the multi-file emit; rope `Move` may handle import rewrites for a v1. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (`apply_cst_transformer_batch`), `src/python_refactor_mcp/backends/rope_backend.py`. Weaker evidence — proposed candidate. |
-| cand-test-impact-selector | Low | none | New tool `test_impact_select` (brainstorm BRAIN-006) — given a set of changed symbols, return the affected pytest node IDs via `call_hierarchy` traversal. Anchors: `src/python_refactor_mcp/tools/navigation/call_hierarchy.py`. Weaker evidence — proposed candidate. |
 | cand-docstring-sync | Low | none | New tool `docstring_sync` (brainstorm BRAIN-007) — diff function signatures vs docstring params and auto-update Google / NumPy / Sphinx style. Anchors: TBD (likely under `src/python_refactor_mcp/tools/refactoring/`). Weaker evidence — proposed candidate. |
 | pyright-position-request-param-merge-guard | Low | none | `_position_request` in `src/python_refactor_mcp/backends/pyright_lsp.py` builds the LSP `{textDocument, position}` envelope then calls `params.update(extra_params)`, letting a caller clobber the `textDocument`/`position` keys. Latent only — the sole caller (`get_references`) passes just `context` — but harden by merging extras under the base envelope (base keys win) or rejecting reserved keys with a `ValueError`. Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py` (`_position_request`). Evidence: surfaced during 2026-05-28 backlog-sweep wave-1 (PR #50). |
 | changelog-tool-count-drift | Low | none | `CHANGELOG.md` `[Unreleased]` narrates the server surface at 89 tools (`format_code` 87→88, `apply_lint_fixes` 88→89), but the live server registers 91 `@mcp.tool` and `tests/unit/test_server.py` asserts `== 91` — a 2-tool narrative gap. Identify the two unbumped additions and align the CHANGELOG (or correct the baseline). Anchors: `CHANGELOG.md`, `src/python_refactor_mcp/server.py`, `tests/unit/test_server.py`. Evidence: observed during 2026-05-28 backlog-sweep wave-1 reconcile. |

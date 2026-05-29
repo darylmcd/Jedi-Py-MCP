@@ -17,6 +17,7 @@ from python_refactor_mcp.tools.analysis.jedi_extras import (
 )
 from python_refactor_mcp.tools.analysis.references import find_references
 from python_refactor_mcp.tools.analysis.static_errors import find_errors_static
+from python_refactor_mcp.tools.analysis.test_impact import test_impact_select
 from python_refactor_mcp.tools.analysis.tokens import (
     get_document_highlights,
     get_inlay_hints,
@@ -48,4 +49,5 @@ __all__ = [
     "get_type_hint_string",
     "get_type_info",
     "get_workspace_diagnostics",
+    "test_impact_select",
 ]

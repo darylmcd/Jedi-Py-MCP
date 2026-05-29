@@ -76,6 +76,7 @@ from python_refactor_mcp.models import (
     StructuralSearchResult,
     SymbolInfo,
     SyntaxErrorItem,
+    TestImpactResult,
     TextEdit,
     TypeCoverageReport,
     TypeHierarchyResult,
@@ -345,6 +346,21 @@ async def call_hierarchy(
     await ctx.debug(
         f"call_hierarchy callers={len(result.callers)} callees={len(result.callees)} "
         f"depth={depth} direction={direction}"
+    )
+    return result
+
+
+async def test_impact_select(
+    ctx: MCPContext,
+    symbols: list[dict[str, Any]],
+    depth: int = 2,
+    max_items: int = 200,
+) -> TestImpactResult:
+    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor is a dict with keys file_path (required), line, and character (default 0). Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map."""
+    app = _get_current_backends()
+    result = await analysis.test_impact_select(app.pyright, symbols, depth, max_items)
+    await ctx.debug(
+        f"test_impact_select entries={len(result.entries)} tests={result.total_affected_tests}"
     )
     return result
 
@@ -1302,6 +1318,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(get_all_names, _READONLY),
     ToolRecord(create_type_stubs, _ADDITIVE),
     ToolRecord(call_hierarchy, _READONLY),
+    ToolRecord(test_impact_select, _READONLY),
     ToolRecord(goto_definition, _READONLY),
     ToolRecord(type_hierarchy, _READONLY),
     ToolRecord(selection_range, _READONLY),
