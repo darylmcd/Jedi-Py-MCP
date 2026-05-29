@@ -79,7 +79,7 @@
     {
       "id": "cand-unused-symbol-sweep",
       "order": 4,
-      "status": "in-progress",
+      "status": "merged",
       "backlogRowsClosed": ["cand-unused-symbol-sweep"],
       "productionFilesTouched": 3,
       "testFilesAdded": 1,
@@ -93,9 +93,9 @@
       "flags": { "judgmentHeavy": true, "anchorStale": false, "ruleOneBundleResolved": "n/a" },
       "branch": "remediation/cand-unused-symbol-sweep",
       "worktreePath": ".worktrees/cand-unused-symbol-sweep",
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": "Re-prepared 2026-05-28 (post-#52): registers via tool_registry.py TOOL_RECORDS table + delegate, NOT a server.py wrapper. Reuses PaginatedDeadCode/DeadCodeItem. judgmentHeavy: decorator-skip narrowing + model-reuse choice. Shares tool_registry.py + test_server.py with inits 5/6 — serialize."
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/57",
+      "mergedAt": "2026-05-29T03:24:27Z",
+      "notes": "Re-prepared 2026-05-28 (post-#52): registers via tool_registry.py TOOL_RECORDS table + delegate, NOT a server.py wrapper. Reuses PaginatedDeadCode/DeadCodeItem. Shipped as PR #57 (squash 6c53453); tool count 91->92. Could not reuse dead_code.py privates (Pyright reportPrivateUsage) so copied _is_test_file/target-resolution/confidence/symbol-walker locally — triggered the search-symbol-iter-dedup Defer row."
     },
     {
       "id": "cand-extract-superclass",
