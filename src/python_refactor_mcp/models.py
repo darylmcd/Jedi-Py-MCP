@@ -587,3 +587,25 @@ class SecurityScanResult(BaseModel):
     findings: list[SecurityFinding]
     files_scanned: int
     total_findings: int
+
+
+class TestImpactEntry(BaseModel):
+    """Test impact for one changed symbol anchor."""
+
+    symbol: str
+    affected_test_files: list[str]
+    pytest_node_ids: list[str]
+    truncated: bool = False
+
+
+class TestImpactResult(BaseModel):
+    """Affected pytest tests for a set of changed symbol anchors.
+
+    ``pytest_node_ids`` are best-effort ``<file_path>::<symbol>`` forms derived
+    from call-hierarchy callers; parametrized cases (``test_x[param]``) and
+    nested-class tests are not resolved to pytest's exact collected IDs.
+    """
+
+    entries: list[TestImpactEntry]
+    total_affected_tests: int
+    truncated: bool = False
