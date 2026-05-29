@@ -605,6 +605,23 @@ async def apply_type_annotations(
     return result
 
 
+async def extract_superclass(
+    ctx: MCPContext,
+    file_path: str,
+    class_name: str,
+    base_class_name: str,
+    members: list[str],
+    apply: bool = False,
+) -> RefactorResult:
+    """Pull a named subset of methods and class-level attributes up into a new base class, inserted immediately before the source class. Built on the LibCST foundation (rope has no ExtractSuperclass). Only plain `def` methods and class-level assignments hoist; @classmethod/@staticmethod/@property members, __slots__, and __init__ instance attributes are rejected with an error. Defaults to preview mode (apply=False). Related: extract_method, move_symbol."""
+    app = _get_current_backends()
+    result = await refactoring.extract_superclass(app.pyright, file_path, class_name, base_class_name, members, apply)
+    await ctx.debug(
+        f"extract_superclass edits={len(result.edits)} files={len(result.files_affected)} applied={result.applied}",
+    )
+    return result
+
+
 async def expand_star_imports(
     ctx: MCPContext,
     file_path: str,
@@ -1294,6 +1311,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(get_folding_ranges, _READONLY),
     ToolRecord(rename_symbol, _DESTRUCTIVE),
     ToolRecord(extract_method, _DESTRUCTIVE),
+    ToolRecord(extract_superclass, _DESTRUCTIVE),
     ToolRecord(extract_variable, _DESTRUCTIVE),
     ToolRecord(inline_variable, _DESTRUCTIVE),
     ToolRecord(move_symbol, _DESTRUCTIVE),
