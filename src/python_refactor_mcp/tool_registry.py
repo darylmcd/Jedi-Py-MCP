@@ -959,6 +959,33 @@ async def dead_code_detection(
     return result
 
 
+async def unused_symbol_sweep(
+    ctx: MCPContext,
+    file_path: str | None = None,
+    exclude_patterns: list[str] | None = None,
+    root_path: str | None = None,
+    exclude_test_files: bool = True,
+    file_paths: list[str] | None = None,
+    offset: int = 0,
+    limit: int | None = None,
+) -> PaginatedDeadCode:
+    """Audit the public export surface for symbols with zero cross-file references. Covers __all__-listed names (or all non-underscore module-level names when __all__ is absent) regardless of decoration, skipping externally-registered symbols (decorators containing mcp/tool). Complements dead_code_detection, which scopes to undecorated module-level symbols. May be slow on large codebases (one reference lookup per exported symbol). Supports pagination via offset/limit. Related: dead_code_detection, find_references."""
+    app = _get_current_backends()
+    result = await search.unused_symbol_sweep(
+        app.pyright,
+        app.config,
+        file_path,
+        exclude_patterns,
+        root_path,
+        exclude_test_files,
+        file_paths,
+        offset,
+        limit,
+    )
+    await ctx.debug(f"unused_symbol_sweep count={len(result.items)} total={result.total_count}")
+    return result
+
+
 async def suggest_imports(ctx: MCPContext, symbol: str, file_path: str) -> list[ImportSuggestion]:
     """Suggest import statements for an unresolved symbol name. Use when a symbol is referenced but not imported — returns possible import statements from project and installed packages. Combines Pyright quick-fix suggestions with Jedi name search. Related: organize_imports, apply_code_action."""
     app = _get_current_backends()
@@ -1300,6 +1327,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(search_symbols, _READONLY),
     ToolRecord(structural_search, _READONLY),
     ToolRecord(dead_code_detection, _READONLY),
+    ToolRecord(unused_symbol_sweep, _READONLY),
     ToolRecord(suggest_imports, _READONLY),
     ToolRecord(code_metrics, _READONLY),
     ToolRecord(get_module_dependencies, _READONLY),

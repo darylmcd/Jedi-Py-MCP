@@ -5,6 +5,7 @@ from python_refactor_mcp.tools.search.dead_code import dead_code_detection
 from python_refactor_mcp.tools.search.imports import suggest_imports
 from python_refactor_mcp.tools.search.structural import structural_search
 from python_refactor_mcp.tools.search.symbols import search_symbols
+from python_refactor_mcp.tools.search.unused_symbols import unused_symbol_sweep
 
 __all__ = [
     "dead_code_detection",
@@ -12,4 +13,5 @@ __all__ = [
     "search_symbols",
     "structural_search",
     "suggest_imports",
+    "unused_symbol_sweep",
 ]

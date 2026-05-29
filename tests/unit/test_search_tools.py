@@ -169,3 +169,74 @@ async def test_search_symbols_both_fail_returns_empty() -> None:
     results = await search.search_symbols(pyright, jedi, "Widget")
 
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_flags_unreferenced_exports(tmp_path: Path) -> None:
+    """Public exports with no cross-file references are flagged."""
+    source = tmp_path / "api.py"
+    source.write_text(
+        "def public_unused():\n    return 1\n\nclass PublicWidget:\n    pass\n",
+        encoding="utf-8",
+    )
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = []
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), str(source))
+
+    names = {item.name for item in result.items}
+    assert "public_unused" in names
+    assert "PublicWidget" in names
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_ignores_cross_file_referenced_exports(tmp_path: Path) -> None:
+    """A symbol referenced from another file is not flagged."""
+    source = tmp_path / "api.py"
+    source.write_text("def used():\n    return 1\n", encoding="utf-8")
+    other = tmp_path / "caller.py"
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = [_location(other, 0, 0)]
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), str(source))
+
+    assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_skips_externally_registered_symbols(tmp_path: Path) -> None:
+    """Symbols decorated by an external registrar (mcp/tool) are skipped."""
+    source = tmp_path / "api.py"
+    source.write_text(
+        "import mcp\n\n@mcp.tool\ndef registered():\n    return 1\n\ndef plain_unused():\n    return 2\n",
+        encoding="utf-8",
+    )
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = []
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), str(source))
+
+    names = {item.name for item in result.items}
+    assert "registered" not in names
+    assert "plain_unused" in names
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_respects_dunder_all(tmp_path: Path) -> None:
+    """Only __all__-listed names are in scope when the module defines __all__."""
+    source = tmp_path / "api.py"
+    source.write_text(
+        '__all__ = ["exported"]\n\ndef exported():\n    return 1\n\ndef not_exported():\n    return 2\n',
+        encoding="utf-8",
+    )
+
+    pyright = AsyncMock()
+    pyright.get_references.return_value = []
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), str(source))
+
+    names = {item.name for item in result.items}
+    assert names == {"exported"}
