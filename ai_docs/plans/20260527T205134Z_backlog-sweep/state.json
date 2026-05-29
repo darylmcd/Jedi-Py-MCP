@@ -11,6 +11,8 @@
   "handoffAnnotated": [1, 2, 3, 4, 5, 6],
   "reprepare": { "of": "PR #52 server.py registration-table refactor", "pendingReplanned": [4, 5, 6], "startedAt": "2026-05-28T18:38:30Z", "reviewCycle": 1 },
   "readyForExecute": true,
+  "completed": true,
+  "completedAt": "2026-05-29T03:50:00Z",
   "initiatives": [
     {
       "id": "server-tool-registration-table",
@@ -121,7 +123,7 @@
     {
       "id": "cand-test-impact-selector",
       "order": 6,
-      "status": "in-progress",
+      "status": "merged",
       "backlogRowsClosed": ["cand-test-impact-selector"],
       "productionFilesTouched": 4,
       "testFilesAdded": 2,
@@ -135,9 +137,9 @@
       "flags": { "judgmentHeavy": true, "anchorStale": true, "ruleOneBundleResolved": "n/a" },
       "branch": "remediation/cand-test-impact-selector",
       "worktreePath": ".worktrees/cand-test-impact-selector",
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": "Re-prepared 2026-05-28 (post-#52): registers via tool_registry.py TOOL_RECORDS table + delegate; server.py untouched. Anchor corrected call_hierarchy.py → hierarchy.py (anchorStale). 4 prod files (at Rule 3 cap). judgmentHeavy: heuristic pytest node-ID derivation. Shares tool_registry.py + test_server.py with inits 4/5 — serialize."
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/59",
+      "mergedAt": "2026-05-29T03:49:39Z",
+      "notes": "Re-prepared 2026-05-28 (post-#52): registers via tool_registry.py TOOL_RECORDS table + delegate; server.py untouched. Anchor corrected call_hierarchy.py → hierarchy.py (anchorStale, verified). New TestImpactEntry/TestImpactResult models. symbols param is list[dict] (file_path/line/character). Shipped as PR #59 (squash d6c9cb5); tool count 93->94."
     }
   ],
   "anchorVerification": "complete",

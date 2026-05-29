@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-29T03:44:17Z
+**updated_at:** 2026-05-29T03:51:12Z
 
 ## Agent contract
 
@@ -85,3 +85,4 @@
 - `ai_docs/references/mcp_best_practices.md` — MCP design reference
 - `../CI_POLICY.md` — merge gating policy
 - `../audit-reports/application-brainstorm.md` — not-yet-sized product/refactor ideas (BRAIN-014..017 current) for brainstorm/planning intake; promote a BRAIN row to a sized backlog row when its first slice is ready
+- `ai_docs/plans/20260527T205134Z_backlog-sweep/plan.md` — Backlog sweep (20260527T205134Z), completed 2026-05-29. Shipped 6 initiatives across 6 PRs (#50, #51, #52, #57, #58, #59); closed 6 backlog rows.
