@@ -1,11 +1,14 @@
 # Application Brainstorm Report
 
 **Repo:** Jedi-Py-MCP
-**Generated:** 2026-05-27 (Pass 2); updated 2026-05-28 (Pass 4 — BRAIN-011..013)
+**Generated:** 2026-05-27 (Pass 2); updated 2026-05-28 (Pass 4 — BRAIN-011..013); updated 2026-05-28 (Pass 5 — BRAIN-014..017, ops + parity lanes)
 **HEAD at generation:** ba268b2a02def3fdc50004113cdf78e77295ee99
 **HEAD at Pass 4 update:** 10b36070cb62e1e8826b51c70effc9461e561803
-**Source prompt:** `C:/Code-Repo/dev-sync/prompts/application-brainstorm-prompt.md`
-**Mode:** `mode=local record=auto` (Pass 4 promotion)
+**HEAD at Pass 5 update:** 4c180c4e997a810a8675dfe2d1d8018e2ab1fe86
+**Source prompt:** `C:/Users/daryl/.claude/prompts/application-brainstorm-prompt.md`
+**Mode:** `mode=both record=auto web=auto` (Pass 5); market notes are local inference (no live browse)
+
+> **Pass 5 note:** BRAIN-002 (`cand-unused-symbol-sweep`) and BRAIN-006 (`cand-test-impact-selector`) are currently in the **active re-prepared plan** `ai_docs/plans/20260527T205134Z_backlog-sweep/` (readyForExecute) — their backlog rows own implementation; do NOT re-promote. Pass 5 deliberately added ops/observability (BRAIN-016/017) and category-parity (BRAIN-014/015) ideas because Passes 2–4 were almost entirely net-new refactoring tools.
 **Canonical backlog:** `ai_docs/backlog.md`
 
 ## Purpose
@@ -130,6 +133,61 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
   - *Supporting evidence:* `tools/.../composite.py` (current `diff_preview` home), change-stack tools, the `apply=False` preview convention documented in the python-refactor MCP server instructions.
   - *Decision that makes it implementation-ready:* Pick the re-preview-per-step vs offset-reconciliation strategy and the conflict-handling contract (abort vs best-effort).
 
+## BRAIN-014 — Structural find-and-replace codemod (`structural_replace`)
+
+- **Status:** plan-first
+- **Horizon:** mid
+- **Shape:** new-feature / category-parity
+- **First slice:** A `structural_replace(pattern, replacement, file_paths, apply=False) -> RefactorResult` tool that reuses the AST-pattern matcher behind the existing `structural_search` to locate shaped matches, then rewrites each via the LibCST apply foundation (`util/cst_apply.py`), returning edits in preview mode by default. Scope slice 1 to single-metavariable rewrites (e.g. `logger.warn($X)` → `logger.warning($X)`).
+- **Why now:** `structural_search` already implements the *find* half (AST-shaped matching); the LibCST apply scaffold (#35) implements safe *mutation*. The *replace* half is the missing complement and is the single headline parity gap against best-in-class structural-codemod tools (see Market notes). Highest-leverage net-new tool the current stack can support without new dependencies.
+- **Risks / unknowns:** whether `structural_search`'s pattern syntax already exposes capture/metavariables reusable in a replacement template, or whether replace needs its own pattern parser; comment/format preservation on rewrite (LibCST handles this); overlapping matches; must be dry-run-first + change-stack rollback.
+- **Cross-ref:** none yet — promote when first-slice plan is written. Distinct from BRAIN-011 (security-specific codemod) — this is the general structural engine BRAIN-011 could later dispatch through.
+- **Expansion seed:**
+  - *Smallest planning question:* Does `structural_search` expose capture/metavariables reusable in a replacement template, or must `structural_replace` define its own pattern→template binding?
+  - *Likely backlog slices:* (1) single-metavariable structural rewrite via LibCST + change-stack, dry-run default; (2) multi-capture + guard predicates; (3) a saved/named codemod library consumable in batch.
+  - *Supporting evidence:* `tools/search/structural_search`, `util/cst_apply.py` (`apply_cst_transformer`), change-stack tools, `RefactorResult` model.
+  - *Decision that makes it implementation-ready:* pattern-syntax reuse vs a dedicated replace parser, and the overlap/conflict contract.
+
+## BRAIN-015 — Annotation-preserving `change_signature` via LibCST
+
+- **Status:** plan-first
+- **Horizon:** mid
+- **Shape:** existing-feature-improvement (unblocks a documented limitation)
+- **First slice:** A LibCST-backed path for `change_signature` (or sibling `change_signature_cst`) that does parameter rename/reorder/add/remove WITHOUT stripping PEP 484/585 annotations — the documented rope `ArgumentNormalizer` limitation. Slice 1: parameter rename + reorder preserving annotations and defaults on the definition and call sites, dry-run first.
+- **Why now:** `ai_docs/architecture.md` Known Gaps #1 and backlog row `known-rope-annotations` (Low, parked as "no workaround in current rope") document a real, user-visible defect — `change_signature` silently drops type annotations. The LibCST foundation (#35) now provides exactly the workaround rope lacks, satisfying that row's Defer rationale. This is an unblock, not a net-new feature.
+- **Risks / unknowns:** call-site rewriting across the project depends on `find_references` correctness; combining rope (call-site discovery) with LibCST (edit emission) must be done carefully; keyword-vs-positional and default-value handling.
+- **Cross-ref:** backlog `known-rope-annotations` (Low) — this is the unblock path; a promotion here would extend/supersede that parked row (coordinate, do not duplicate).
+- **Expansion seed:**
+  - *Smallest planning question:* Reimplement `change_signature` wholesale on LibCST, or keep rope for discovery and add a thin CST post-pass that re-attaches the annotations rope dropped?
+  - *Likely backlog slices:* (1) annotation-preserving param rename; (2) reorder; (3) add/remove with default handling + call-site updates.
+  - *Supporting evidence:* `backends/rope_backend.py` `change_signature` + its inline annotation caveat, `util/cst_apply.py`, `find_references`, architecture Known Gaps #1.
+  - *Decision that makes it implementation-ready:* wholesale-CST vs CST-post-pass strategy.
+
+## BRAIN-016 — Server health/status tool + backend-provenance surfacing
+
+- **Status:** plan-first
+- **Horizon:** near
+- **Shape:** ops / logging-diagnostics
+- **First slice:** A read-only `server_status` MCP tool reporting: server version, loaded workspace roots, each backend's liveness (Pyright langserver reachable, Jedi importable, rope ready), degraded-mode flags, and the resolved `pyright-langserver` path. Pairs with surfacing per-result backend provenance (extend the existing `TypeInfo.source` pattern) so the calling agent can tell when a Jedi fallback — not Pyright — served a result.
+- **Why now:** `architecture.md` documents real degraded modes (Pyright unavailable → Jedi fallback; `list_environments` may return empty) but the agent has no server-level way to *see* them — it just silently gets thinner results, which erodes trust in an autonomously-mutating tool. The ops/observability lane is absent from both the brainstorm history (Passes 2–4 were all refactoring features) and the backlog.
+- **Risks / unknowns:** backend liveness probes must be cheap/non-blocking (no full request round-trip per call); keep environment-path disclosure within the local-only privacy stance (PRIVACY.md — no telemetry; local introspection is fine).
+- **Cross-ref:** none. Adjacent to `restart_server` and `list_environments` (consume, don't replace).
+- **Expansion seed:**
+  - *Smallest planning question:* Can each backend's liveness be probed cheaply without issuing a real analysis request per backend?
+  - *Likely backlog slices:* (1) `server_status` tool (version + workspace roots + per-backend up/down booleans); (2) a degraded-mode flag on responses when a fallback fired; (3) a uniform `source`/confidence field across the analysis tool surface.
+  - *Supporting evidence:* `config.py` interpreter discovery order, `backends/*`, `TypeInfo.source`, `restart_server`, `list_environments`, architecture Known Gaps.
+  - *Decision that makes it implementation-ready:* the liveness-probe shape (cached lifespan state vs on-demand ping).
+
+## BRAIN-017 — Structured local operation log + support bundle
+
+- **Status:** research
+- **Horizon:** mid
+- **Shape:** ops / logging-diagnostics
+- **First slice:** none firm yet. Concept: an opt-in, local-only structured log of tool invocations (tool, args-summary, files touched, applied-vs-preview, backend used, duration, error) plus a `collect_support_bundle` action that bundles recent logs + a workspace/config snapshot for troubleshooting a misbehaving server.
+- **Why parked / lower confidence:** partial overlap with `get_refactoring_history` (which records refactor mutations for undo) — must scope to the non-overlapping value: ALL tool calls including failures and non-refactor reads, for support/debugging rather than user-facing undo. `PRIVACY.md` mandates no telemetry, so this must be strictly opt-in + local + redaction-aware. Needs a log-format + retention decision before a first slice exists.
+- **Cross-ref:** partial overlap `get_refactoring_history` (refactor-mutation subset) — note when promoting; do not duplicate the undo stack.
+- **Next checkpoint:** revisit if a real "the server returned wrong/empty results and I can't tell why" support case lands, or alongside BRAIN-016 (health) which shares the diagnostics surface.
+
 ---
 
 ## Rejected / Superseded
@@ -164,11 +222,15 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 | BRAIN-011 | Security-finding autofix codemod (SEC022 yaml.load)          | plan-first           | near    | —                                 |
 | BRAIN-012 | Refactoring-transaction composite tool                       | plan-first           | mid     | —                                 |
 | BRAIN-013 | Import-graph layering-rule enforcer                          | rejected-superseded  | —       | shipped: `check_layer_violations` |
+| BRAIN-014 | Structural find-and-replace codemod (`structural_replace`)   | plan-first           | mid     | —                                 |
+| BRAIN-015 | Annotation-preserving `change_signature` via LibCST          | plan-first           | mid     | unblocks `known-rope-annotations` |
+| BRAIN-016 | Server health/status tool + backend-provenance              | plan-first           | near    | —                                 |
+| BRAIN-017 | Structured local operation log + support bundle             | research             | mid     | partial: `get_refactoring_history`|
 
 ## Merge / dedupe rules (for future passes)
 
 1. Match incoming ideas against existing BRAIN-NNN rows by title-similarity AND first-slice-similarity. If both match, update the existing row in-place (do not mint a new ID).
 2. If an existing row is `promoted` and a new variant arrives that meaningfully extends scope beyond the promoted slice, append the extension to the row's "Remaining brainstorm scope" section — do not re-promote.
 3. If an idea is superseded by a better framing, set `status: superseded` and add `Superseded-by: BRAIN-NNN` — never delete.
-4. IDs are append-only and globally monotonic. Next available ID after this generation: **BRAIN-014**.
+4. IDs are append-only and globally monotonic. Next available ID after this generation: **BRAIN-018**.
 5. Rejected/superseded ideas live in the `## Rejected / Superseded` section with verified evidence so future passes do not re-propose shipped capabilities.
