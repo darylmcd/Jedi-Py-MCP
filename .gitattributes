@@ -1,0 +1,2 @@
+# Force LF for Markdown so backlog/doc line-surgery edits can't produce CRLF row-joins.
+*.md text eol=lf
