@@ -1,32 +1,37 @@
 # Backlog
 
-<!-- purpose: Open work only. Single-table format. Sync rows on ship. -->
+<!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-05-29T03:51:12Z
+**updated_at:** 2026-06-11T14:51:04Z
+
+<!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
+     Date-only values (2026-01-01) are INVALID — they invite placeholder drift. -->
 
 ## Agent contract
 
 | | |
 |---|---|
 | **Scope** | This file lists unfinished work only. It is not a changelog. |
-| **MUST** | Remove or update backlog rows when work ships; do it in the same PR or an immediate follow-up. |
+| **MUST** | Remove or update backlog rows when work ships; do it in the same PR or an immediate follow-up. Closing a row also deletes its `ai_docs/items/<id>.md` — use `/close-backlog-rows`, which does both atomically. |
 | **MUST** | End implementation plans with a final todo: `backlog: sync ai_docs/backlog.md`. |
 | **MUST** | Use stable, kebab-case `id` values per open row. |
-| **MUST** | Every row's `do` cell summarizes the current need + the concrete next deliverable. Include `Anchors:` (specific source file paths) when the row references code, and evidence (audit/retro/CI signal) when one exists. |
-| **MUST** | Size every row to a single bounded initiative — ≤4 production files, ≤3 test files, one regression-test shape. Split heroic multi-bug rows into per-bug children before planning against them. |
+| **MUST** | Keep the `do` cell **slim** — a bold title + one concrete next deliverable + `[type: …]` + `[source: …]` tags (≤~250 chars). Enough to triage, not to implement. |
+| **MUST** | Spill implementation detail (`Anchors:`, acceptance criteria, long-form evidence) to `ai_docs/items/<id>.md` for any **code-touching row**, and point the `detail` cell at it. Use `templates/items.md`. Pure-prose rows (Defer rationale, decision notes) may stay inline with `detail: —`. |
+| **MUST** | Set `size` per row: `S` (≤1 prod file) / `M` (2–4 prod files) / `L` (>4 prod files or >1 regression shape). `L` is a **split-candidate** — split it into per-slice children before planning against it. >3 test files is also a split-candidate. |
+| **MUST** | Keep `deps` to backlog row ids or `—` (`none` ≡ `—`). A dep id matching a live open row = this row is blocked; an id absent from the backlog = satisfied (open-work-only). |
 | **MUST NOT** | Add `Completed`, `Shipped`, `Done`, `History`, or `Changelog` sections. Git is the archive. |
 | **MUST NOT** | Leave done items in the open table. |
-| **MUST NOT** | Use `### <id>` body sections per item. The table row IS the canonical form. Items needing long-form depth (more than ~10 lines) link to `ai_docs/items/<id>.md` from the `do` cell. |
+| **MUST NOT** | Inline `Anchors:`/acceptance/multi-line evidence in a code-touching row's `do` cell, or add `### <id>` body sections per item. The slim row + its `items/<id>.md` are the canonical pair. |
 
 ## Standing rules
 
 <!-- Ongoing practices, not deletable work items. -->
 
 - **Reprioritize on each audit pass.** Stale priority order is a finding.
-- **Keep rows planner-ready.** A row is ready when an agent can read it cold and start a plan: name the live anchors and the next concrete deliverable or investigation output.
+- **Keep rows planner-ready.** A row is ready when an agent can read it cold and start a plan: a clear title + next deliverable in the `do` cell, the live anchors in `items/<id>.md`.
 - **Replace stale umbrella rows with concrete follow-ons** before planning against them.
-- **Long-form audit evidence belongs in referenced reports**, not in this file. The `do` cell carries a one-line evidence summary plus the report path.
+- **Detail lives in `items/<id>.md`, evidence in referenced reports** — not in this file. The `do` cell carries the title + next step only; the detail file carries anchors + acceptance + a one-line evidence summary plus the report path.
 - **Weak-evidence flag.** When a row's signal is thin (single retro session, self-audit only, etc.) say so explicitly in the `do` cell ("Weaker evidence — N until external session reproduces").
 - **Priority tiers:** Critical > High > Medium > Low > Defer.
 - Best-practices reference: `ai_docs/references/mcp_best_practices.md`.
@@ -38,50 +43,49 @@
 
 <!-- Production-breaking or blocking work. Empty section is fine; keep the header. -->
 
-| id | pri | deps | do |
-|----|-----|------|-----|
-|    |     |      |    |
+| id | pri | deps | do | size | detail |
+|----|-----|------|----|------|--------|
 
 ## High
 
-| id | pri | deps | do |
-|----|-----|------|-----|
-|    |     |      |    |
+| id | pri | deps | do | size | detail |
+|----|-----|------|----|------|--------|
 
 ## Medium
 
-| id | pri | deps | do |
-|----|-----|------|-----|
-| refactor-tool-error-boundary-decomposition | Medium | none | Decompose the shared `_tool_error_boundary`/`_wrapped` closure (`src/python_refactor_mcp/server.py:180-272`; cyclomatic 24 / cognitive 45 / nesting 5 / ~90 LOC — repo's highest per code_metrics) into composable helpers: `_resolve_backends(ctx, kwargs)` (multi-ctx lookup + lazy root-fetch + primary-path extraction + registry lookup) and `_validate_params(kwargs, workspace_root)` (path + identifier validation); keep timing + `BackendError`→`ValueError` translation in a thin wrapper. Distinct from `server-tool-registration-table` (that collapses the per-tool wrappers; this targets the shared decorator internals) but edits the same file; `server-tool-registration-table` shipped 2026-05-28 (now unblocked). Also folds in the `_maybe_fetch_roots` debug-level error-swallow (`server.py:155-177`) by moving it into `_resolve_backends`. Anchors: `src/python_refactor_mcp/server.py:180-272`. Evidence: code_metrics 2026-05-28 discovery-sweep refactor pass (native F-01). |
-| mypy-2x-migration | Medium | none | Bump `mypy>=1.13` to `mypy>=2.0` in `pyproject.toml`. Probe on 2026-05-27 surfaced **344 errors in 4 files** (concentrated in `src/python_refactor_mcp/server.py`) under `strict = true`. Three dominant patterns: (a) `MCPContext` treated as variable-not-type (mypy 2.x stricter about type-alias distinction) — ~80 hits; (b) `MCPContext?` has no attribute `"debug"` requiring Optional-narrowing — ~80 hits; (c) `Untyped decorator makes function untyped` for every `@mcp.tool` wrapper — ~80 hits. Existing override at `pyproject.toml:68-70` already disables `type-arg`/`unused-ignore` for `server.py` — the new errors are NOT covered. Fix at source (NO `# type: ignore` band-aids per Standing Directive #1): introduce a proper `MCPContext` type-alias via `TypeAlias` annotation, add `@mcp.tool` type stubs or a typed wrapper, narrow `ctx` reads. Anchors: `src/python_refactor_mcp/server.py`, `pyproject.toml:62-70`. Evidence: ai_docs/reports/upgrade-eligibility-2026-05-27.md Batch 4 probe; deferred from that batch as out-of-scope for a dep-bump PR. **Related**: `server-tool-registration-table` shipped 2026-05-28, introducing the `tool_registry.py` registration table — the mypy-2x typing work should build on that table (typed `ToolRecord`/registrar) rather than the old per-wrapper shape. |
+| id | pri | deps | do | size | detail |
+|----|-----|------|----|------|--------|
+| refactor-tool-error-boundary-decomposition | Medium | — | **Decompose `_tool_error_boundary`/`_wrapped`** — extract `_resolve_backends` + `_validate_params` from the repo's highest-complexity closure; keep timing + error translation in a thin wrapper. [type: refactor] [source: discovery-sweep-20260528] | S | items/refactor-tool-error-boundary-decomposition.md |
+| mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
 
 ## Low
 
-| id | pri | deps | do |
-|----|-----|------|-----|
-| known-rope-annotations | Low | rope upstream | `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer`). Documented limitation; no workaround in current rope. Anchors: `src/python_refactor_mcp/backends/rope_backend.py`. Evidence: documented inline at the call site. |
-| cand-convert-to-dataclass | Low | none | New tool `convert_to_dataclass` — modernize a plain class to a `@dataclass`; field types come from Pyright inference. CST apply foundation now exists. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation), `src/python_refactor_mcp/backends/pyright_lsp.py` (type source). Weaker evidence — proposed candidate. |
-| cand-extract-class | Low | none | New tool `extract_class` — move a cohesive subset of fields/methods into a new collaborator class. Verified: rope 1.14 ships no `ExtractClass`; this uses the in-repo CST foundation. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (foundation). Weaker evidence — proposed candidate. |
-| cand-convert-function-method | Low | none | Symmetric pair `convert_function_to_method` / `convert_method_to_function`. CST foundation exists; caller rewrites via `find_references`. Anchors: `src/python_refactor_mcp/util/cst_apply.py`, `src/python_refactor_mcp/tools/analysis/references.py`. Weaker evidence — proposed candidate. |
-| cand-split-module | Low | none | New tool `split_module` — partition a single module into N modules by symbol selection. Use the batch variant of the CST foundation for the multi-file emit; rope `Move` may handle import rewrites for a v1. Anchors: `src/python_refactor_mcp/util/cst_apply.py` (`apply_cst_transformer_batch`), `src/python_refactor_mcp/backends/rope_backend.py`. Weaker evidence — proposed candidate. |
-| cand-docstring-sync | Low | none | New tool `docstring_sync` (brainstorm BRAIN-007) — diff function signatures vs docstring params and auto-update Google / NumPy / Sphinx style. Anchors: TBD (likely under `src/python_refactor_mcp/tools/refactoring/`). Weaker evidence — proposed candidate. |
-| pyright-position-request-param-merge-guard | Low | none | `_position_request` in `src/python_refactor_mcp/backends/pyright_lsp.py` builds the LSP `{textDocument, position}` envelope then calls `params.update(extra_params)`, letting a caller clobber the `textDocument`/`position` keys. Latent only — the sole caller (`get_references`) passes just `context` — but harden by merging extras under the base envelope (base keys win) or rejecting reserved keys with a `ValueError`. Anchors: `src/python_refactor_mcp/backends/pyright_lsp.py` (`_position_request`). Evidence: surfaced during 2026-05-28 backlog-sweep wave-1 (PR #50). |
-| changelog-tool-count-drift | Low | none | `CHANGELOG.md` `[Unreleased]` narrates the server surface at 89 tools (`format_code` 87→88, `apply_lint_fixes` 88→89), but the live server registers 91 `@mcp.tool` and `tests/unit/test_server.py` asserts `== 91` — a 2-tool narrative gap. Identify the two unbumped additions and align the CHANGELOG (or correct the baseline). Anchors: `CHANGELOG.md`, `src/python_refactor_mcp/server.py`, `tests/unit/test_server.py`. Evidence: observed during 2026-05-28 backlog-sweep wave-1 reconcile. |
-| jedi-hierarchy-swallowed-exceptions | Low | none | Broad best-effort exception swallows lack boundary-marker comments: `jedi_backend.py` has 6 `except Exception: pass` sites (lines 397, 477, 622, 719, 762, 769); `hierarchy.py` has 2 bare `except (OSError, SyntaxError): pass` (lines 183, 256; the :157 site is documented). Narrow the caught type and/or add a one-line comment explaining why each swallow is safe (do not change behaviour — these are intentional fallbacks). Anchors: `src/python_refactor_mcp/backends/jedi_backend.py`, `src/python_refactor_mcp/tools/navigation/hierarchy.py`. Evidence: doc-audit bad-code-surfacing 2026-05-28. |
+| id | pri | deps | do | size | detail |
+|----|-----|------|----|------|--------|
+| known-rope-annotations | Low | — | **`change_signature` strips type annotations** — rope `ArgumentNormalizer` limitation; blocked on rope upstream. Fix or post-pass restore when upstream allows. [type: known-limitation] [source: inline-callsite-doc] | S | items/known-rope-annotations.md |
+| cand-convert-to-dataclass | Low | — | **New tool `convert_to_dataclass`** — modernize a plain class to `@dataclass`, field types from Pyright inference, on the CST apply foundation. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-convert-to-dataclass.md |
+| cand-extract-class | Low | — | **New tool `extract_class`** — move a cohesive subset of fields/methods into a new collaborator class via the CST foundation (rope 1.14 has no ExtractClass). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-extract-class.md |
+| cand-convert-function-method | Low | — | **Symmetric tools `convert_function_to_method` / `convert_method_to_function`** — CST transform + caller rewrites via `find_references`. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-convert-function-method.md |
+| cand-split-module | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
+| cand-docstring-sync | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | M | items/cand-docstring-sync.md |
+| pyright-position-request-param-merge-guard | Low | — | **Harden `_position_request` envelope merge** — stop `extra_params` from clobbering `textDocument`/`position` (base keys win or `ValueError`); latent only. [type: defect] [source: backlog-sweep-20260528-pr50] | S | items/pyright-position-request-param-merge-guard.md |
+| changelog-tool-count-drift | Low | — | **Align CHANGELOG tool count** — `[Unreleased]` narrates 89 tools but the server registers 91; identify the two unbumped additions and fix the narrative. [type: docs] [source: backlog-sweep-20260528-reconcile] | S | items/changelog-tool-count-drift.md |
+| jedi-hierarchy-swallowed-exceptions | Low | — | **Document/narrow 8 best-effort exception swallows** — `jedi_backend.py` (6) + `hierarchy.py` (2): narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260528] | M | items/jedi-hierarchy-swallowed-exceptions.md |
 
 ## Defer
 
 <!-- Explicitly parked. Record WHY in the `do` cell. -->
 
-| id | pri | deps | do |
-|----|-----|------|-----|
-| cand-find-cyclic-imports | Defer | needs-per-edge-provenance | Earlier proposed as a dedicated cycle report. Redundant: `get_module_dependencies` already returns `circular_dependencies: list[list[str]]` via `tools/metrics/dependencies.py::_find_cycles`. Parked to prevent re-proposal; unblock only if per-edge provenance (file:line:col of offending import) is added as a real delta. Dep refreshed 2026-05-27: CST foundation landing does NOT unblock this row (gap is per-import-statement anchors in `dependencies.py`, unrelated to CST). Anchors: `src/python_refactor_mcp/tools/metrics/dependencies.py`. |
-| search-symbol-iter-dedup | Defer | none | TRIGGER FIRED 2026-05-28: `cand-unused-symbol-sweep` shipped `tools/search/unused_symbols.py`, which now duplicates `dead_code.py`'s `_is_test_file`, target-file resolution (`_resolve_target_files`→`_resolve_targets`), confidence scoring (`_score_confidence`→`_confidence`), and the module-level symbol walker (`_iter_module_level_symbols`→`_iter_export_symbols`, minus the decorator guard). Extract the shared pieces into `tools/search/_helpers.py` (e.g. `iter_module_level_symbols(path, *, skip_decorated: bool)`, `resolve_target_files(...)`, `is_test_file(...)`, `score_dead_code_confidence(...)`) and have both `dead_code.py` and `unused_symbols.py` call them. Note: cross-module reuse of the existing underscore-prefixed helpers is blocked by Pyright `reportPrivateUsage`, which is WHY `unused_symbols.py` copied them — the extraction must make the shared helpers public in `_helpers.py`. ~5 production files (over Rule 3 cap) so size carefully. Still Defer-classed pending operator unblock. Anchors: `src/python_refactor_mcp/tools/search/dead_code.py`, `src/python_refactor_mcp/tools/search/unused_symbols.py`, `src/python_refactor_mcp/tools/search/_helpers.py`. Evidence: handoff-prep flagged during 2026-05-28 re-prepare (plan 20260527T205134Z); trigger condition met by the same plan's init 4. |
+| id | pri | deps | do | size | detail |
+|----|-----|------|----|------|--------|
+| cand-find-cyclic-imports | Defer | — | **Dedicated cycle report — parked as redundant** — `get_module_dependencies` already returns cycles; unblock only if per-edge provenance (file:line:col per import) is added as a real delta. [type: enhancement] [source: candidate-proposal] | — | items/cand-find-cyclic-imports.md |
+| search-symbol-iter-dedup | Defer | — | **Extract shared search helpers — trigger fired, parked pending operator unblock** — `unused_symbols.py` duplicates 4 `dead_code.py` helpers; extraction spans ~5 prod files (split-candidate). [type: refactor] [source: handoff-prep-20260528] | — | items/search-symbol-iter-dedup.md |
 
 ## Refs
 
 - `ai_docs/workflow.md` — execution flow and backlog closure rules
 - `ai_docs/architecture.md` — current system architecture
+- `ai_docs/items/` — per-row implementation detail (Anchors/Acceptance/Evidence); seed new files from `templates/items.md`
 - `ai_docs/references/mcp_best_practices.md` — MCP design reference
 - `../CI_POLICY.md` — merge gating policy
 - `../audit-reports/application-brainstorm.md` — not-yet-sized product/refactor ideas (BRAIN-014..017 current) for brainstorm/planning intake; promote a BRAIN row to a sized backlog row when its first slice is ready
