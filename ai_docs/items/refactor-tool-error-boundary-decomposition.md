@@ -4,7 +4,7 @@
 
 ## Anchors
 
-- `src/python_refactor_mcp/server.py` — `:180-272` (`_tool_error_boundary`/`_wrapped`) and `:155-177` (`_maybe_fetch_roots` debug-level error-swallow — fold into `_resolve_backends`)
+- `src/python_refactor_mcp/server.py` — `:144-231` (`_tool_error_boundary`/`_wrapped`) and `:119` (`_maybe_fetch_roots` debug-level error-swallow — fold into `_resolve_backends`)
 
 ## Acceptance
 
