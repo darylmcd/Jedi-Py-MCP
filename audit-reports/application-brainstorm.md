@@ -28,12 +28,12 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-001 — LibCST-backed safe rename across imports with alias-aware rewrites
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** near
 - **First slice:** Single-module `rename_symbol` variant that uses the existing LibCST apply foundation (introduced in #35) to rewrite `import X as Y` / `from m import X as Y` consistently across the project, where Jedi/Rope alone miss alias re-bindings.
 - **Why now:** #35 landed the LibCST apply scaffold; #36 (apply_type_annotations) proved the end-to-end path. Rename is the highest-value CST-backed refactor that current `rename_symbol` (Rope-based) under-serves on alias-heavy codebases.
 - **Risks / unknowns:** Conflict resolution when alias collides with existing binding in target scope; need rollback story tied to `begin_change_stack` / `rollback_change_stack`.
-- **Cross-ref:** none yet — promote when first-slice plan is written.
+- **Cross-ref:** `cand-rename-cst-alias` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 
 ## BRAIN-002 — Project-wide unused-symbol sweep tool
 
@@ -45,19 +45,20 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-003 — Convert-to-dataclass / TypedDict / Pydantic model refactor
 
-- **Status:** promoted (partial — dataclass slice only)
+- **Status:** promoted
 - **Horizon:** mid
 - **First slice (promoted):** Detect "data-bag" classes (only `__init__` + attribute assignments, no behavior) and offer dataclass conversion with `@dataclass(frozen=...)` heuristic based on mutation analysis.
-- **Cross-ref:** `cand-convert-to-dataclass` (Low) in `ai_docs/backlog.md` covers the dataclass slice. TypedDict and Pydantic variants remain in brainstorm — do NOT promote those without operator approval.
-- **Remaining brainstorm scope:** TypedDict conversion for dict-shaped return values; Pydantic v2 model conversion for classes that already use type hints + validation logic.
+- **Cross-ref:** `cand-convert-to-dataclass` (Low) covers the dataclass slice; `cand-convert-typeddict-pydantic` (Low) covers the TypedDict + Pydantic v2 variants — both in `ai_docs/backlog.md`. Backlog rows own implementation; do NOT re-promote.
+- **Remaining brainstorm scope:** none — TypedDict + Pydantic v2 variants promoted to `cand-convert-typeddict-pydantic`.
 
 ## BRAIN-004 — Auto-fix circular imports via TYPE_CHECKING hoist + deferred-string annotations
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **First slice:** Detector pass that finds import cycles via `get_module_dependencies`, then for each cycle edge classifies imports as "type-only" (used solely in annotations) vs "runtime". Type-only imports get hoisted into `if TYPE_CHECKING:` block and annotations stringified.
 - **Why now:** Circular-import bugs are a top-3 Python pain point; we already have `get_module_dependencies` + LibCST apply.
 - **Risks / unknowns:** Requires confident usage-site classification — false negatives (treating a runtime use as type-only) break at import time, not at refactor time. Need conservative bias + dry-run mandatory.
+- **Cross-ref:** `cand-fix-circular-imports` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 
 ## BRAIN-005 — Batch async-ification tool
 
@@ -83,19 +84,21 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-008 — Type-stub freshness audit
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **First slice:** For projects that ship `.pyi` stubs alongside `.py` sources (or vendor third-party stubs), diff stub signatures vs implementation signatures and surface drift. Hook into `create_type_stubs` to regenerate.
 - **Why now:** Adjacent to apply_type_annotations (#36); reuses signature-comparison logic.
 - **Risks / unknowns:** Need to handle `@overload` and `Protocol` stubs without false-positive churn.
+- **Cross-ref:** `cand-type-stub-freshness` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 
 ## BRAIN-009 — Cross-project rename orchestrator hardened with workspace-graph topo-order
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **First slice:** Extend `multi_project_rename` to build a dependency graph across registered projects (via `list_environments` + each project's import graph), then apply renames in reverse-topological order so downstream consumers are updated before upstream definitions change visible names. Currently the tool applies in arbitrary order, which can leave intermediate broken states.
 - **Why now:** Real users hit this when refactoring across a monorepo of related projects.
 - **Risks / unknowns:** Cycle handling between projects (rare but real); need a strict "abort on cycle, surface to operator" path.
+- **Cross-ref:** `cand-cross-project-rename-topo` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 
 ## BRAIN-010 — Performance hot-path detector
 
@@ -106,13 +109,13 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-011 — Security-finding autofix codemod
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** near
 - **First slice:** `yaml.load → yaml.safe_load` rewrite (and inject a `SafeLoader` argument where a `Loader=` kwarg is absent), CST-backed via `util/cst_apply.py`, keyed off the SEC022 findings emitted by `tools/metrics/security.py`. Extend to SEC020/SEC021 (the deserialization findings) once the SEC022 path proves the pattern.
 - **Why now:** `tools/metrics/security.py` already detects these patterns (`_DANGEROUS_ATTR_CALLS` maps `("yaml","load") → SEC022`, plus the SEC020/SEC021 deserialization codes) but emits findings only — there is no fixer. The LibCST apply foundation (`util/cst_apply.py`, #35) makes a targeted codemod feasible.
 - **Non-overlap (verified):** Does NOT duplicate `apply_lint_fixes`. Ruff `UP` rules cover language modernization (e.g. `dict()` → `{}`), not the SEC* injection/deserialization patterns. `security.py` has no autofix counterpart anywhere in the tree.
 - **Risks / unknowns:** `yaml.load` with an explicit non-safe `Loader=yaml.Loader` may be deliberate; need a conservative skip + operator surface. The SEC020/SEC021 deserialization calls have no safe drop-in replacement, so they can only warn/annotate, not auto-rewrite — scope the codemod to SEC022 first and treat the deserialization codes as a flag-only follow-up.
-- **Cross-ref:** none yet — promote when first-slice plan is written.
+- **Cross-ref:** `cand-security-autofix` (Medium) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 - **Expansion seed:**
   - *Smallest planning question:* For SEC022, is rewriting to `yaml.safe_load(...)` always behavior-preserving, or must we preserve an explicit `Loader=` when one is already safe?
   - *Likely backlog slices:* (1) SEC022 `yaml.load`→`yaml.safe_load` CST codemod with dry-run + `begin/commit/rollback_change_stack`; (2) SEC020/SEC021 advisory annotation pass (no rewrite); (3) a `security_autofix` MCP tool that consumes `SecurityScanResult` and dispatches per-finding-code fixers.
@@ -121,12 +124,12 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-012 — Refactoring-transaction composite tool
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **First slice:** A transaction wrapper in `tools/.../composite.py` (which currently holds only `diff_preview`) that accepts an ordered list of `(tool, args)` preview-mode calls, collects their `TextEdit` outputs, and applies all of them atomically inside a single change-stack — committing via `commit_change_stack` on success or unwinding via `rollback_change_stack` on any failure. All-or-nothing across N tools and multiple files.
 - **Why now:** The change-stack primitives (`begin_change_stack` / `commit_change_stack` / `rollback_change_stack`) already exist, and most refactoring tools already support preview mode (`apply=False`). The missing piece is composition: today a multi-tool refactor is N independent applies with no shared atomicity, so a mid-sequence failure leaves a half-applied tree.
 - **Risks / unknowns:** Edit conflicts between staged previews (two tools editing overlapping ranges) need detection before commit; previews computed against pre-transaction source may go stale if an earlier edit shifts line/column positions — need either re-preview after each staged edit or offset reconciliation. Define conflict-on-overlap as abort-and-rollback.
-- **Cross-ref:** none yet — promote when first-slice plan is written.
+- **Cross-ref:** `cand-refactor-transaction` (Medium) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
 - **Expansion seed:**
   - *Smallest planning question:* Are staged previews computed against the original source or the running (partially-edited) source — i.e. does the wrapper re-preview after each step, or reconcile offsets?
   - *Likely backlog slices:* (1) a `refactor_transaction` tool taking an ordered `(tool, args)` list, executing each in preview, and applying under one change-stack; (2) overlap/conflict detection across staged `TextEdit` sets with abort-on-conflict; (3) a structured transaction result (per-step status, applied/rolled-back, diff summary).
@@ -135,13 +138,13 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-014 — Structural find-and-replace codemod (`structural_replace`)
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **Shape:** new-feature / category-parity
 - **First slice:** A `structural_replace(pattern, replacement, file_paths, apply=False) -> RefactorResult` tool that reuses the AST-pattern matcher behind the existing `structural_search` to locate shaped matches, then rewrites each via the LibCST apply foundation (`util/cst_apply.py`), returning edits in preview mode by default. Scope slice 1 to single-metavariable rewrites (e.g. `logger.warn($X)` → `logger.warning($X)`).
 - **Why now:** `structural_search` already implements the *find* half (AST-shaped matching); the LibCST apply scaffold (#35) implements safe *mutation*. The *replace* half is the missing complement and is the single headline parity gap against best-in-class structural-codemod tools (see Market notes). Highest-leverage net-new tool the current stack can support without new dependencies.
 - **Risks / unknowns:** whether `structural_search`'s pattern syntax already exposes capture/metavariables reusable in a replacement template, or whether replace needs its own pattern parser; comment/format preservation on rewrite (LibCST handles this); overlapping matches; must be dry-run-first + change-stack rollback.
-- **Cross-ref:** none yet — promote when first-slice plan is written. Distinct from BRAIN-011 (security-specific codemod) — this is the general structural engine BRAIN-011 could later dispatch through.
+- **Cross-ref:** `cand-structural-replace` (Medium) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote. Distinct from BRAIN-011 (security-specific codemod) — this is the general structural engine BRAIN-011 could later dispatch through.
 - **Expansion seed:**
   - *Smallest planning question:* Does `structural_search` expose capture/metavariables reusable in a replacement template, or must `structural_replace` define its own pattern→template binding?
   - *Likely backlog slices:* (1) single-metavariable structural rewrite via LibCST + change-stack, dry-run default; (2) multi-capture + guard predicates; (3) a saved/named codemod library consumable in batch.
@@ -150,13 +153,13 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-015 — Annotation-preserving `change_signature` via LibCST
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** mid
 - **Shape:** existing-feature-improvement (unblocks a documented limitation)
 - **First slice:** A LibCST-backed path for `change_signature` (or sibling `change_signature_cst`) that does parameter rename/reorder/add/remove WITHOUT stripping PEP 484/585 annotations — the documented rope `ArgumentNormalizer` limitation. Slice 1: parameter rename + reorder preserving annotations and defaults on the definition and call sites, dry-run first.
 - **Why now:** `ai_docs/architecture.md` Known Gaps #1 and backlog row `known-rope-annotations` (Low, parked as "no workaround in current rope") document a real, user-visible defect — `change_signature` silently drops type annotations. The LibCST foundation (#35) now provides exactly the workaround rope lacks, satisfying that row's Defer rationale. This is an unblock, not a net-new feature.
 - **Risks / unknowns:** call-site rewriting across the project depends on `find_references` correctness; combining rope (call-site discovery) with LibCST (edit emission) must be done carefully; keyword-vs-positional and default-value handling.
-- **Cross-ref:** backlog `known-rope-annotations` (Low) — this is the unblock path; a promotion here would extend/supersede that parked row (coordinate, do not duplicate).
+- **Cross-ref:** `cand-change-signature-cst` (Medium) in `ai_docs/backlog.md` owns implementation; do NOT re-promote. It is the unblock path for backlog `known-rope-annotations` (Low) — coordinate, do not duplicate.
 - **Expansion seed:**
   - *Smallest planning question:* Reimplement `change_signature` wholesale on LibCST, or keep rope for discovery and add a thin CST post-pass that re-attaches the annotations rope dropped?
   - *Likely backlog slices:* (1) annotation-preserving param rename; (2) reorder; (3) add/remove with default handling + call-site updates.
@@ -165,13 +168,13 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-016 — Server health/status tool + backend-provenance surfacing
 
-- **Status:** plan-first
+- **Status:** promoted
 - **Horizon:** near
 - **Shape:** ops / logging-diagnostics
 - **First slice:** A read-only `server_status` MCP tool reporting: server version, loaded workspace roots, each backend's liveness (Pyright langserver reachable, Jedi importable, rope ready), degraded-mode flags, and the resolved `pyright-langserver` path. Pairs with surfacing per-result backend provenance (extend the existing `TypeInfo.source` pattern) so the calling agent can tell when a Jedi fallback — not Pyright — served a result.
 - **Why now:** `architecture.md` documents real degraded modes (Pyright unavailable → Jedi fallback; `list_environments` may return empty) but the agent has no server-level way to *see* them — it just silently gets thinner results, which erodes trust in an autonomously-mutating tool. The ops/observability lane is absent from both the brainstorm history (Passes 2–4 were all refactoring features) and the backlog.
 - **Risks / unknowns:** backend liveness probes must be cheap/non-blocking (no full request round-trip per call); keep environment-path disclosure within the local-only privacy stance (PRIVACY.md — no telemetry; local introspection is fine).
-- **Cross-ref:** none. Adjacent to `restart_server` and `list_environments` (consume, don't replace).
+- **Cross-ref:** `cand-server-status` (Medium) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote. Adjacent to `restart_server` and `list_environments` (consume, don't replace).
 - **Expansion seed:**
   - *Smallest planning question:* Can each backend's liveness be probed cheaply without issuing a real analysis request per backend?
   - *Likely backlog slices:* (1) `server_status` tool (version + workspace roots + per-backend up/down booleans); (2) a degraded-mode flag on responses when a fallback fired; (3) a uniform `source`/confidence field across the analysis tool surface.
@@ -209,22 +212,22 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 | ID        | Title                                                        | Status               | Horizon | Cross-ref                         |
 |-----------|--------------------------------------------------------------|----------------------|---------|-----------------------------------|
-| BRAIN-001 | LibCST-backed safe rename across imports                     | plan-first           | near    | —                                 |
+| BRAIN-001 | LibCST-backed safe rename across imports                     | promoted             | near    | `cand-rename-cst-alias`           |
 | BRAIN-002 | Project-wide unused-symbol sweep                             | promoted             | near    | `cand-unused-symbol-sweep`        |
-| BRAIN-003 | Convert-to-dataclass / TypedDict / Pydantic                  | promoted (partial)   | mid     | `cand-convert-to-dataclass`       |
-| BRAIN-004 | Auto-fix circular imports via TYPE_CHECKING hoist            | plan-first           | mid     | —                                 |
+| BRAIN-003 | Convert-to-dataclass / TypedDict / Pydantic                  | promoted             | mid     | `cand-convert-to-dataclass`, `cand-convert-typeddict-pydantic` |
+| BRAIN-004 | Auto-fix circular imports via TYPE_CHECKING hoist            | promoted             | mid     | `cand-fix-circular-imports`       |
 | BRAIN-005 | Batch async-ification tool                                   | research             | long    | —                                 |
 | BRAIN-006 | Test-impact selector                                         | promoted             | near    | `cand-test-impact-selector`       |
 | BRAIN-007 | Docstring sync                                               | promoted             | near    | `cand-docstring-sync`             |
-| BRAIN-008 | Type-stub freshness audit                                    | plan-first           | mid     | —                                 |
-| BRAIN-009 | Cross-project rename orchestrator (workspace-graph topo)     | plan-first           | mid     | —                                 |
+| BRAIN-008 | Type-stub freshness audit                                    | promoted             | mid     | `cand-type-stub-freshness`        |
+| BRAIN-009 | Cross-project rename orchestrator (workspace-graph topo)     | promoted             | mid     | `cand-cross-project-rename-topo`  |
 | BRAIN-010 | Performance hot-path detector (static complexity + fan-in)   | research             | long    | —                                 |
-| BRAIN-011 | Security-finding autofix codemod (SEC022 yaml.load)          | plan-first           | near    | —                                 |
-| BRAIN-012 | Refactoring-transaction composite tool                       | plan-first           | mid     | —                                 |
+| BRAIN-011 | Security-finding autofix codemod (SEC022 yaml.load)          | promoted             | near    | `cand-security-autofix`           |
+| BRAIN-012 | Refactoring-transaction composite tool                       | promoted             | mid     | `cand-refactor-transaction`       |
 | BRAIN-013 | Import-graph layering-rule enforcer                          | rejected-superseded  | —       | shipped: `check_layer_violations` |
-| BRAIN-014 | Structural find-and-replace codemod (`structural_replace`)   | plan-first           | mid     | —                                 |
-| BRAIN-015 | Annotation-preserving `change_signature` via LibCST          | plan-first           | mid     | unblocks `known-rope-annotations` |
-| BRAIN-016 | Server health/status tool + backend-provenance              | plan-first           | near    | —                                 |
+| BRAIN-014 | Structural find-and-replace codemod (`structural_replace`)   | promoted             | mid     | `cand-structural-replace`         |
+| BRAIN-015 | Annotation-preserving `change_signature` via LibCST          | promoted             | mid     | `cand-change-signature-cst` (unblocks `known-rope-annotations`) |
+| BRAIN-016 | Server health/status tool + backend-provenance              | promoted             | near    | `cand-server-status`              |
 | BRAIN-017 | Structured local operation log + support bundle             | research             | mid     | partial: `get_refactoring_history`|
 
 ## Merge / dedupe rules (for future passes)
