@@ -142,6 +142,11 @@ class RopeBackend:
             self._project.close()
             self._project = None
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether the rope project is open. Cheap, non-blocking."""
+        return self._project is not None
+
     def _require_project(self) -> Project:
         """Return initialized rope project or raise backend error."""
         if self._project is None:

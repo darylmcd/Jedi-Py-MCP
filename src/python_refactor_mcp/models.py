@@ -589,6 +589,38 @@ class SecurityScanResult(BaseModel):
     total_findings: int
 
 
+class BackendLiveness(BaseModel):
+    """Liveness snapshot for one workspace's Pyright/Jedi/rope backend triad.
+
+    Booleans are read from cached backend state (no analysis round-trip):
+    ``pyright_running`` is a subprocess ``returncode is None`` check, and the
+    Jedi/rope flags reflect whether each project object is open.
+    """
+
+    workspace_root: str
+    initialized: bool
+    pyright_running: bool
+    jedi_ready: bool
+    rope_ready: bool
+    python_executable: str
+    pyright_executable: str
+
+
+class ServerStatus(BaseModel):
+    """Read-only server health and backend-provenance snapshot.
+
+    ``degraded`` is True when there is no usable Pyright backend (none loaded,
+    or every loaded workspace's Pyright subprocess is down) — the condition
+    under which analysis tools silently fall back to Jedi.
+    """
+
+    version: str
+    cli_workspace_root: str | None
+    known_roots: list[str]
+    active_workspaces: list[BackendLiveness]
+    degraded: bool
+
+
 class TestImpactEntry(BaseModel):
     """Test impact for one changed symbol anchor."""
 

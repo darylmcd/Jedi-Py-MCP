@@ -105,6 +105,11 @@ class JediBackend:
         else:
             self._project = jedi.Project(path=str(self._config.workspace_root))
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether the Jedi project has been initialized. Cheap, non-blocking."""
+        return self._project is not None
+
     def _require_project(self) -> jedi.Project:
         """Return initialized Jedi project or raise a structured backend error."""
         if self._project is None:

@@ -3,7 +3,8 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-19T18:13:02Z
+**updated_at:** 2026-06-19T18:49:33Z
+<!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift (rows removed; see CHANGELOG [Unreleased]). -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
      Date-only values (2026-01-01) are INVALID — they invite placeholder drift. -->
@@ -60,8 +61,6 @@
 | cand-structural-replace | Medium | — | **New tool `structural_replace`** — reuse the `structural_search` AST matcher + `cst_apply` to rewrite shaped matches; slice 1 single-metavariable (`logger.warn($X)`→`logger.warning($X)`), preview-default + rollback. [type: enhancement] [source: brainstorm-BRAIN-014] | M | items/cand-structural-replace.md |
 | cand-change-signature-cst | Medium | — | **Annotation-preserving `change_signature` (LibCST)** — param rename/reorder without stripping PEP 484/585 annotations; unblocks `known-rope-annotations`. Slice 1: rename+reorder on def+call sites, dry-run. [type: defect] [source: brainstorm-BRAIN-015] | M | items/cand-change-signature-cst.md |
 | cand-refactor-transaction | Medium | — | **New tool `refactor_transaction`** — ordered `(tool,args)` preview list applied atomically under one change-stack; abort-and-rollback on overlap or mid-sequence failure. [type: enhancement] [source: brainstorm-BRAIN-012] | M | items/cand-refactor-transaction.md |
-| cand-server-status | Medium | — | **New tool `server_status`** — read-only version + workspace roots + per-backend up/down + degraded flags + resolved langserver path; cheap non-blocking probes, local-only. [type: enhancement] [source: brainstorm-BRAIN-016] | S | items/cand-server-status.md |
-| cand-security-autofix | Medium | — | **New tool `security_autofix`** — SEC022 `yaml.load`→`yaml.safe_load` CST codemod off `SecurityScanResult`; skip explicit non-default `Loader=`; SEC020/021 flag-only. [type: enhancement] [source: brainstorm-BRAIN-011] | S | items/cand-security-autofix.md |
 
 ## Low
 
@@ -74,7 +73,6 @@
 | cand-split-module | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
 | cand-docstring-sync | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | M | items/cand-docstring-sync.md |
 | pyright-position-request-param-merge-guard | Low | — | **Harden `_position_request` envelope merge** — stop `extra_params` from clobbering `textDocument`/`position` (base keys win or `ValueError`); latent only. [type: defect] [source: backlog-sweep-20260528-pr50] | S | items/pyright-position-request-param-merge-guard.md |
-| changelog-tool-count-drift | Low | — | **Align CHANGELOG tool count** — `[Unreleased]` narrates 89 tools but the server registers 91; identify the two unbumped additions and fix the narrative. [type: docs] [source: backlog-sweep-20260528-reconcile] | S | items/changelog-tool-count-drift.md |
 | jedi-hierarchy-swallowed-exceptions | Low | — | **Document/narrow 8 best-effort exception swallows** — `jedi_backend.py` (6) + `hierarchy.py` (2): narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260528] | M | items/jedi-hierarchy-swallowed-exceptions.md |
 | cand-rename-cst-alias | Low | — | **LibCST alias-aware `rename_symbol` variant** — rewrite `import X as Y` / `from m import X as Y` rebindings rope/Jedi miss; abort on alias collision; dry-run. [type: enhancement] [source: brainstorm-BRAIN-001] | M | items/cand-rename-cst-alias.md |
 | cand-fix-circular-imports | Low | — | **New tool: auto-fix circular imports** — detect cycles via `get_module_dependencies`, hoist type-only edge imports into `if TYPE_CHECKING:` + stringify annotations; conservative, dry-run mandatory. [type: enhancement] [source: brainstorm-BRAIN-004] | M | items/cand-fix-circular-imports.md |

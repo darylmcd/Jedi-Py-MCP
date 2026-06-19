@@ -1,11 +1,11 @@
 # Python Refactor Domain Reference
-<!-- purpose: Domain reference — 94 tools, workflows, key models for python-refactor-mcp. -->
+<!-- purpose: Domain reference — 96 tools, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
 ## Core Files
 
-- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (94 tools)
+- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (96 tools)
 - `src/python_refactor_mcp/config.py` — runtime config discovery
 - `src/python_refactor_mcp/models.py` — shared Pydantic response models
 - `src/python_refactor_mcp/backends/pyright_lsp.py` — Pyright LSP backend
@@ -14,7 +14,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/` — tool orchestration modules
 - `src/python_refactor_mcp/util/` — LSP client, diff helpers, shared utilities
 
-## Tool Surface (94 tools)
+## Tool Surface (96 tools)
 
 The canonical tool list is `server.py`. Tools are organized into these categories:
 
@@ -36,8 +36,8 @@ The canonical tool list is `server.py`. Tools are organized into these categorie
 ### History & Change Management (6 tools)
 `undo_refactoring`, `redo_refactoring`, `get_refactoring_history`, `begin_change_stack`, `commit_change_stack`, `rollback_change_stack`
 
-### Composite & Utilities (8 tools)
-`diff_preview`, `get_keyword_help`, `get_sub_definitions`, `simulate_execution`, `list_environments`, `restart_server`, `multi_project_rename`, `security_scan`
+### Composite & Utilities (10 tools)
+`diff_preview`, `get_keyword_help`, `get_sub_definitions`, `simulate_execution`, `list_environments`, `restart_server`, `multi_project_rename`, `security_scan`, `security_autofix`, `server_status`
 
 ### Annotation Categories
 - `_READONLY` — read-only, idempotent (analysis, navigation, search, metrics)
