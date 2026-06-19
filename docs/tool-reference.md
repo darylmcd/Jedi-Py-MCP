@@ -1,8 +1,8 @@
 # Tool Reference
 
-91 MCP tools organized by category.
+96 MCP tools organized by category.
 
-## Analysis (17)
+## Analysis (18)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -23,6 +23,7 @@
 | `get_context` | Return surrounding code context for a position. | `ContextResult` |
 | `get_all_names` | Return all names defined or imported in a file. | `list[NameInfo]` |
 | `create_type_stubs` | Generate type stubs for a package. | `bool` |
+| `test_impact_select` | Select pytest tests that transitively exercise changed symbol anchors via call-hierarchy. | `TestImpactResult` |
 
 ## Navigation (10)
 
@@ -39,13 +40,14 @@
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (32)
+## Refactoring (33)
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `prepare_rename` | Validate whether rename is allowed at a position. | `PrepareRenameResult \| None` |
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `extract_method` | Extract a selected block into a method. | `RefactorResult` |
+| `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
 | `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |
 | `inline_method` | Inline a method at all call sites. | `RefactorResult` |
@@ -76,7 +78,7 @@
 | `handle_long_imports` | Break long import lines into shorter form. | `RefactorResult` |
 | `fix_module_names` | Fix incorrect module references across the workspace. | `RefactorResult` |
 
-## Search (8)
+## Search (9)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -84,6 +86,7 @@
 | `search_symbols` | Search workspace symbols by name across semantic backends. | `list[SymbolInfo]` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
 | `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |
+| `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `list[DeadCodeItem]` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
 | `autoimport_search` | Search autoimport database for a symbol name. | `list[ImportSuggestion]` |
 | `find_unused_imports` | Find unused imports in a file. | `list[UnusedImport]` |
@@ -115,7 +118,7 @@
 | `commit_change_stack` | Commit all changes in the current ChangeStack. | `RefactorResult` |
 | `rollback_change_stack` | Roll back all changes in the current ChangeStack. | `str` |
 
-## Composite and Utilities (8)
+## Composite and Utilities (10)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -127,3 +130,5 @@
 | `restart_server` | Restart the Pyright language server. | `str` |
 | `multi_project_rename` | Rename a symbol across multiple Rope projects simultaneously. | `RefactorResult` |
 | `security_scan` | AST-based SAST security scan for a file. | `list[SecurityIssue]` |
+| `security_autofix` | Rewrite unsafe `yaml.load` (SEC022) to `yaml.safe_load` via LibCST; skips explicit `Loader=`. | `RefactorResult` |
+| `server_status` | Read-only server health: version, workspace roots, per-backend liveness, degraded flag. | `ServerStatus` |

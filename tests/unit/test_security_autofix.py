@@ -95,6 +95,54 @@ async def test_alias_not_matched(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_skip_double_star_kwargs(tmp_path: Path) -> None:
+    """`**kwargs` is unanalyzable (may carry Loader=) -> conservative skip."""
+    target = tmp_path / "m.py"
+    target.write_text("import yaml\nx = yaml.load(s, **opts)\n", encoding="utf-8")
+
+    result = await security_autofix(AsyncMock(), str(target), apply=False)
+
+    assert result.edits == []
+    assert "skipped 1" in result.description
+
+
+@pytest.mark.asyncio
+async def test_multiple_loads_in_one_file(tmp_path: Path) -> None:
+    """Every eligible call in a file is rewritten and counted."""
+    source = "import yaml\na = yaml.load(x)\nb = yaml.load(y)\n"
+    target = tmp_path / "m.py"
+    target.write_text(source, encoding="utf-8")
+
+    result = await security_autofix(AsyncMock(), str(target), apply=False)
+
+    assert "Rewrote 2" in result.description
+    assert result.edits[0].new_text.count("yaml.safe_load(") == 2
+
+
+@pytest.mark.asyncio
+async def test_preserves_comments_and_whitespace(tmp_path: Path) -> None:
+    """Only the attribute is swapped; trivia (comments, spacing) is preserved."""
+    source = "import yaml\nx = yaml.load(  s  )  # keep this comment\n"
+    target = tmp_path / "m.py"
+    target.write_text(source, encoding="utf-8")
+
+    result = await security_autofix(AsyncMock(), str(target), apply=False)
+
+    new_text = result.edits[0].new_text
+    assert "yaml.safe_load(  s  )  # keep this comment" in new_text
+
+
+@pytest.mark.asyncio
+async def test_no_targets_reports_clearly() -> None:
+    """No file_path and no file_paths -> explicit 'no files' message."""
+    result = await security_autofix(AsyncMock(), apply=False)
+
+    assert result.edits == []
+    assert result.applied is False
+    assert result.description == "No files provided to scan"
+
+
+@pytest.mark.asyncio
 async def test_multiple_files_aggregate(tmp_path: Path) -> None:
     """Counts aggregate across file_paths; mixed rewrite + skip."""
     a = tmp_path / "a.py"

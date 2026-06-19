@@ -9,7 +9,10 @@ explicit loader choice may be deliberate.
 Scope (slice 1): only the literal ``yaml.load`` attribute call is matched,
 mirroring the SEC022 scanner in ``tools/metrics/security.py``. Alias forms
 (``import yaml as y; y.load(...)``) and ``from yaml import load`` are a
-documented follow-up.
+documented follow-up. The match is syntactic, so a shadowed local named
+``yaml`` (``yaml = something(); yaml.load(...)``) would also be rewritten —
+the same blind spot the scanner has; preview-by-default and the
+``_DESTRUCTIVE`` annotation are the mitigation.
 """
 
 from __future__ import annotations
@@ -79,6 +82,11 @@ async def security_autofix(
     targets: list[str] = list(file_paths) if file_paths else []
     if file_path is not None:
         targets.append(file_path)
+
+    if not targets:
+        return RefactorResult(
+            edits=[], files_affected=[], description="No files provided to scan", applied=False
+        )
 
     edits: list[TextEdit] = []
     files_affected: list[str] = []
