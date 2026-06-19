@@ -179,6 +179,15 @@ class PyrightLSPClient:
         self._startup_command: list[str] | None = None
         self._restarting = False
 
+    @property
+    def is_running(self) -> bool:
+        """Whether the Pyright language-server subprocess is alive.
+
+        Cheap and non-blocking: delegates to the transport's ``is_alive()``
+        (a process ``returncode is None`` check, no IPC round-trip).
+        """
+        return self._client.is_alive()
+
     # ── LSP transport ─────────────────────────────────────────────────
 
     async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:

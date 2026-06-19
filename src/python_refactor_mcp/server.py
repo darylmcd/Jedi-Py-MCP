@@ -16,12 +16,15 @@ from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
+from python_refactor_mcp import __version__
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import (
+    BackendLiveness,
     CompletionItem,
     InlayHint,
     RefactorResult,
     SecurityScanResult,
+    ServerStatus,
     SignatureOperation,
     SymbolOutlineItem,
     TestCoverageMap,
@@ -30,6 +33,7 @@ from python_refactor_mcp.models import (
 from python_refactor_mcp.tools import analysis, metrics, navigation, refactoring
 from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
+from python_refactor_mcp.tools.refactoring.security_autofix import security_autofix as _security_autofix
 from python_refactor_mcp.util.shared import apply_limit, validate_identifier, validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
@@ -280,8 +284,8 @@ mcp = FastMCP(
     lifespan=app_lifespan,
 )
 
-# Register the 83 pure-delegation tools and pull in the shared annotation
-# constants used by the eight explicit wrappers below. Placed here (not at the
+# Register the 86 pure-delegation tools and pull in the shared annotation
+# constants used by the ten explicit wrappers below. Placed here (not at the
 # top) so it runs after this module's ``_get_current_backends`` /
 # ``_tool_error_boundary`` are defined: ``tool_registry`` imports those names
 # back from this module — a deliberate, well-ordered import cycle.
@@ -482,6 +486,64 @@ async def security_scan(
     result = await _security_scan(file_path, file_paths)
     await ctx.debug(f"security_scan files={result.files_scanned} findings={result.total_findings}")
     return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def security_autofix(
+    ctx: MCPContext,
+    file_path: str | None = None,
+    file_paths: list[str] | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Rewrite unsafe yaml.load() calls (SEC022) to yaml.safe_load(). Targets the literal yaml.load attribute call; calls that already pass an explicit Loader= are skipped (reported in the description). Defaults to preview mode (apply=False). Behavior-changing: safe_load rejects arbitrary tags/object construction that load permits. Related: security_scan."""
+    app = _get_current_backends()
+    result = await _security_autofix(app.pyright, file_path, file_paths, apply)
+    await ctx.debug(f"security_autofix edits={len(result.edits)} applied={result.applied}")
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Utility tools
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _build_server_status(multi_ctx: MultiWorkspaceContext) -> ServerStatus:
+    """Assemble a :class:`ServerStatus` from the lifespan registry state.
+
+    Pure and synchronous (no analysis round-trips) so it is directly testable
+    without the MCP context/boundary harness. ``degraded`` is True when no
+    loaded workspace has a live Pyright subprocess.
+    """
+    registry = multi_ctx.registry
+    workspaces = [
+        BackendLiveness(
+            workspace_root=str(wb.config.workspace_root),
+            initialized=wb.is_initialized,
+            pyright_running=wb.pyright.is_running,
+            jedi_ready=wb.jedi.is_ready,
+            rope_ready=wb.rope.is_ready,
+            python_executable=str(wb.config.python_executable),
+            pyright_executable=wb.config.pyright_executable,
+        )
+        for wb in registry.active_backends()
+    ]
+    return ServerStatus(
+        version=__version__,
+        cli_workspace_root=str(multi_ctx.cli_workspace_root) if multi_ctx.cli_workspace_root else None,
+        known_roots=[str(root) for root in registry.get_known_roots()],
+        active_workspaces=workspaces,
+        degraded=not any(w.pyright_running for w in workspaces),
+    )
+
+
+@mcp.tool(annotations=_READONLY)
+@_tool_error_boundary
+async def server_status(ctx: MCPContext) -> ServerStatus:
+    """Report read-only server health: version, known workspace roots, and per-workspace backend liveness (Pyright subprocess up, Jedi/rope ready). Use to tell whether results came from a healthy Pyright or a degraded Jedi fallback. Works even when no workspace is loaded. Probes are cheap and non-blocking. Related: list_environments, restart_server."""
+    status = _build_server_status(_get_multi_context(ctx))
+    await ctx.debug(f"server_status workspaces={len(status.active_workspaces)} degraded={status.degraded}")
+    return status
 
 
 # ═══════════════════════════════════════════════════════════════════════════

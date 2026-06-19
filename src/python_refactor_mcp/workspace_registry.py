@@ -62,6 +62,11 @@ class WorkspaceBackends:
         """Update last-accessed timestamp for LRU tracking."""
         self.last_accessed = time.monotonic()
 
+    @property
+    def is_initialized(self) -> bool:
+        """Whether this workspace's backend triad has been started."""
+        return self._initialized
+
 
 class WorkspaceRegistry:
     """Manages per-workspace backend instances with lazy init and LRU eviction.
@@ -137,6 +142,14 @@ class WorkspaceRegistry:
         if not self._workspaces:
             return None
         return max(self._workspaces.values(), key=lambda b: b.last_accessed)
+
+    def active_backends(self) -> list[WorkspaceBackends]:
+        """Return the currently-initialized workspace backends.
+
+        Read-only snapshot for status reporting; ordered by most-recently
+        accessed first. Does not touch LRU state or issue backend requests.
+        """
+        return sorted(self._workspaces.values(), key=lambda b: b.last_accessed, reverse=True)
 
     # ── Workspace resolution ─────────────────────────────────────────────
 
