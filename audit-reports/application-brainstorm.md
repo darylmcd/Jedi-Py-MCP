@@ -1,10 +1,12 @@
 # Application Brainstorm Report
 
 **Repo:** Jedi-Py-MCP
-**Generated:** 2026-05-27 (Pass 2); updated 2026-05-28 (Pass 4 — BRAIN-011..013); updated 2026-05-28 (Pass 5 — BRAIN-014..017, ops + parity lanes)
+**Generated:** 2026-05-27 (Pass 2); updated 2026-05-28 (Pass 4 — BRAIN-011..013); updated 2026-05-28 (Pass 5 — BRAIN-014..017, ops + parity lanes); updated 2026-06-19 (Pass 6 — BRAIN-018..022 via discovery-sweep; BRAIN-018/021 promoted to backlog)
 **HEAD at generation:** ba268b2a02def3fdc50004113cdf78e77295ee99
 **HEAD at Pass 4 update:** 10b36070cb62e1e8826b51c70effc9461e561803
 **HEAD at Pass 5 update:** 4c180c4e997a810a8675dfe2d1d8018e2ab1fe86
+**HEAD at Pass 6 update:** 62f7d3905c92df56208db582c3faaa0f20541d4d
+**last-run-HEAD:** 62f7d3905c92df56208db582c3faaa0f20541d4d
 **Source prompt:** `C:/Users/daryl/.claude/prompts/application-brainstorm-prompt.md`
 **Mode:** `mode=both record=auto web=auto` (Pass 5); market notes are local inference (no live browse)
 
@@ -183,13 +185,73 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 
 ## BRAIN-017 — Structured local operation log + support bundle
 
-- **Status:** research
+- **Status:** superseded
+- **Superseded-by:** BRAIN-020 (its `server_status` co-dependency shipped in #64, unblocking the framing)
 - **Horizon:** mid
 - **Shape:** ops / logging-diagnostics
 - **First slice:** none firm yet. Concept: an opt-in, local-only structured log of tool invocations (tool, args-summary, files touched, applied-vs-preview, backend used, duration, error) plus a `collect_support_bundle` action that bundles recent logs + a workspace/config snapshot for troubleshooting a misbehaving server.
 - **Why parked / lower confidence:** partial overlap with `get_refactoring_history` (which records refactor mutations for undo) — must scope to the non-overlapping value: ALL tool calls including failures and non-refactor reads, for support/debugging rather than user-facing undo. `PRIVACY.md` mandates no telemetry, so this must be strictly opt-in + local + redaction-aware. Needs a log-format + retention decision before a first slice exists.
 - **Cross-ref:** partial overlap `get_refactoring_history` (refactor-mutation subset) — note when promoting; do not duplicate the undo stack.
 - **Next checkpoint:** revisit if a real "the server returned wrong/empty results and I can't tell why" support case lands, or alongside BRAIN-016 (health) which shares the diagnostics surface.
+
+## BRAIN-018 — Structured error envelope at the MCP boundary (preserve backend class + error code)
+
+- **Status:** promoted
+- **Horizon:** near
+- **Shape:** ops / logging-diagnostics
+- **First slice:** Map each `BackendError` subclass (`PyrightError`/`JediError`/`RopeError`/`ConfigError`/`WorkspaceResolutionError`) to a stable string code and re-raise it from `_tool_error_boundary` carrying both the code and the human message, instead of the current bare `ValueError(str(exc))`. Message text stays identical; the code is additive.
+- **Why now:** `errors.py` already defines the typed hierarchy, but `server.py` `_tool_error_boundary` collapses every subclass to `ValueError(str(exc))`, discarding the class + any actionable code before the calling agent sees it. The just-shipped `server_status` (#64) gives health visibility; typed per-call failures complete the diagnostics story so an agent can route recovery (restart on `PyrightError`, surface a config fix on `ConfigError`).
+- **Risks / unknowns:** whether FastMCP's tool-error path can carry a structured `code`/`data` field without a protocol bump — kill criterion: if not, downgrade to message-prefix tagging.
+- **Cross-ref:** `cand-structured-error-envelope` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote. Distinct from `server_status` (health, not per-call provenance) and `pyright-position-request-param-merge-guard` (input merge).
+
+## BRAIN-019 — Generalize security_autofix into a per-code fixer dispatcher
+
+- **Status:** plan-first
+- **Horizon:** mid
+- **Shape:** existing-feature-improvement / security
+- **First slice:** A `SecurityFixer` protocol + registry: move the existing SEC022 (`yaml.load`→`yaml.safe_load`) rewrite behind it, add an advisory-annotation fixer for SEC010/011 (shell injection — no safe drop-in), and a dispatcher that consumes `SecurityScanResult` and routes each finding by `rule_id`. Deserialization codes (SEC020/021/023) stay flag-only.
+- **Why now:** `security_autofix` (shipped #64) handles only SEC022 via a single LibCST transformer; `tools/metrics/security.py` already detects a far larger code set with no fixer dispatch. The dispatcher turns the scanner from detect-only into a remediation surface for the whole catalog.
+- **Risks / unknowns:** most SEC codes have no behaviour-preserving auto-rewrite, so near-term payoff is mostly annotate+report; multi-finding atomic apply inherits the open `codemod-multifile-atomicity` gap.
+- **Depends on:** `codemod-multifile-atomicity` (Low) — gate the multi-finding atomic-apply slice behind it.
+- **Expansion seed:**
+  - *Smallest planning question:* one-rule-per-call (sidesteps the atomicity gap for v1) vs atomic multi-finding apply (blocked on `codemod-multifile-atomicity`)?
+  - *Likely backlog slices:* (1) `SecurityFixer` protocol + registry with SEC022 moved behind it; (2) advisory-annotation fixer for SEC010/011; (3) `SecurityScanResult`-consuming dispatcher with per-finding structured result; (4) atomic multi-finding apply once `codemod-multifile-atomicity` lands.
+  - *Supporting evidence:* `tools/refactoring/security_autofix.py`, `tools/metrics/security.py` (`_DANGEROUS_CALLS`, `SecurityScanResult`), `util/cst_apply.py`, change-stack tools.
+  - *Decision that makes it implementation-ready:* one-rule-per-call vs atomic-multi-finding for v1, and which codes are rewrite vs advisory-only.
+
+## BRAIN-020 — Opt-in structured operation log + collect_support_bundle (BRAIN-017 successor)
+
+- **Status:** plan-first
+- **Horizon:** mid
+- **Shape:** ops / logging-diagnostics
+- **First slice:** An opt-in (config-gated, default OFF) in-memory ring buffer recording per tool call: tool name, redacted args-summary, files touched, apply-vs-preview, backend used, duration, error-class; exposed via a read-only `recent_operations` tool. Defer the on-disk `collect_support_bundle` to slice 2.
+- **Why now:** evolves BRAIN-017 — its `server_status` co-dependency has now shipped (#64), clearing the main blocker. `server_status` gives point-in-time health but no history; `get_refactoring_history` records only refactor mutations for undo, not reads/failures/backend-used. When a tool returns thin/empty results (documented degraded mode: Pyright down → Jedi fallback), there is no after-the-fact record of which backend served the call.
+- **Risks / unknowns:** `PRIVACY.md` mandates no telemetry → must be strictly opt-in + local + redaction-aware; whether `_tool_error_boundary` can observe the backend actually used without an extra probe.
+- **Cross-ref:** supersedes BRAIN-017 (same idea, now unblocked). Partial overlap with `get_refactoring_history` — scope to the non-overlapping value (all calls incl. reads + failures, for support not undo).
+- **Expansion seed:**
+  - *Smallest planning question:* can `_tool_error_boundary` see which backend served a call (Pyright vs Jedi fallback) without an extra round-trip, or must each tool report its own `source`?
+  - *Likely backlog slices:* (1) opt-in in-memory operation ring buffer + `recent_operations` read tool; (2) redaction contract honouring `PRIVACY.md`; (3) `collect_support_bundle` persisting log + `server_status` + config snapshot.
+  - *Supporting evidence:* `server.py` `_tool_error_boundary` (timing already present), `server_status` (#64), `get_refactoring_history`/`HistoryEntry`, `PRIVACY.md`, `config.py`.
+  - *Decision that makes it implementation-ready:* in-memory-only vs persisted bundle for v1, and the redaction guarantee.
+
+## BRAIN-021 — Precise pytest node-ID resolution for test_impact_select
+
+- **Status:** promoted
+- **Horizon:** near
+- **Shape:** existing-feature-improvement
+- **First slice:** Resolve the enclosing class for a test caller and emit `<file>::<Class>::<method>` (reuse the class-name derivation already in `navigation/hierarchy.py`); leave parametrization to slice 2.
+- **Why now:** `test_impact.py` (shipped #59) builds node IDs as `<file>::<name>`, and its own docstring states parametrized + nested-class tests are not resolved to pytest's collected IDs. A bare `<file>::<name>` does not match pytest's collected ID for a class method, so the emitted invocation list can mis-target tests — undercutting a tool whose whole value is precision.
+- **Risks / unknowns:** whether call-hierarchy items reliably expose enclosing-class context cheaply — kill criterion: if not, document the limitation instead.
+- **Cross-ref:** `cand-test-impact-nodeid-precision` (Low) in `ai_docs/backlog.md`. Backlog row owns implementation; do NOT re-promote.
+
+## BRAIN-022 — Capabilities self-description tool (machine-readable tool/dry-run/contract manifest)
+
+- **Status:** research
+- **Horizon:** mid
+- **Shape:** integration / devex
+- **First slice:** none firm yet — research. Decide source of truth: derive a `describe_capabilities` manifest from the existing `ToolRecord` annotations (read-only vs mutating already encoded in `tool_registry.py`) at registration time, vs a hand-authored sidecar.
+- **Why now / why parked:** the server registers ~97 tools with a preview/apply convention (`apply: bool`, default False) spread across ~30 signatures, but no machine-readable manifest a consuming agent can query to learn which tools mutate, support dry-run, their stability tier, or error codes. Lower confidence: MCP's native `tools/list` may already expose enough (mutate/preview flags) to make a bespoke tool redundant — kill criterion if so. The repeated tool-count/category-consistency gates (#64/#65) are evidence the surface metadata is reconciled by hand today.
+- **Cross-ref:** none. Adjacent to `changelog-unreleased-tool-tally` (the manual-count pain this could automate) but distinct.
 
 ---
 
@@ -228,12 +290,17 @@ Durable home for forward-looking product/strategy/refactor ideas that survived P
 | BRAIN-014 | Structural find-and-replace codemod (`structural_replace`)   | promoted             | mid     | `cand-structural-replace`         |
 | BRAIN-015 | Annotation-preserving `change_signature` via LibCST          | promoted             | mid     | `cand-change-signature-cst` (unblocks `known-rope-annotations`) |
 | BRAIN-016 | Server health/status tool + backend-provenance              | promoted             | near    | `cand-server-status`              |
-| BRAIN-017 | Structured local operation log + support bundle             | research             | mid     | partial: `get_refactoring_history`|
+| BRAIN-017 | Structured local operation log + support bundle             | superseded           | mid     | superseded-by `BRAIN-020`         |
+| BRAIN-018 | Structured error envelope at the MCP boundary                | promoted             | near    | `cand-structured-error-envelope`  |
+| BRAIN-019 | Generalize security_autofix into per-code fixer dispatcher   | plan-first           | mid     | depends `codemod-multifile-atomicity` |
+| BRAIN-020 | Opt-in operation log + collect_support_bundle                | plan-first           | mid     | supersedes `BRAIN-017`            |
+| BRAIN-021 | Precise pytest node-IDs for test_impact_select               | promoted             | near    | `cand-test-impact-nodeid-precision` |
+| BRAIN-022 | Capabilities self-description tool                           | research             | mid     | —                                 |
 
 ## Merge / dedupe rules (for future passes)
 
 1. Match incoming ideas against existing BRAIN-NNN rows by title-similarity AND first-slice-similarity. If both match, update the existing row in-place (do not mint a new ID).
 2. If an existing row is `promoted` and a new variant arrives that meaningfully extends scope beyond the promoted slice, append the extension to the row's "Remaining brainstorm scope" section — do not re-promote.
 3. If an idea is superseded by a better framing, set `status: superseded` and add `Superseded-by: BRAIN-NNN` — never delete.
-4. IDs are append-only and globally monotonic. Next available ID after this generation: **BRAIN-018**.
+4. IDs are append-only and globally monotonic. Next available ID after this generation: **BRAIN-023**.
 5. Rejected/superseded ideas live in the `## Rejected / Superseded` section with verified evidence so future passes do not re-propose shipped capabilities.

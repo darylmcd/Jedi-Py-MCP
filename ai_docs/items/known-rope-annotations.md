@@ -1,6 +1,6 @@
 # known-rope-annotations — change_signature drops parameter default values
 
-**row:** `known-rope-annotations` · **pri:** `Low` · **size:** `S`
+**row:** `known-rope-annotations` · **pri:** `Low` · **size:** `M`
 
 ## Anchors
 
