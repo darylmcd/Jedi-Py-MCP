@@ -8,6 +8,40 @@ import pytest
 
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.models import SignatureOperation
+from python_refactor_mcp.tools.refactoring.signature_annotations import restore_param_annotations
+
+
+def _config(tmp_path: Path) -> ServerConfig:
+    return ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_change_signature_annotation_restore_end_to_end(tmp_path: Path) -> None:
+    """Real rope strips annotations on rename; the post-pass restores them."""
+    module = tmp_path / "m.py"
+    module.write_text("def greet(name: str, count: int = 3) -> str:\n    return name\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    ops = [SignatureOperation(op="rename", index=1, new_name="n")]
+    result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
+    edit = next(e for e in result.edits if Path(e.file_path).resolve() == module.resolve())
+
+    # Document the defect: rope drops the annotations rename touches.
+    assert "count: int" not in edit.new_text
+    # The post-pass restores: renamed param by original position, others by name.
+    fixed = restore_param_annotations(module.read_text(encoding="utf-8"), edit.new_text, 0, 4, ops)
+    assert "name: str" in fixed
+    assert "n: int" in fixed
+    assert "-> str:" in fixed
 
 
 @pytest.fixture

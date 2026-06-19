@@ -3,8 +3,8 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-19T20:07:57Z
-<!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace + hardened structural pattern compiler (RCE fix). -->
+**updated_at:** 2026-06-19T20:30:43Z
+<!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
      Date-only values (2026-01-01) are INVALID — they invite placeholder drift. -->
@@ -58,14 +58,14 @@
 |----|-----|------|----|------|--------|
 | refactor-tool-error-boundary-decomposition | Medium | — | **Decompose `_tool_error_boundary`/`_wrapped`** — extract `_resolve_backends` + `_validate_params` from the repo's highest-complexity closure; keep timing + error translation in a thin wrapper. [type: refactor] [source: discovery-sweep-20260528] | S | items/refactor-tool-error-boundary-decomposition.md |
 | mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
-| cand-change-signature-cst | Medium | — | **Annotation-preserving `change_signature` (LibCST)** — param rename/reorder without stripping PEP 484/585 annotations; unblocks `known-rope-annotations`. Slice 1: rename+reorder on def+call sites, dry-run. [type: defect] [source: brainstorm-BRAIN-015] | M | items/cand-change-signature-cst.md |
 | cand-refactor-transaction | Medium | — | **New tool `refactor_transaction`** — ordered `(tool,args)` preview list applied atomically under one change-stack; abort-and-rollback on overlap or mid-sequence failure. [type: enhancement] [source: brainstorm-BRAIN-012] | M | items/cand-refactor-transaction.md |
 
 ## Low
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| known-rope-annotations | Low | — | **`change_signature` strips type annotations** — rope `ArgumentNormalizer` limitation; blocked on rope upstream. Unblock path: `cand-change-signature-cst` (LibCST workaround) — coordinate, don't duplicate. [type: known-limitation] [source: inline-callsite-doc] | S | items/known-rope-annotations.md |
+| known-rope-annotations | Low | — | **`change_signature` strips defaults** — type annotations are now restored via the CST post-pass (`signature_annotations.py`, shipped); rope still drops default values on rename/normalize. Residual tracked by `cand-change-signature-cst`. [type: known-limitation] [source: inline-callsite-doc] | S | items/known-rope-annotations.md |
+| cand-change-signature-cst | Low | — | **`change_signature` defaults + combined-op edge** — annotation restore shipped (CST post-pass); remaining: preserve default values rope drops, and restore the renamed-param annotation under combined reorder+rename. [type: defect] [source: brainstorm-BRAIN-015] | M | items/cand-change-signature-cst.md |
 | cand-convert-to-dataclass | Low | — | **New tool `convert_to_dataclass`** — modernize a plain class to `@dataclass`, field types from Pyright inference, on the CST apply foundation. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-convert-to-dataclass.md |
 | cand-extract-class | Low | — | **New tool `extract_class`** — move a cohesive subset of fields/methods into a new collaborator class via the CST foundation (rope 1.14 has no ExtractClass). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-extract-class.md |
 | cand-convert-function-method | Low | — | **Symmetric tools `convert_function_to_method` / `convert_method_to_function`** — CST transform + caller rewrites via `find_references`. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-convert-function-method.md |

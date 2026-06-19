@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from python_refactor_mcp.models import RefactorResult, SignatureOperation
+from python_refactor_mcp.models import RefactorResult, SignatureOperation, TextEdit
 
 from .helpers import post_apply_diagnostics
 from .rename import ensure_renameable
+from .signature_annotations import restore_param_annotations
 
 if TYPE_CHECKING:
     from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -23,10 +25,37 @@ async def change_signature(
     operations: list[SignatureOperation],
     apply: bool = False,
 ) -> RefactorResult:
-    """Apply ordered signature operations and update call sites."""
+    """Apply ordered signature operations and update call sites.
+
+    rope re-emits the parameter list without type annotations on several
+    operations; a LibCST post-pass re-attaches the dropped annotations on the
+    definition before the edits are written. rope runs in preview; the
+    corrected edits are applied (with rollback) only when ``apply`` is set.
+    """
     await ensure_renameable(pyright, file_path, line, character)
-    result = await rope.change_signature(file_path, line, character, operations, apply)
-    return await post_apply_diagnostics(pyright, result)
+    result = await rope.change_signature(file_path, line, character, operations, False)
+
+    target = str(Path(file_path).resolve())
+    corrected: list[TextEdit] = []
+    for edit in result.edits:
+        if str(Path(edit.file_path).resolve()) == target:
+            # Lazily read the original only when there is a definition-file edit.
+            original_src = Path(edit.file_path).read_text(encoding="utf-8")
+            fixed_text = restore_param_annotations(original_src, edit.new_text, line, character, operations)
+            corrected.append(edit.model_copy(update={"new_text": fixed_text}) if fixed_text != edit.new_text else edit)
+        else:
+            corrected.append(edit)
+
+    files_affected = sorted({edit.file_path for edit in corrected})
+    if apply and corrected:
+        rope.apply_edits(corrected)
+    final = RefactorResult(
+        edits=corrected,
+        files_affected=files_affected,
+        description=result.description,
+        applied=apply and bool(corrected),
+    )
+    return await post_apply_diagnostics(pyright, final)
 
 
 async def introduce_parameter(

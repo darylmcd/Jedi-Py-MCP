@@ -225,6 +225,15 @@ class RopeBackend:
             )
         return edits
 
+    def apply_edits(self, edits: list[TextEdit]) -> list[str]:
+        """Apply pre-computed text edits to disk with rollback on failure.
+
+        Public entry so tools that post-process rope's preview edits (e.g.
+        annotation-preserving ``change_signature``) can write the corrected
+        edits through the same rollback-capable path rope uses internally.
+        """
+        return self._apply_edits(edits)
+
     def _apply_edits(self, edits: list[TextEdit]) -> list[str]:
         """Apply pre-computed text edits to disk with rollback on failure."""
         # Capture originals for rollback.
@@ -466,10 +475,13 @@ class RopeBackend:
 
         .. note::
 
-            Rope's ``ArgumentNormalizer`` and ``ArgumentAdder`` do **not**
-            preserve Python 3 type annotations on modified parameters.
-            The ``normalize`` operation and ``rename`` (remove + re-add)
-            may strip annotations.  This is a known upstream rope limitation.
+            Rope's ``ArgumentNormalizer`` / ``ArgumentAdder`` re-emit the
+            parameter list without Python 3 type annotations *or default
+            values* (affects ``normalize`` / ``rename`` / ``reorder`` /
+            ``add`` / ``remove``). The tool layer
+            (``tools/refactoring/signature.py``) runs a LibCST post-pass that
+            restores the **annotations**; default-value loss is still a known
+            residual (backlog ``cand-change-signature-cst``).
         """
 
         def _work() -> RefactorResult:
