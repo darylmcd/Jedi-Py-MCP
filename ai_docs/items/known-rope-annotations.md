@@ -1,20 +1,21 @@
-# known-rope-annotations — change_signature strips Python 3 type annotations
+# known-rope-annotations — change_signature drops parameter default values
 
 **row:** `known-rope-annotations` · **pri:** `Low` · **size:** `S`
 
 ## Anchors
 
-- `src/python_refactor_mcp/backends/rope_backend.py`
+- `src/python_refactor_mcp/backends/rope_backend.py` (rope `ArgumentNormalizer`/`ArgumentAdder` re-emit params without annotations *or defaults*)
+- `src/python_refactor_mcp/tools/refactoring/signature_annotations.py` (the shipped annotation-restore post-pass — extend here for defaults)
 
 ## Acceptance
 
-- [ ] Either rope upstream ships an `ArgumentNormalizer` that preserves annotations (bump + verify), or an in-repo post-pass restores annotations after normalization.
-- [ ] Regression test: `change_signature` on an annotated function preserves all parameter annotations.
+- [ ] `change_signature` on a function with parameter defaults preserves those defaults on rename/normalize (defaults are currently dropped by rope and NOT yet restored).
+- [ ] Regression test covering default-value preservation.
 
 ## Evidence
 
-- Documented inline at the call site in `rope_backend.py`.
+- Type annotations are now restored by the LibCST post-pass (shipped). Verified residual: rope's rename/normalize also strips default values (`def greet(name: str, count: int = 3)` → rename `count`→`n` loses the `= 3`). The post-pass restores annotations only (slice 1).
 
 ## Context
 
-- Blocked on rope upstream (`ArgumentNormalizer` behaviour); no workaround in current rope. Dep recorded here because v15 `deps` cells accept backlog row ids only.
+- The annotation strip — the original user-visible defect — is fixed. This row now tracks only the default-value residual; coordinate with `cand-change-signature-cst`.

@@ -47,6 +47,6 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 
 ## Known Gaps
 
-- `change_signature` strips Python 3 type annotations during normalization (rope `ArgumentNormalizer` upstream limitation). Documented in `src/python_refactor_mcp/backends/rope_backend.py`.
+- `change_signature` no longer strips Python 3 type annotations — a LibCST post-pass (`tools/refactoring/signature_annotations.py`) restores annotations rope's `ArgumentNormalizer`/`ArgumentAdder` drop. **Residual:** rope still drops parameter *default values* on rename/normalize, and the renamed parameter's annotation is not restored under combined reorder+rename. Tracked by `cand-change-signature-cst`.
 - `list_environments` may return empty results depending on virtualenv layout (known Jedi discovery limitation).
 - Pyright diagnostics on lines with `# type: ignore` may still surface in tool results (LSP filtering limitation).
