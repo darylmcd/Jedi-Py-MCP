@@ -1,11 +1,11 @@
 # Python Refactor Domain Reference
-<!-- purpose: Domain reference — 96 tools, workflows, key models for python-refactor-mcp. -->
+<!-- purpose: Domain reference — 97 tools, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
 ## Core Files
 
-- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (96 tools)
+- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (97 tools)
 - `src/python_refactor_mcp/config.py` — runtime config discovery
 - `src/python_refactor_mcp/models.py` — shared Pydantic response models
 - `src/python_refactor_mcp/backends/pyright_lsp.py` — Pyright LSP backend
@@ -14,7 +14,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/` — tool orchestration modules
 - `src/python_refactor_mcp/util/` — LSP client, diff helpers, shared utilities
 
-## Tool Surface (96 tools)
+## Tool Surface (97 tools)
 
 The canonical tool list is `server.py`. Tools are organized into these categories:
 
@@ -27,8 +27,8 @@ The canonical tool list is `server.py`. Tools are organized into these categorie
 ### Refactoring (33 tools)
 `rename_symbol`, `prepare_rename`, `extract_method`, `extract_superclass`, `extract_variable`, `inline_variable`, `inline_method`, `inline_parameter`, `move_symbol`, `move_module`, `move_method`, `introduce_parameter`, `encapsulate_field`, `local_to_field`, `method_object`, `introduce_factory`, `module_to_package`, `generate_code`, `change_signature`, `argument_normalizer`, `argument_default_inliner`, `restructure`, `use_function`, `apply_code_action`, `organize_imports`, `format_code`, `apply_lint_fixes`, `apply_type_annotations`, `expand_star_imports`, `relatives_to_absolutes`, `froms_to_imports`, `handle_long_imports`, `fix_module_names`
 
-### Search (9 tools)
-`find_constructors`, `search_symbols`, `structural_search`, `dead_code_detection`, `unused_symbol_sweep`, `suggest_imports`, `autoimport_search`, `find_unused_imports`, `project_search`
+### Search (10 tools)
+`find_constructors`, `search_symbols`, `structural_search`, `structural_replace`, `dead_code_detection`, `unused_symbol_sweep`, `suggest_imports`, `autoimport_search`, `find_unused_imports`, `project_search`
 
 ### Metrics & Architecture (10 tools)
 `code_metrics`, `get_type_coverage`, `get_coupling_metrics`, `get_module_dependencies`, `check_layer_violations`, `interface_conformance`, `extract_protocol`, `find_duplicated_code`, `find_errors_static`, `get_test_coverage_map`

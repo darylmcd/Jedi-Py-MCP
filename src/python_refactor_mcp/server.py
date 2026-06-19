@@ -34,6 +34,7 @@ from python_refactor_mcp.tools import analysis, metrics, navigation, refactoring
 from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
 from python_refactor_mcp.tools.refactoring.security_autofix import security_autofix as _security_autofix
+from python_refactor_mcp.tools.search.structural import structural_replace as _structural_replace
 from python_refactor_mcp.util.shared import apply_limit, validate_identifier, validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
@@ -285,7 +286,7 @@ mcp = FastMCP(
 )
 
 # Register the 86 pure-delegation tools and pull in the shared annotation
-# constants used by the ten explicit wrappers below. Placed here (not at the
+# constants used by the eleven explicit wrappers below. Placed here (not at the
 # top) so it runs after this module's ``_get_current_backends`` /
 # ``_tool_error_boundary`` are defined: ``tool_registry`` imports those names
 # back from this module — a deliberate, well-ordered import cycle.
@@ -500,6 +501,23 @@ async def security_autofix(
     app = _get_current_backends()
     result = await _security_autofix(app.pyright, file_path, file_paths, apply)
     await ctx.debug(f"security_autofix edits={len(result.edits)} applied={result.applied}")
+    return result
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+@_tool_error_boundary
+async def structural_replace(
+    ctx: MCPContext,
+    pattern: str,
+    replacement: str,
+    file_path: str | None = None,
+    file_paths: list[str] | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Find structural matches with a LibCST matcher pattern and rewrite them. The pattern uses the same matcher DSL as structural_search (e.g. m.Call(func=m.Attribute(value=m.Name('logger'), attr=m.Name('warn')), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])); capture sub-nodes with m.SaveMatchedNode(matcher, 'name') and reference them in the replacement template as $name (e.g. 'logger.warning($a)'). Expression-position matches only. Requires file_path or file_paths; defaults to preview mode (apply=False). Related: structural_search, restructure."""
+    app = _get_current_backends()
+    result = await _structural_replace(app.pyright, pattern, replacement, file_path, file_paths, apply)
+    await ctx.debug(f"structural_replace edits={len(result.edits)} applied={result.applied}")
     return result
 
 

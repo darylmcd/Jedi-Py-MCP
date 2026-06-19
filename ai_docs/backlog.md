@@ -3,8 +3,8 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-19T18:49:33Z
-<!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift (rows removed; see CHANGELOG [Unreleased]). -->
+**updated_at:** 2026-06-19T20:07:57Z
+<!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace + hardened structural pattern compiler (RCE fix). -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
      Date-only values (2026-01-01) are INVALID — they invite placeholder drift. -->
@@ -58,7 +58,6 @@
 |----|-----|------|----|------|--------|
 | refactor-tool-error-boundary-decomposition | Medium | — | **Decompose `_tool_error_boundary`/`_wrapped`** — extract `_resolve_backends` + `_validate_params` from the repo's highest-complexity closure; keep timing + error translation in a thin wrapper. [type: refactor] [source: discovery-sweep-20260528] | S | items/refactor-tool-error-boundary-decomposition.md |
 | mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
-| cand-structural-replace | Medium | — | **New tool `structural_replace`** — reuse the `structural_search` AST matcher + `cst_apply` to rewrite shaped matches; slice 1 single-metavariable (`logger.warn($X)`→`logger.warning($X)`), preview-default + rollback. [type: enhancement] [source: brainstorm-BRAIN-014] | M | items/cand-structural-replace.md |
 | cand-change-signature-cst | Medium | — | **Annotation-preserving `change_signature` (LibCST)** — param rename/reorder without stripping PEP 484/585 annotations; unblocks `known-rope-annotations`. Slice 1: rename+reorder on def+call sites, dry-run. [type: defect] [source: brainstorm-BRAIN-015] | M | items/cand-change-signature-cst.md |
 | cand-refactor-transaction | Medium | — | **New tool `refactor_transaction`** — ordered `(tool,args)` preview list applied atomically under one change-stack; abort-and-rollback on overlap or mid-sequence failure. [type: enhancement] [source: brainstorm-BRAIN-012] | M | items/cand-refactor-transaction.md |
 
@@ -74,6 +73,7 @@
 | cand-docstring-sync | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | M | items/cand-docstring-sync.md |
 | pyright-position-request-param-merge-guard | Low | — | **Harden `_position_request` envelope merge** — stop `extra_params` from clobbering `textDocument`/`position` (base keys win or `ValueError`); latent only. [type: defect] [source: backlog-sweep-20260528-pr50] | S | items/pyright-position-request-param-merge-guard.md |
 | jedi-hierarchy-swallowed-exceptions | Low | — | **Document/narrow 8 best-effort exception swallows** — `jedi_backend.py` (6) + `hierarchy.py` (2): narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260528] | M | items/jedi-hierarchy-swallowed-exceptions.md |
+| codemod-multifile-atomicity | Low | — | **Multi-file codemod apply is non-atomic** — `security_autofix`/`structural_replace` write each file in-loop; a later failure leaves earlier files written with no result returned. Roll back or report partial writes (shared helper). [type: defect] [source: structural-replace-impl-review-20260619] | M | items/codemod-multifile-atomicity.md |
 | cand-rename-cst-alias | Low | — | **LibCST alias-aware `rename_symbol` variant** — rewrite `import X as Y` / `from m import X as Y` rebindings rope/Jedi miss; abort on alias collision; dry-run. [type: enhancement] [source: brainstorm-BRAIN-001] | M | items/cand-rename-cst-alias.md |
 | cand-fix-circular-imports | Low | — | **New tool: auto-fix circular imports** — detect cycles via `get_module_dependencies`, hoist type-only edge imports into `if TYPE_CHECKING:` + stringify annotations; conservative, dry-run mandatory. [type: enhancement] [source: brainstorm-BRAIN-004] | M | items/cand-fix-circular-imports.md |
 | cand-cross-project-rename-topo | Low | — | **Order `multi_project_rename` by reverse-topo** — build cross-project import graph; apply downstream-before-upstream; abort on inter-project cycle. Correctness fix (today: arbitrary order). [type: defect] [source: brainstorm-BRAIN-009] | M | items/cand-cross-project-rename-topo.md |
