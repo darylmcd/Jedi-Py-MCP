@@ -95,6 +95,10 @@ def compile_pattern(pattern: str) -> m.BaseMatcherNode:
     Dunder attribute access and subscripts are rejected to close the
     sandbox-escape / arbitrary-code-execution vector. Raises ``ValueError`` on
     any invalid or disallowed pattern.
+
+    Predicate matchers that take a Python callable (e.g. ``m.MatchIfTrue(...)``)
+    are intentionally unsupported: a ``lambda`` in the pattern would re-open
+    arbitrary code execution, so ``ast.Lambda`` is not on the allowlist.
     """
     translated = _translate_simplified_pattern(pattern)
     effective_pattern = translated if translated is not None else pattern
