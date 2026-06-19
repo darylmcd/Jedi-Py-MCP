@@ -1,6 +1,6 @@
 # Tool Reference
 
-96 MCP tools organized by category.
+97 MCP tools organized by category.
 
 ## Analysis (18)
 
@@ -78,13 +78,14 @@
 | `handle_long_imports` | Break long import lines into shorter form. | `RefactorResult` |
 | `fix_module_names` | Fix incorrect module references across the workspace. | `RefactorResult` |
 
-## Search (9)
+## Search (10)
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |
 | `search_symbols` | Search workspace symbols by name across semantic backends. | `list[SymbolInfo]` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
+| `structural_replace` | Rewrite LibCST matcher matches using `$name` capture templates. | `RefactorResult` |
 | `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |
 | `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `list[DeadCodeItem]` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
