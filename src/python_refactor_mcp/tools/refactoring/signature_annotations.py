@@ -85,13 +85,28 @@ def _fill(
     out: list[cst.Param] = []
     for param in params:
         if param.annotation is None:
-            restored = by_name.get(param.name.value)
-            if restored is None and param.name.value in rename_index:
+            # A renamed parameter must take its annotation from the ORIGINAL
+            # position — never a by-name match, whose name may now alias a
+            # different original parameter after a name swap (e.g. b->q, a->b).
+            restored: cst.Annotation | None = None
+            if param.name.value in rename_index:
                 idx = rename_index[param.name.value]
                 if 0 <= idx < len(by_pos):
                     restored = by_pos[idx]
+            if restored is None:
+                restored = by_name.get(param.name.value)
             if restored is not None:
-                param = param.with_changes(annotation=restored)
+                if param.default is not None:
+                    # PEP 8: an annotated parameter with a default uses ' = '.
+                    param = param.with_changes(
+                        annotation=restored,
+                        equal=cst.AssignEqual(
+                            whitespace_before=cst.SimpleWhitespace(" "),
+                            whitespace_after=cst.SimpleWhitespace(" "),
+                        ),
+                    )
+                else:
+                    param = param.with_changes(annotation=restored)
                 changed = True
         out.append(param)
     return out, changed

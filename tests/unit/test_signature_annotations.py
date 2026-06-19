@@ -38,6 +38,29 @@ def test_rename_restores_renamed_param_by_index() -> None:
     assert "verbose: bool" in out
 
 
+def test_name_swap_rename_uses_original_position_not_alias() -> None:
+    # BLOCKER regression: rename b->q then a->b. `b`'s annotation must come from
+    # original position 0 (int), NOT a by-name match against the old `b` (str).
+    original = "def f(a: int, b: str, c: bool) -> None:\n    return None\n"
+    stripped = "def f(b, q, c) -> None:\n    return None\n"
+    ops = [
+        SignatureOperation(op="rename", index=1, new_name="q"),
+        SignatureOperation(op="rename", index=0, new_name="b"),
+    ]
+    out = restore_param_annotations(original, stripped, 0, 4, ops)
+    assert "b: int" in out  # original position 0
+    assert "q: str" in out  # original position 1
+    assert "c: bool" in out
+    assert "b: str" not in out  # the wrong-annotation bug
+
+
+def test_annotated_default_keeps_pep8_spacing() -> None:
+    stripped = "def greet(name, count=3, verbose=False) -> str:\n    return name\n"
+    out = _restore(stripped, [SignatureOperation(op="normalize")])
+    assert "count: int = 3" in out  # not "count: int=3"
+    assert "verbose: bool = False" in out
+
+
 def test_add_leaves_new_param_unannotated() -> None:
     stripped = "def greet(name, count=3, verbose=False, extra=None) -> str:\n    return name\n"
     out = _restore(stripped, [SignatureOperation(op="add", index=3, name="extra", default="None")])

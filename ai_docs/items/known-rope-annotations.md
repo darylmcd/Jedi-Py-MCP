@@ -14,7 +14,7 @@
 
 ## Evidence
 
-- Type annotations are now restored by the LibCST post-pass (shipped). Verified residual: rope's rename/normalize also strips default values (`def greet(name: str, count: int = 3)` → rename `count`→`n` loses the `= 3`). The post-pass restores annotations only (slice 1).
+- Type annotations are now restored by the LibCST post-pass (shipped). Verified residual: rope's `rename` also strips the renamed parameter's default value (`def greet(name: str, count: int = 3)` → rename `count`→`n` loses the `= 3`). The post-pass restores annotations only (slice 1).
 
 ## Context
 
