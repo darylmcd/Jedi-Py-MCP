@@ -17,14 +17,14 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Host OS | Windows-first |
 | Shell | PowerShell |
 | Virtual environment | `.venv` |
-| Hosted CI | `.github/workflows/ci.yml` — lint, Pyright, mypy, unit tests, integration tests on Python 3.14 (Windows) |
+| Hosted CI | `.github/workflows/ci.yml` — lint, Pyright, mypy, unit + contract tests, integration tests on Python 3.14 (Windows) |
 | Task runner | `justfile` |
 | `rg` availability | Not installed |
 
 ## Canonical Runner
 
 - `just --list`: lists every supported recipe.
-- `just validate`: fast pre-push check (`ruff` + `pyright` + unit tests).
+- `just validate`: fast pre-push check (`ruff` + `pyright` + unit + contract tests).
 - `just ci`: exact local mirror of the hosted CI validate job.
 - `just full`: full local validation surface, currently the same as `just ci`.
 
@@ -35,7 +35,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Lint | `python -m ruff check .` | `just lint` |
 | Type check (Pyright) | `python -m pyright .` | `just typecheck` |
 | Type check (mypy) | `python -m mypy .` | `just typecheck-mypy` |
-| Unit tests | `python -m pytest tests/unit/ -v` | `just test` |
+| Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v` | `just test` |
 | Integration tests | `./scripts/test-integration.ps1` | `just test-integration` |
 | Local CI mirror | aggregate: lint + pyright + mypy + unit + integration | `just ci` |
 | Build executable (directory bundle) | `./scripts/build.ps1` | `just build-release` |
@@ -78,7 +78,7 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 3. Run `ruff`.
 4. Run `pyright`.
 5. Run `mypy`.
-6. Run unit tests.
+6. Run unit + contract tests.
 7. Run integration tests.
 
 ## Policy Boundaries

@@ -51,6 +51,9 @@ async def test_destructive_tools_have_apply_parameter() -> None:
         "prepare_rename", "diff_preview", "create_type_stubs", "autoimport_search",
         "restart_server", "undo_refactoring", "redo_refactoring",
         "begin_change_stack", "commit_change_stack", "rollback_change_stack",
+        # Atomic multi-tool transaction: commits all steps under one change-stack
+        # or rolls back — an immediately-acting stack operation, no preview/apply split.
+        "refactor_transaction",
     }
     for tool in tools:
         if tool.annotations and not tool.annotations.readOnlyHint and tool.name not in skip_tools:

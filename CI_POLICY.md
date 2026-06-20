@@ -6,7 +6,7 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 
 - Local quality commands are defined and runnable.
 - Hosted CI is configured in `.github/workflows/ci.yml` and runs lint, type
-	checking, unit tests, and integration tests on Python 3.14 (Windows).
+	checking, unit + contract tests, and integration tests on Python 3.14 (Windows).
 - The CI job mirrors the local validation table exactly; update both together
 	when commands or tooling change.
 
@@ -17,7 +17,7 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 | Lint | python -m ruff check . |
 | Type check (Pyright) | python -m pyright . |
 | Type check (mypy) | python -m mypy . |
-| Unit tests | python -m pytest tests/unit/ -v |
+| Unit + contract tests | python -m pytest tests/unit/ tests/contract/ -v |
 | Integration tests | ./scripts/test-integration.ps1 |
 
 ## Validation Contract

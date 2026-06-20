@@ -28,9 +28,9 @@ build-onefile:
 
 # --- Test ---
 
-# Run unit tests
+# Run unit + contract tests (both are fast, in-process)
 test:
-    {{ python }} -m pytest tests/unit/ -v
+    {{ python }} -m pytest tests/unit/ tests/contract/ -v
 
 # Run integration tests
 test-integration:
