@@ -14,7 +14,7 @@
 
 ## Evidence
 
-- `tool-position-base-convention-docs` (#72) code-quality review (2026-06-20): the shipped gate's `{line, start_line}` selector cannot see `positions: list[Position]` schemas. Live surface: 98 tools, 40 selected; `selection_range` excluded and undocumented while both unit tests pass green (vacuous skip). The `Position` model's own description already documents the convention, so callers are not wholly uninformed — this row closes the description + gate gap.
+- `tool-position-base-convention-docs` (#72) code-quality review (2026-06-20): the shipped gate's `{line, start_line}` selector cannot see `positions: list[Position]` schemas. The selector matched 40 position tools; `selection_range` was excluded and left undocumented while both unit tests passed green (vacuous skip). The `Position` model's own description already documents the convention, so callers are not wholly uninformed — this row closes the description + gate gap.
 
 ## Context
 
