@@ -24,7 +24,7 @@ dev = [
   "pytest>=9.0",
   "pytest-asyncio>=1.4",
   "ruff>=0.15",
-  "mypy>=1.13",
+  "mypy>=2.0",
 ]
 build = [
   "pyinstaller>=6.19",
@@ -66,12 +66,3 @@ python_version = "3.14"
 strict = true
 packages = ["python_refactor_mcp"]
 exclude = ["tests/.*", "build/.*", "dist/.*"]
-
-# The MCP tool wrappers in server.py and the delegate table in tool_registry.py
-# both annotate the injected context as the bare generic ``MCPContext`` (= FastMCP
-# ``Context``); the framework supplies the type parameters at call time, so the
-# strict ``type-arg`` check (and the resulting ``unused-ignore`` noise) is waived
-# for exactly these two modules.
-[[tool.mypy.overrides]]
-module = ["python_refactor_mcp.server", "python_refactor_mcp.tool_registry"]
-disable_error_code = ["type-arg", "unused-ignore"]

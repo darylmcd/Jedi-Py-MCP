@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
@@ -83,7 +83,16 @@ class MultiWorkspaceContext:
 
 
 _workspace_root: Path | None = None
-MCPContext = Context  # type: ignore[type-arg]
+# FastMCP's ``find_context_parameter`` only strips the injected ``ctx`` from a
+# tool's public input schema when the parameter resolves to the *bare* ``Context``
+# class (it does not recognise a parametrised ``Context[...]`` alias). So at
+# runtime ``MCPContext`` MUST be that bare class. Under the type checker we alias
+# it to the fully-parametrised form instead, which satisfies mypy strict's
+# ``type-arg`` rule without a per-line ignore or a module-wide override.
+if TYPE_CHECKING:
+    MCPContext = Context[Any, Any, Any]
+else:
+    MCPContext = Context
 
 # ContextVar set by _tool_error_boundary so tool functions can read their
 # resolved WorkspaceBackends without signature changes.

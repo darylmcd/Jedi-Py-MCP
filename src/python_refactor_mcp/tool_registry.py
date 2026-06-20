@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
@@ -94,7 +94,14 @@ from python_refactor_mcp.tools import analysis, composite, metrics, navigation, 
 # server<->tool_registry cycle order-independent: whichever module is imported
 # first finishes defining the names the other needs before triggering it.
 
-MCPContext = Context  # type: ignore[type-arg]
+# See server.py for the rationale: FastMCP only strips the injected ``ctx`` from
+# a tool's input schema when the parameter resolves to the *bare* ``Context``
+# class, so it MUST be that class at runtime. The type checker sees the
+# fully-parametrised form, satisfying mypy strict's ``type-arg`` rule.
+if TYPE_CHECKING:
+    MCPContext = Context[Any, Any, Any]
+else:
+    MCPContext = Context
 
 # Tool annotation constants. Defined here (the registration owner) and re-imported
 # by ``server.py`` for its eight explicit wrappers. Keeping the definitions in this
