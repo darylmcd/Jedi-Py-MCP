@@ -47,8 +47,8 @@ jobs:
       - name: Type check (mypy)
         run: .\.venv\Scripts\python -m mypy .
 
-      - name: Unit tests
-        run: .\.venv\Scripts\python -m pytest tests/unit/ -v
+      - name: Unit + contract tests
+        run: .\.venv\Scripts\python -m pytest tests/unit/ tests/contract/ -v
 
       - name: Integration tests
         run: .\scripts\test-integration.ps1

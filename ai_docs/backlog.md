@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-20T03:58:08Z
+**updated_at:** 2026-06-20T04:21:58Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
@@ -86,6 +86,7 @@
 | cand-test-impact-nodeid-precision | Low | — | **Precise pytest node-IDs for test_impact_select** — emit `file::Class::method` for class-based test callers (reuse hierarchy.py class derivation); parametrized cases stay slice 2. [type: enhancement] [source: BRAIN-021 · audit-reports/application-brainstorm.md] | S | items/cand-test-impact-nodeid-precision.md |
 | refactor-transaction-path-format-unify | Low | — | **Unify `refactor_transaction` result path formatting** — `files_affected` (backend `_absolute_path`) vs `diffs[].file_path` (composite `Path.resolve()`) can differ in case/separator on Windows; route both through one helper. [type: defect] [source: pr70-cq-review-20260620] | M | items/refactor-transaction-path-format-unify.md |
 | pyright-validate-position-redundant-read | Low | — | **`_validate_position` redundant full-file read** — reuse `ensure_file_open`'s content instead of a second `read_text` per call on the ~12-tool position hot path; negligible vs LSP cost (hygiene). [type: refactor] [source: pr71-cq-review-20260620] | S | items/pyright-validate-position-redundant-read.md |
+| refactor-transaction-workspace-resolution | Low | — | **`refactor_transaction` ignores nested step paths for workspace resolution** — resolve the workspace from `steps[].args.file_path` instead of most-recent/CLI fallback; today a file in a non-most-recent workspace raises a confusing "outside workspace root". [type: defect] [source: pr70-coldreview-20260620] | S | items/refactor-transaction-workspace-resolution.md |
 
 ## Defer
 
