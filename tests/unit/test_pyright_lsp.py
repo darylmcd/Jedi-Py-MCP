@@ -12,6 +12,7 @@ import pytest
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient, path_to_uri, uri_to_path
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import PyrightError
 from python_refactor_mcp.models import CallHierarchyItem, Position, Range
 from python_refactor_mcp.util.lsp_client import (
     JSONDict,
@@ -617,7 +618,12 @@ def _position_harness(
 ) -> tuple[PyrightClientHarness, FakeLSPClient, Path]:
     """Build a Pyright harness with a fake transport seeded with ``responses``."""
     sample = tmp_path / "sample.py"
-    sample.write_text("value = other\n", encoding="utf-8")
+    # Four lines (0-3), each wide enough that the coordinates exercised by the
+    # envelope-shape tests below (e.g. line 3 / char 7) stay in range.
+    sample.write_text(
+        "value = other\nalpha = beta\ngamma = delta\nepsilon = zeta\n",
+        encoding="utf-8",
+    )
 
     config = ServerConfig(
         workspace_root=tmp_path,
@@ -734,3 +740,66 @@ async def test_position_request_declaration_fallback_to_definition_preserved(tmp
     assert "textDocument/declaration" in requested
     assert "textDocument/definition" in requested
     assert len(locations) == 1
+
+
+@pytest.mark.asyncio
+async def test_position_request_rejects_line_beyond_eof(tmp_path: Path) -> None:
+    """An out-of-range line raises a structured error instead of a silent empty result."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/references": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    with pytest.raises(PyrightError, match="position out of range"):
+        await backend.get_references(str(sample), 999_999, 0, include_declaration=True)
+
+    # The bad coordinate must short-circuit before any LSP round-trip.
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/references" not in requested
+
+
+@pytest.mark.asyncio
+async def test_position_request_rejects_character_beyond_line_length(tmp_path: Path) -> None:
+    """A character past the line's end raises a structured error, not a silent empty result."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    # Line 0 is "value = other" (13 chars); character 99 is past its end.
+    with pytest.raises(PyrightError, match="position out of range"):
+        await backend.get_definition(str(sample), 0, 99)
+
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/definition" not in requested
+
+
+@pytest.mark.asyncio
+async def test_position_request_rejects_negative_coordinate(tmp_path: Path) -> None:
+    """A negative line or character raises a structured error."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    with pytest.raises(PyrightError, match="position out of range"):
+        await backend.get_definition(str(sample), -1, 0)
+
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/definition" not in requested
+
+
+@pytest.mark.asyncio
+async def test_position_request_allows_in_range_zero_result(tmp_path: Path) -> None:
+    """A valid in-range coordinate with no results still returns empty (happy path preserved)."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/references": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+
+    # Line 3 "epsilon = zeta" is valid; character 14 == end-of-line is allowed.
+    references = await backend.get_references(str(sample), 3, 14, include_declaration=True)
+
+    assert references == []
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/references" in requested
