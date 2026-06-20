@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-20T03:27:56Z
+**updated_at:** 2026-06-20T03:51:29Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
@@ -57,7 +57,6 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
-| tool-position-base-convention-docs | Medium | — | **Document 0-based line/character in position-based tool descriptions** — add a shared 0-based-convention sentence to the ~60 line/character tools; add a description-contains-convention regression test. [type: docs] [source: discovery-sweep-20260619] | M | items/tool-position-base-convention-docs.md |
 
 ## Low
 
