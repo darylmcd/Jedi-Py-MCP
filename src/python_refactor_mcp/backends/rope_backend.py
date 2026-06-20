@@ -1093,7 +1093,7 @@ class RopeBackend:
         of the aborting step, or ``None`` on success) and ``error`` (the failure
         cause string, or ``None`` on success).
         """
-        from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
+        from rope.contrib.changestack import ChangeStack  # noqa: PLC0415
 
         def _work() -> dict[str, Any]:
             project = self._require_project()
