@@ -257,6 +257,42 @@ class RefactorResult(BaseModel):
     diffs: list[DiffPreview] | None = None
 
 
+class TransactionStepResult(BaseModel):
+    """Outcome of one step in a ``refactor_transaction`` sequence.
+
+    ``status`` is one of: ``applied`` (the step's edits were committed under the
+    change stack), ``rolled_back`` (the step succeeded but the whole transaction
+    was later reverted by a downstream failure), ``failed`` (this step raised —
+    it is the abort point), or ``skipped`` (a step after the abort point that
+    never ran). ``error`` carries the failure cause only on the failing step.
+    """
+
+    index: int
+    tool: str
+    status: str
+    files_affected: list[str] = Field(default_factory=list)
+    edit_count: int = 0
+    error: str | None = None
+
+
+class TransactionResult(BaseModel):
+    """Structured result of an atomic multi-tool ``refactor_transaction``.
+
+    ``applied`` is True only when every step committed under one change stack.
+    ``rolled_back`` is True when an overlap or a mid-sequence failure forced the
+    whole stack to be reverted (in which case ``applied`` is False and disk is
+    left byte-identical to the pre-transaction state). ``diffs`` summarises the
+    merged change set on commit.
+    """
+
+    applied: bool
+    rolled_back: bool
+    steps: list[TransactionStepResult]
+    files_affected: list[str] = Field(default_factory=list)
+    description: str = ""
+    diffs: list[DiffPreview] = Field(default_factory=list)
+
+
 _VALID_SIGNATURE_OPS = frozenset({"add", "remove", "reorder", "inline_default", "normalize", "rename"})
 
 

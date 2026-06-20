@@ -78,6 +78,7 @@ from python_refactor_mcp.models import (
     SyntaxErrorItem,
     TestImpactResult,
     TextEdit,
+    TransactionResult,
     TypeCoverageReport,
     TypeHierarchyResult,
     TypeHintResult,
@@ -1152,6 +1153,14 @@ async def diff_preview(ctx: MCPContext, edits: list[TextEdit]) -> list[DiffPrevi
     return result
 
 
+async def refactor_transaction(ctx: MCPContext, steps: list[dict[str, Any]]) -> TransactionResult:
+    """Apply an ordered list of refactorings atomically under one change stack — commit all on success, roll back all on any failure. Each step is an object `{"tool": <name>, "args": {...}}`; steps run in order, and each is previewed against the RUNNING (partially-edited) source so later steps see earlier edits. Supported tools: rename_symbol, extract_method, extract_variable, inline_variable, inline_method (their `args` mirror each standalone tool, minus `apply`). Two failure contracts: (1) INPUT errors RAISE before anything is applied — an empty step list, a malformed step, an unsupported tool name, or a step missing `file_path` (all steps are validated up front). (2) EXECUTION failures RETURN a rolled-back result — if a step's refactoring raises mid-sequence or two steps touch overlapping character spans, the entire transaction is reverted and a TransactionResult with `applied=false`, `rolled_back=true` is returned: completed steps are marked `rolled_back`, the failing step `failed` with its `error` populated, the rest `skipped`. Disk is left byte-identical to the start in both cases. On success, returns per-step `applied` status plus a unified-diff summary of the committed changes. Related: begin_change_stack, commit_change_stack, diff_preview."""
+    app = _get_current_backends()
+    result = await composite.refactor_transaction(app.rope, steps)
+    await ctx.debug(f"refactor_transaction steps={len(result.steps)} applied={result.applied}")
+    return result
+
+
 async def get_keyword_help(
     ctx: MCPContext,
     file_path: str,
@@ -1375,6 +1384,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(extract_protocol, _READONLY),
     ToolRecord(get_module_public_api, _READONLY),
     ToolRecord(diff_preview, _READONLY),
+    ToolRecord(refactor_transaction, _DESTRUCTIVE),
     ToolRecord(get_keyword_help, _READONLY),
     ToolRecord(get_sub_definitions, _READONLY),
     ToolRecord(simulate_execution, _READONLY),
