@@ -14,7 +14,7 @@ Phase A shape pre-filter (Step 2a, STANDARD.md §Row-Shape Classification) refus
 
 | # | id | status | PR | rows closed |
 |---|----|--------|----|-------------|
-| 1 | mypy-2x-migration | pending | — | mypy-2x-migration |
+| 1 | mypy-2x-migration | merged | [#76](https://github.com/darylmcd/Jedi-Py-MCP/pull/76) | mypy-2x-migration |
 <!-- BSWEEP:STATUS-TABLE END -->
 
 ## Initiatives (in order)
