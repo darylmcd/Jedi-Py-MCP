@@ -7,6 +7,8 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from difflib import SequenceMatcher
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,6 +50,18 @@ from python_refactor_mcp.util.shared import end_position_for_content as _end_pos
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
+
+# Bounded set of position-based refactorings that may participate in a
+# ``refactor_transaction``. Each maps to a rope primitive that yields a
+# ``ChangeSet`` (see ``RopeBackend._build_step_changes``). Kept explicit so an
+# unknown tool name fails with a structured error instead of a generic dispatch.
+TRANSACTION_TOOLS: tuple[str, ...] = (
+    "rename_symbol",
+    "extract_method",
+    "extract_variable",
+    "inline_variable",
+    "inline_method",
+)
 
 
 def _absolute_path(path: str) -> str:
@@ -957,6 +971,138 @@ class RopeBackend:
             raise RopeError("No active change stack to rollback")
         self._change_stack = None
         return "Change stack rolled back"
+
+    # ── Atomic multi-step transaction ──
+
+    def _build_step_changes(self, tool: str, args: dict[str, Any]) -> ChangeSet:
+        """Build the rope ``ChangeSet`` for one transaction step against running source.
+
+        Re-reads the rope project for every call so each step previews against
+        the *current* (partially-edited) tree — the resolved running-source
+        model. Raises :class:`RopeError` for an unsupported tool or bad args.
+        """
+        project = self._require_project()
+        project.validate(project.root)
+
+        file_path = args.get("file_path")
+        if not isinstance(file_path, str):
+            raise RopeError(f"transaction step '{tool}' requires a string 'file_path' argument")
+        resource = self._resource_for_path(file_path)
+
+        if tool == "rename_symbol":
+            offset = self._position_to_offset(file_path, int(args["line"]), int(args["character"]))
+            return Rename(project, resource, offset).get_changes(str(args["new_name"]))
+        if tool == "extract_method":
+            start = self._position_to_offset(file_path, int(args["start_line"]), int(args["start_character"]))
+            end = self._position_to_offset(file_path, int(args["end_line"]), int(args["end_character"]))
+            return ExtractMethod(project, resource, start, end).get_changes(
+                str(args["method_name"]), similar=bool(args.get("similar", False)),
+            )
+        if tool == "extract_variable":
+            start = self._position_to_offset(file_path, int(args["start_line"]), int(args["start_character"]))
+            end = self._position_to_offset(file_path, int(args["end_line"]), int(args["end_character"]))
+            extractor = ExtractVariable(project, resource, start, end)
+            return extractor.get_changes(str(args["variable_name"]))
+        if tool in ("inline_variable", "inline_method"):
+            offset = self._position_to_offset(file_path, int(args["line"]), int(args["character"]))
+            return create_inline(project, resource, offset).get_changes()
+
+        raise RopeError(
+            f"transaction tool '{tool}' is not supported. Supported tools: {', '.join(TRANSACTION_TOOLS)}"
+        )
+
+    def _changed_char_spans(self, changes: ChangeSet) -> dict[str, set[tuple[int, int]]]:
+        """Return, per absolute file path, the set of ``(line, col)`` cells a step changes.
+
+        Computed by diffing each ``ChangeContents`` against current disk content
+        (running-source coordinate space) at *character* granularity, so two
+        independent edits on the same physical line do not falsely collide —
+        only edits that touch the same span do. Lines whose length changes are
+        marked from the first differing column to end-of-line on both sides.
+        """
+        spans: dict[str, set[tuple[int, int]]] = {}
+        for change in changes.changes:
+            if not isinstance(change, ChangeContents):
+                continue
+            absolute_file = _absolute_path(str(self._config.workspace_root / change.resource.path))
+            old_lines = Path(absolute_file).read_text(encoding="utf-8").splitlines()
+            new_lines = str(change.new_contents).splitlines()
+            cells: set[tuple[int, int]] = set()
+            for line_no, (old, new) in enumerate(zip_longest(old_lines, new_lines, fillvalue="")):
+                if old == new:
+                    continue
+                matcher = SequenceMatcher(None, old, new)
+                for op, i1, i2, _j1, _j2 in matcher.get_opcodes():
+                    if op == "equal":
+                        continue
+                    # Mark touched columns on the OLD-side span (delete/replace)
+                    # plus the OLD anchor column of inserts, so same-position
+                    # rewrites in different steps collide.
+                    for col in range(i1, max(i2, i1 + 1)):
+                        cells.add((line_no, col))
+            if cells:
+                spans[absolute_file] = cells
+        return spans
+
+    async def apply_transaction(self, steps: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+        """Apply an ordered ``(tool, args)`` sequence atomically under one change stack.
+
+        Each step previews against the running (partially-edited) source, is
+        checked for overlap against character spans already touched in this
+        transaction, then pushed onto a rope ``ChangeStack`` (which applies it to
+        disk so the next step sees the mutation). On ANY failure — unsupported
+        tool, a step that raises, or an overlap — the whole stack is rolled back
+        via ``pop_all()`` and the original cause is re-raised. On success the
+        stack is committed (already on disk) and per-step metadata is returned.
+
+        Returns one dict per applied step with keys ``tool``, ``files_affected``,
+        and ``edit_count``. Disk is left byte-identical to the pre-transaction
+        state when the transaction aborts.
+        """
+        from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        if not steps:
+            raise RopeError("refactor_transaction requires at least one step")
+
+        def _work() -> list[dict[str, Any]]:
+            project = self._require_project()
+            stack = ChangeStack(project, "refactor_transaction")
+            touched: dict[str, set[tuple[int, int]]] = {}
+            step_meta: list[dict[str, Any]] = []
+            try:
+                for tool, args in steps:
+                    changes = self._build_step_changes(tool, args)
+                    step_spans = self._changed_char_spans(changes)
+
+                    # Overlap guard: a step may not touch a character span already
+                    # modified by an earlier step in this transaction.
+                    for file_path, cells in step_spans.items():
+                        prior = touched.get(file_path)
+                        if prior is not None and prior & cells:
+                            raise RopeError(
+                                f"transaction step '{tool}' overlaps a prior step's edits in {file_path}; "
+                                "aborting and rolling back."
+                            )
+
+                    stack.push(changes)
+
+                    files_affected = sorted(step_spans)
+                    for file_path, cells in step_spans.items():
+                        touched.setdefault(file_path, set()).update(cells)
+                    step_meta.append({
+                        "tool": tool,
+                        "files_affected": files_affected,
+                        "edit_count": len([c for c in changes.changes if isinstance(c, ChangeContents)]),
+                    })
+                return step_meta
+            except Exception:
+                # Revert every change already pushed in this transaction.
+                stack.pop_all()
+                raise
+
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.apply_transaction", logger=_LOGGER,
+        )
 
     # ── Multi-Project Refactoring ──
 

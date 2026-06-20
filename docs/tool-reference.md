@@ -1,6 +1,6 @@
 # Tool Reference
 
-97 MCP tools organized by category.
+98 MCP tools organized by category.
 
 ## Analysis (18)
 
@@ -119,11 +119,12 @@
 | `commit_change_stack` | Commit all changes in the current ChangeStack. | `RefactorResult` |
 | `rollback_change_stack` | Roll back all changes in the current ChangeStack. | `str` |
 
-## Composite and Utilities (10)
+## Composite and Utilities (11)
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `diff_preview` | Build unified diffs for pending text edits. | `list[DiffPreview]` |
+| `refactor_transaction` | Apply an ordered `(tool, args)` list atomically under one change stack; commit on success, roll back all on any failure or overlap. | `TransactionResult` |
 | `get_keyword_help` | Return help for a Python keyword or operator. | `KeywordHelp` |
 | `get_sub_definitions` | Return names defined within a symbol via Jedi. | `list[NameInfo]` |
 | `simulate_execution` | Simulate execution of a name to infer results via Jedi. | `list[NameInfo]` |
