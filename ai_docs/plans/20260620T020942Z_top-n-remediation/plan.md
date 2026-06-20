@@ -78,6 +78,8 @@ Gate evidence: each row's `just ci` was run locally to green BEFORE push (full l
 
 Two Low findings were fixed INLINE in their own PRs rather than filed (PR71 docstring rope-parity overclaim; PR72 test-comment coverage overclaim) — comment-accuracy fixes needing no re-review.
 
+**Process note (own-miss, Directive #7):** the chore PR (#73, docs-only) first FAILED hosted CI — the `test_no_server_wide_tool_count_drift` unit gate flagged a bare "98 tools" in `items/position-convention-positions-list-tools.md` (counts are policed outside `reference.md`/`backlog.md`; `plans/` is excluded). I'd run only `backlog-lint`, not the full suite, assuming "docs-only = safe." Fixed forward (removed the count), re-ran `just test` locally to green (258), re-pushed. Lesson: doc changes can trip doc-consistency unit gates — run the suite, not just the lint.
+
 ### Other observations (not new rows)
 
 - `ai_docs/runtime.md:13` says **Repo class | Public** but `AGENTS.md` + `.ai-doc-audit.md` declare **private** — doc drift; a `/doc-audit` concern (surfaced to operator, not filed as a code row).
