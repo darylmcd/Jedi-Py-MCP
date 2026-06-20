@@ -531,8 +531,13 @@ class PyrightLSPClient:
         shared by every position-based feature, merges any ``extra_params``
         without letting them clobber the envelope keys, and returns the raw
         response dict. Callers retain their own error-check and result dispatch.
+
+        Out-of-range ``line``/``char`` coordinates raise :class:`PyrightError`
+        before the LSP round-trip, so a bad coordinate is distinguishable from a
+        genuine zero-result (Pyright silently returns ``null`` for both).
         """
         await self.ensure_file_open(absolute_path)
+        self._validate_position(absolute_path, line, char)
 
         params: dict[str, JSONValue] = {
             "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -542,6 +547,45 @@ class PyrightLSPClient:
             params.update(extra_params)
 
         return await self._request(lsp_method, params)
+
+    def _validate_position(self, absolute_path: str, line: int, char: int) -> None:
+        """Bounds-check a 0-based LSP position against the file's contents.
+
+        A valid line is ``0 <= line < line_count``; a valid character is
+        ``0 <= char <= len(line_text)`` (the column may equal the line length to
+        address an end-of-line position). This is the read-path analogue of
+        :meth:`RopeBackend._position_to_offset`'s validation; it is marginally
+        stricter — rope additionally accepts the virtual position just past a
+        trailing newline (``line == line_count``, ``char == 0``), which this
+        read-only check rejects. Raises :class:`PyrightError` on any
+        out-of-range coordinate so callers surface a clear error instead of an
+        ambiguous empty result.
+        """
+        if line < 0 or char < 0:
+            raise PyrightError(
+                f"position out of range: line {line} / character {char} must be non-negative"
+            )
+
+        try:
+            text = Path(absolute_path).read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise PyrightError(f"File not found: {absolute_path}") from exc
+        except (UnicodeDecodeError, OSError) as exc:
+            raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
+
+        lines = text.splitlines() or [""]
+        if line >= len(lines):
+            raise PyrightError(
+                f"position out of range: line {line} is beyond end of file "
+                f"({len(lines)} line(s)) in {absolute_path}"
+            )
+
+        line_length = len(lines[line])
+        if char > line_length:
+            raise PyrightError(
+                f"position out of range: character {char} is beyond end of line {line} "
+                f"({line_length} char(s)) in {absolute_path}"
+            )
 
     async def get_hover(self, file_path: str, line: int, char: int) -> TypeInfo | None:
         """Get hover type information at a source position."""
