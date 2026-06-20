@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-20T04:21:58Z
+**updated_at:** 2026-06-20T22:32:44Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
@@ -56,7 +56,6 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. Effective-L / design-gated (decorator-typing strategy) — route via `/backlog-sweep:prepare`, not top-n. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
 | rollback-change-stack-noop | Medium | — | **`rollback_change_stack` does not revert pushed changes** — it nulls `_change_stack` without `pop_all()`/undo, so a non-empty stack's edits stay applied on disk; add a real rollback + verify `commit_change_stack` semantics. [type: defect] [source: pr70-cq-review-20260620] | S | items/rollback-change-stack-noop.md |
 | refactor-transaction-overlap-line-align | Medium | — | **`refactor_transaction` overlap detection over-aborts** — `_changed_char_spans` aligns lines by index, so a whole-line insert/delete falsely marks shifted lines as overlapping; line-align before char-diffing. [type: defect] [source: pr70-cq-review-20260620] | S | items/refactor-transaction-overlap-line-align.md |
 | position-convention-positions-list-tools | Medium | — | **Extend 0-based convention to Position-wrapped tools** — `selection_range`/`test_impact_select` take `positions: list[Position]`; add the phrase to their descriptions and widen the `test_server.py` selector to the positions-list schema. [type: docs] [source: pr72-cq-review-20260620] | M | items/position-convention-positions-list-tools.md |
