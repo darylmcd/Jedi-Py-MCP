@@ -974,6 +974,31 @@ class RopeBackend:
 
     # ── Atomic multi-step transaction ──
 
+    @staticmethod
+    def validate_transaction_steps(steps: list[tuple[str, dict[str, Any]]]) -> None:
+        """Pre-flight validation for a transaction's whole step list.
+
+        Pure (no project I/O): rejects an empty list, any step naming a tool
+        outside :data:`TRANSACTION_TOOLS`, and any step missing a string
+        ``file_path``. ALL steps are checked up front so an unknown tool in a
+        later step is caught before the first step is pushed. Raises
+        :class:`RopeError` — these are caller-correctable *input* errors, not
+        execution failures, so they must surface as a raised tool error with
+        nothing applied.
+        """
+        if not steps:
+            raise RopeError("refactor_transaction requires at least one step")
+        for index, (tool, args) in enumerate(steps):
+            if tool not in TRANSACTION_TOOLS:
+                raise RopeError(
+                    f"transaction step {index} tool '{tool}' is not supported. "
+                    f"Supported tools: {', '.join(TRANSACTION_TOOLS)}"
+                )
+            if not isinstance(args.get("file_path"), str):
+                raise RopeError(
+                    f"transaction step {index} ('{tool}') requires a string 'file_path' argument"
+                )
+
     def _build_step_changes(self, tool: str, args: dict[str, Any]) -> ChangeSet:
         """Build the rope ``ChangeSet`` for one transaction step against running source.
 
@@ -1044,33 +1069,39 @@ class RopeBackend:
                 spans[absolute_file] = cells
         return spans
 
-    async def apply_transaction(self, steps: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
-        """Apply an ordered ``(tool, args)`` sequence atomically under one change stack.
+    async def apply_transaction(self, steps: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+        """Execute an ordered ``(tool, args)`` sequence atomically under one change stack.
 
-        Each step previews against the running (partially-edited) source, is
-        checked for overlap against character spans already touched in this
-        transaction, then pushed onto a rope ``ChangeStack`` (which applies it to
-        disk so the next step sees the mutation). On ANY failure — unsupported
-        tool, a step that raises, or an overlap — the whole stack is rolled back
-        via ``pop_all()`` and the original cause is re-raised. On success the
-        stack is committed (already on disk) and per-step metadata is returned.
+        Pre-flight validation (empty list / unknown tool / missing ``file_path``)
+        is the caller's responsibility via :meth:`validate_transaction_steps` and
+        is NOT repeated here — by the time execution begins the step list is
+        assumed well-formed. Each step previews against the running
+        (partially-edited) source, is checked for overlap against character spans
+        already touched in this transaction, then pushed onto a rope
+        ``ChangeStack`` (which applies it to disk so the next step sees the
+        mutation).
 
-        Returns one dict per applied step with keys ``tool``, ``files_affected``,
-        and ``edit_count``. Disk is left byte-identical to the pre-transaction
-        state when the transaction aborts.
+        On an *execution* failure — a step's refactoring raises mid-sequence, or
+        an overlap is detected — the whole stack is rolled back via ``pop_all()``
+        and a structured failure outcome is RETURNED (not raised), so the caller
+        can report per-step status. Disk is left byte-identical to the
+        pre-transaction state on abort.
+
+        Returns a dict with keys:
+        ``committed`` (bool), ``step_meta`` (list of per-applied-step dicts with
+        ``tool``/``files_affected``/``edit_count``), ``failed_index`` (int index
+        of the aborting step, or ``None`` on success) and ``error`` (the failure
+        cause string, or ``None`` on success).
         """
         from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
 
-        if not steps:
-            raise RopeError("refactor_transaction requires at least one step")
-
-        def _work() -> list[dict[str, Any]]:
+        def _work() -> dict[str, Any]:
             project = self._require_project()
             stack = ChangeStack(project, "refactor_transaction")
             touched: dict[str, set[tuple[int, int]]] = {}
             step_meta: list[dict[str, Any]] = []
-            try:
-                for tool, args in steps:
+            for index, (tool, args) in enumerate(steps):
+                try:
                     changes = self._build_step_changes(tool, args)
                     step_spans = self._changed_char_spans(changes)
 
@@ -1085,20 +1116,26 @@ class RopeBackend:
                             )
 
                     stack.push(changes)
+                except Exception as exc:
+                    # Execution failure: revert every change already pushed in
+                    # this transaction and report which step aborted and why.
+                    stack.pop_all()
+                    return {
+                        "committed": False,
+                        "step_meta": step_meta,
+                        "failed_index": index,
+                        "error": str(exc) or exc.__class__.__name__,
+                    }
 
-                    files_affected = sorted(step_spans)
-                    for file_path, cells in step_spans.items():
-                        touched.setdefault(file_path, set()).update(cells)
-                    step_meta.append({
-                        "tool": tool,
-                        "files_affected": files_affected,
-                        "edit_count": len([c for c in changes.changes if isinstance(c, ChangeContents)]),
-                    })
-                return step_meta
-            except Exception:
-                # Revert every change already pushed in this transaction.
-                stack.pop_all()
-                raise
+                files_affected = sorted(step_spans)
+                for file_path, cells in step_spans.items():
+                    touched.setdefault(file_path, set()).update(cells)
+                step_meta.append({
+                    "tool": tool,
+                    "files_affected": files_affected,
+                    "edit_count": len([c for c in changes.changes if isinstance(c, ChangeContents)]),
+                })
+            return {"committed": True, "step_meta": step_meta, "failed_index": None, "error": None}
 
         return await run_in_thread(
             _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.apply_transaction", logger=_LOGGER,

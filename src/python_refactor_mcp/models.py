@@ -260,10 +260,11 @@ class RefactorResult(BaseModel):
 class TransactionStepResult(BaseModel):
     """Outcome of one step in a ``refactor_transaction`` sequence.
 
-    ``status`` is ``applied`` (the step's edits were staged onto the change
-    stack), ``rolled_back`` (the step succeeded but the whole transaction was
-    later reverted), or ``failed`` (this step raised — it is the abort point).
-    ``error`` carries the failure cause only on the failing step.
+    ``status`` is one of: ``applied`` (the step's edits were committed under the
+    change stack), ``rolled_back`` (the step succeeded but the whole transaction
+    was later reverted by a downstream failure), ``failed`` (this step raised —
+    it is the abort point), or ``skipped`` (a step after the abort point that
+    never ran). ``error`` carries the failure cause only on the failing step.
     """
 
     index: int

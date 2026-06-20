@@ -65,15 +65,80 @@ def _collect_target_files(steps: list[tuple[str, dict[str, Any]]]) -> list[str]:
     return files
 
 
+def _rolled_back_result(
+    normalized: list[tuple[str, dict[str, Any]]],
+    step_meta: list[dict[str, Any]],
+    failed_index: int,
+    error: str,
+) -> TransactionResult:
+    """Build the structured result for a rolled-back execution failure.
+
+    Steps before ``failed_index`` were applied then reverted (``rolled_back``);
+    the step at ``failed_index`` is the abort point (``failed`` with ``error``
+    populated); every step after it never ran (``skipped``). Disk has already
+    been restored to the pre-transaction state by the backend, so no diffs are
+    reported.
+    """
+    steps: list[TransactionStepResult] = []
+    for index, (tool, _args) in enumerate(normalized):
+        if index < failed_index:
+            meta = step_meta[index]
+            steps.append(
+                TransactionStepResult(
+                    index=index,
+                    tool=tool,
+                    status="rolled_back",
+                    files_affected=meta["files_affected"],
+                    edit_count=meta["edit_count"],
+                )
+            )
+        elif index == failed_index:
+            steps.append(
+                TransactionStepResult(index=index, tool=tool, status="failed", error=error)
+            )
+        else:
+            steps.append(TransactionStepResult(index=index, tool=tool, status="skipped"))
+
+    failed_tool = normalized[failed_index][0]
+    return TransactionResult(
+        applied=False,
+        rolled_back=True,
+        steps=steps,
+        files_affected=[],
+        description=(
+            f"Transaction aborted at step {failed_index} ('{failed_tool}') and rolled back: {error}"
+        ),
+        diffs=[],
+    )
+
+
 async def refactor_transaction(rope: RopeBackend, steps: list[dict[str, Any]]) -> TransactionResult:
     """Apply an ordered ``(tool, args)`` list atomically under one change stack.
 
-    Each step previews against the running (partially-edited) source, is checked
-    for overlap against earlier steps, then applied. Any failure — unsupported
-    tool, a step that raises, or an overlap — rolls back the entire transaction
-    so disk is left byte-identical to the pre-transaction state, and re-raises.
+    Two clearly-different failure modes:
+
+    * **Input / pre-flight errors RAISE.** An empty step list, a structurally
+      malformed step (no string ``tool`` / non-object ``args`` / missing
+      ``file_path``), or a step naming an unsupported tool is rejected *before*
+      any change is pushed — :class:`RopeError` propagates (→ ``ValueError`` at
+      the tool boundary) with nothing applied. All steps' tool-names and arg
+      shape are validated up front so an unknown tool in a later step is caught
+      before the first step runs.
+    * **Execution failures RETURN a rolled-back result.** Once execution begins,
+      if a step's refactoring raises mid-sequence or an overlap is detected, the
+      backend reverts every pushed change and this function RETURNS a
+      :class:`TransactionResult` with ``applied=False``, ``rolled_back=True``,
+      the already-completed steps marked ``rolled_back``, the failing step
+      ``failed`` with its ``error`` populated, and the remaining steps
+      ``skipped``. Disk is left byte-identical to the pre-transaction state.
+
+    On success: ``applied=True``, every step ``applied`` with a merged unified
+    diff summary.
     """
     normalized = _normalize_steps(steps)
+    # Pre-flight: reject unsupported tools / missing file_path across ALL steps
+    # before any edit is pushed. Raises RopeError on bad input.
+    rope.validate_transaction_steps(normalized)
 
     # Snapshot originals before any edit so the post-commit diff summary can be
     # built against the pre-transaction state.
@@ -85,13 +150,15 @@ async def refactor_transaction(rope: RopeBackend, steps: list[dict[str, Any]]) -
         except OSError:
             originals[file_path] = ""
 
-    try:
-        step_meta = await rope.apply_transaction(normalized)
-    except RopeError as exc:
-        # The backend has already rolled the change stack back; surface the
-        # failing step and cause in a structured result via the exception.
-        # Re-raise so the error boundary returns a structured tool error.
-        raise RopeError(f"refactor_transaction aborted and rolled back: {exc}") from exc
+    outcome = await rope.apply_transaction(normalized)
+    step_meta: list[dict[str, Any]] = outcome["step_meta"]
+
+    if not outcome["committed"]:
+        # Execution failure: disk has already been rolled back by the backend.
+        # Surface a structured result rather than raising.
+        return _rolled_back_result(
+            normalized, step_meta, outcome["failed_index"], outcome["error"]
+        )
 
     step_results = [
         TransactionStepResult(
