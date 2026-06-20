@@ -141,6 +141,83 @@ async def _maybe_fetch_roots(ctx: MCPContext, multi_ctx: MultiWorkspaceContext) 
     multi_ctx.roots_fetched = True
 
 
+async def _resolve_backends(ctx: MCPContext | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
+    """Resolve the WorkspaceBackends for a tool call from its context and kwargs.
+
+    Performs the multi-workspace context lookup, the lazy MCP roots fetch,
+    primary-path extraction from path parameters, and the registry lookup
+    (with the most-recent / CLI ``__fallback__`` paths for tools that take no
+    file path). Returns ``None`` when no workspace can be resolved (e.g. no
+    context, or no MultiWorkspaceContext lifespan payload).
+    """
+    multi_ctx: MultiWorkspaceContext | None = None
+    if ctx is not None:
+        with contextlib.suppress(RuntimeError):
+            multi_ctx = _get_multi_context(ctx)
+
+    if multi_ctx is None:
+        return None
+
+    assert ctx is not None
+    registry = multi_ctx.registry
+
+    # Lazy MCP roots fetch.
+    await _maybe_fetch_roots(ctx, multi_ctx)
+
+    # Find the primary file path from kwargs.
+    primary_path: str | None = None
+    for param_name in _PATH_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            primary_path = value
+            break
+    if primary_path is None:
+        for param_name in _LIST_PATH_PARAMS:
+            values = kwargs.get(param_name)
+            if isinstance(values, list) and values:
+                first = next((v for v in values if isinstance(v, str)), None)
+                if first is not None:
+                    primary_path = first
+                    break
+
+    # Resolve workspace backends.
+    if primary_path is not None:
+        return await registry.get_backends(primary_path)
+
+    # Fallback for tools without file_path params.
+    backends = registry.get_most_recent()
+    if backends is None and multi_ctx.cli_workspace_root is not None:
+        backends = await registry.get_backends(
+            str(multi_ctx.cli_workspace_root / "__fallback__"),
+        )
+    return backends
+
+
+def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
+    """Validate and normalize path + identifier parameters in place.
+
+    Resolves path parameters against *workspace_root* (rejecting paths outside
+    the boundary) and verifies identifier parameters are legal Python
+    identifiers. Mutates *kwargs* with the resolved path strings.
+    """
+    for param_name in _PATH_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            kwargs[param_name] = validate_workspace_path(value, workspace_root)
+
+    for param_name in _LIST_PATH_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            kwargs[param_name] = [
+                validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)
+            ]
+
+    for param_name in _IDENTIFIER_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            validate_identifier(value, param_name)
+
+
 def _tool_error_boundary(  # noqa: UP047
     func: Callable[..., Awaitable[Any]],
 ) -> Callable[..., Awaitable[Any]]:
@@ -154,70 +231,20 @@ def _tool_error_boundary(  # noqa: UP047
     @wraps(func)
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
         ctx = args[0] if args else kwargs.get("ctx")
-        multi_ctx: MultiWorkspaceContext | None = None
-        backends: WorkspaceBackends | None = None
-
-        if ctx is not None:
-            with contextlib.suppress(RuntimeError):
-                multi_ctx = _get_multi_context(ctx)
-
-        if multi_ctx is not None:
-            assert ctx is not None
-            registry = multi_ctx.registry
-
-            # Lazy MCP roots fetch.
-            await _maybe_fetch_roots(ctx, multi_ctx)
-
-            # Find the primary file path from kwargs.
-            primary_path: str | None = None
-            for param_name in _PATH_PARAMS:
-                value = kwargs.get(param_name)
-                if isinstance(value, str):
-                    primary_path = value
-                    break
-            if primary_path is None:
-                for param_name in _LIST_PATH_PARAMS:
-                    values = kwargs.get(param_name)
-                    if isinstance(values, list) and values:
-                        first = next((v for v in values if isinstance(v, str)), None)
-                        if first is not None:
-                            primary_path = first
-                            break
-
-            # Resolve workspace backends.
-            if primary_path is not None:
-                backends = await registry.get_backends(primary_path)
-            else:
-                # Fallback for tools without file_path params.
-                backends = registry.get_most_recent()
-                if backends is None and multi_ctx.cli_workspace_root is not None:
-                    backends = await registry.get_backends(
-                        str(multi_ctx.cli_workspace_root / "__fallback__"),
-                    )
+        backends = await _resolve_backends(ctx, kwargs)
 
         # Set the ContextVar for the tool function.
         token = _current_backends.set(backends) if backends is not None else None
         try:
-            # Validate path parameters against the resolved workspace.
+            # Identifier validation runs unconditionally; path validation
+            # needs a resolved workspace to anchor the boundary check.
             if backends is not None:
-                workspace_root = backends.config.workspace_root
-                for param_name in _PATH_PARAMS:
+                _validate_params(kwargs, backends.config.workspace_root)
+            else:
+                for param_name in _IDENTIFIER_PARAMS:
                     value = kwargs.get(param_name)
                     if isinstance(value, str):
-                        kwargs[param_name] = validate_workspace_path(value, workspace_root)
-
-                for param_name in _LIST_PATH_PARAMS:
-                    values = kwargs.get(param_name)
-                    if isinstance(values, list):
-                        kwargs[param_name] = [
-                            validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)
-                        ]
-
-            # Validate identifier parameters.
-            for param_name in _IDENTIFIER_PARAMS:
-                value = kwargs.get(param_name)
-                if isinstance(value, str):
-                    validate_identifier(value, param_name)
+                        validate_identifier(value, param_name)
 
             start = time.perf_counter()
             try:
