@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-20T03:51:29Z
+**updated_at:** 2026-06-20T03:58:08Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
@@ -56,7 +56,10 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
+| mypy-2x-migration | Medium | — | **Migrate to mypy 2.x** — bump `mypy>=2.0` and fix the 344 strict-mode errors at source (typed `MCPContext` alias, typed `@mcp.tool` wrappers, Optional-narrowing); no `# type: ignore` band-aids. Effective-L / design-gated (decorator-typing strategy) — route via `/backlog-sweep:prepare`, not top-n. [type: upgrade] [source: upgrade-eligibility-20260527] | M | items/mypy-2x-migration.md |
+| rollback-change-stack-noop | Medium | — | **`rollback_change_stack` does not revert pushed changes** — it nulls `_change_stack` without `pop_all()`/undo, so a non-empty stack's edits stay applied on disk; add a real rollback + verify `commit_change_stack` semantics. [type: defect] [source: pr70-cq-review-20260620] | S | items/rollback-change-stack-noop.md |
+| refactor-transaction-overlap-line-align | Medium | — | **`refactor_transaction` overlap detection over-aborts** — `_changed_char_spans` aligns lines by index, so a whole-line insert/delete falsely marks shifted lines as overlapping; line-align before char-diffing. [type: defect] [source: pr70-cq-review-20260620] | S | items/refactor-transaction-overlap-line-align.md |
+| position-convention-positions-list-tools | Medium | — | **Extend 0-based convention to Position-wrapped tools** — `selection_range`/`test_impact_select` take `positions: list[Position]`; add the phrase to their descriptions and widen the `test_server.py` selector to the positions-list schema. [type: docs] [source: pr72-cq-review-20260620] | M | items/position-convention-positions-list-tools.md |
 
 ## Low
 
@@ -81,6 +84,8 @@
 | structural-search-silent-file-drop | Low | — | **Surface skipped files in structural_search** — per-file read/parse failures are dropped by `gather(return_exceptions=True)` with no signal; report a skipped count or note. [type: observability] [source: discovery-sweep-20260619] | S | items/structural-search-silent-file-drop.md |
 | cand-structured-error-envelope | Low | — | **Structured error envelope at the MCP boundary** — map each `BackendError` subclass to a stable code in `_tool_error_boundary` instead of bare `ValueError`; message text unchanged. [type: enhancement] [source: BRAIN-018 · audit-reports/application-brainstorm.md] | M | items/cand-structured-error-envelope.md |
 | cand-test-impact-nodeid-precision | Low | — | **Precise pytest node-IDs for test_impact_select** — emit `file::Class::method` for class-based test callers (reuse hierarchy.py class derivation); parametrized cases stay slice 2. [type: enhancement] [source: BRAIN-021 · audit-reports/application-brainstorm.md] | S | items/cand-test-impact-nodeid-precision.md |
+| refactor-transaction-path-format-unify | Low | — | **Unify `refactor_transaction` result path formatting** — `files_affected` (backend `_absolute_path`) vs `diffs[].file_path` (composite `Path.resolve()`) can differ in case/separator on Windows; route both through one helper. [type: defect] [source: pr70-cq-review-20260620] | M | items/refactor-transaction-path-format-unify.md |
+| pyright-validate-position-redundant-read | Low | — | **`_validate_position` redundant full-file read** — reuse `ensure_file_open`'s content instead of a second `read_text` per call on the ~12-tool position hot path; negligible vs LSP cost (hygiene). [type: refactor] [source: pr71-cq-review-20260620] | S | items/pyright-validate-position-redundant-read.md |
 
 ## Defer
 
