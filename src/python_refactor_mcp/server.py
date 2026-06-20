@@ -341,7 +341,7 @@ async def get_completions(
     limit: int | None = None,
     fuzzy: bool = False,
 ) -> list[CompletionItem]:
-    """Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Set fuzzy=True for fuzzy matching (e.g., 'ooa' matches 'foobar'). Related: get_signature_help (for call-site parameter info)."""
+    """Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Set fuzzy=True for fuzzy matching (e.g., 'ooa' matches 'foobar'). Related: get_signature_help (for call-site parameter info). Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     if fuzzy:
         result = await app.jedi.get_completions(file_path, line, character, fuzzy=True)
@@ -362,7 +362,7 @@ async def get_inlay_hints(
     end_line: int | None = None,
     end_character: int = 0,
 ) -> list[InlayHint]:
-    """Get inlay hints (inline type annotations, parameter names) for a file range. Use to visualize inferred types and parameter labels that aren't written in the source. Defaults to the full file when end_line is omitted. Related: get_type_info, get_semantic_tokens."""
+    """Get inlay hints (inline type annotations, parameter names) for a file range. Use to visualize inferred types and parameter labels that aren't written in the source. Defaults to the full file when end_line is omitted. Related: get_type_info, get_semantic_tokens. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     if end_line is None:
         try:
@@ -435,7 +435,7 @@ async def argument_normalizer(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Normalize call-site arguments to match the function definition's parameter order. Use to clean up keyword arguments that are passed in a different order than the signature defines. Convenience wrapper over change_signature with op='normalize'. Defaults to preview mode. Related: change_signature, argument_default_inliner."""
+    """Normalize call-site arguments to match the function definition's parameter order. Use to clean up keyword arguments that are passed in a different order than the signature defines. Convenience wrapper over change_signature with op='normalize'. Defaults to preview mode. Related: change_signature, argument_default_inliner. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     ops = [SignatureOperation(op="normalize")]
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
@@ -453,7 +453,7 @@ async def argument_default_inliner(
     index: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer."""
+    """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     ops = [SignatureOperation(op="inline_default", index=index)]
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)

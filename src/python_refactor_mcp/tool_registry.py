@@ -125,7 +125,7 @@ async def find_references(
     include_context: bool = False,
     limit: int | None = None,
 ) -> ReferenceResult:
-    """Find all references to a symbol across the workspace. Use when you need to understand how widely a function, class, or variable is used before renaming, moving, or deleting it. Returns locations from both Pyright and Jedi for comprehensive coverage. Set include_context=True to get surrounding source lines. Related: prepare_rename, rename_symbol."""
+    """Find all references to a symbol across the workspace. Use when you need to understand how widely a function, class, or variable is used before renaming, moving, or deleting it. Returns locations from both Pyright and Jedi for comprehensive coverage. Set include_context=True to get surrounding source lines. Related: prepare_rename, rename_symbol. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.find_references(
         app.pyright,
@@ -150,7 +150,7 @@ async def find_type_users(
     include_declaration: bool = False,
     limit: int | None = None,
 ) -> TypeUsersResult:
-    """Inverse of `find_references` scoped to a type — classify every reference site as `annotation` (type-hint position incl. subscripts like `list[Foo]`), `instantiation` (head of a `Foo(...)` call), `subclass` (in a `ClassDef.bases` list), or `other` (e.g. `isinstance(x, Foo)`, `Foo.classmethod`). Returns per-site classification plus aggregate `by_kind` counts. Pass `kinds=['annotation']` to filter; defaults to all four buckets. `include_declaration` defaults to False (the class definition itself is rarely an interesting type *use*). Related: find_references, type_hierarchy, find_implementations."""
+    """Inverse of `find_references` scoped to a type — classify every reference site as `annotation` (type-hint position incl. subscripts like `list[Foo]`), `instantiation` (head of a `Foo(...)` call), `subclass` (in a `ClassDef.bases` list), or `other` (e.g. `isinstance(x, Foo)`, `Foo.classmethod`). Returns per-site classification plus aggregate `by_kind` counts. Pass `kinds=['annotation']` to filter; defaults to all four buckets. `include_declaration` defaults to False (the class definition itself is rarely an interesting type *use*). Related: find_references, type_hierarchy, find_implementations. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.find_type_users(
         app.pyright,
@@ -169,7 +169,7 @@ async def find_type_users(
 
 
 async def get_type_info(ctx: MCPContext, file_path: str, line: int, character: int) -> TypeInfo:
-    """Infer the type of a symbol or expression at a source position. Use when you need to understand what type a variable holds, what a function returns, or what class an object is. Tries Pyright first with Jedi fallback for dynamic code. Related: get_documentation, get_type_hint_string."""
+    """Infer the type of a symbol or expression at a source position. Use when you need to understand what type a variable holds, what a function returns, or what class an object is. Tries Pyright first with Jedi fallback for dynamic code. Related: get_documentation, get_type_hint_string. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_type_info(app.pyright, app.jedi, file_path, line, character)
     await ctx.debug(f"get_type_info source={result.source} type={result.type_string}")
@@ -183,7 +183,7 @@ async def get_documentation(
     character: int,
     source: str | None = None,
 ) -> DocumentationResult:
-    """Get detailed documentation and docstrings for a symbol. Use when you need full API docs, function signatures, or module-level help. Powered by Jedi for rich dynamic analysis. Pass source to analyze in-memory content. Related: get_type_info (for type only), get_signature_help (for call-site params)."""
+    """Get detailed documentation and docstrings for a symbol. Use when you need full API docs, function signatures, or module-level help. Powered by Jedi for rich dynamic analysis. Pass source to analyze in-memory content. Related: get_type_info (for type only), get_signature_help (for call-site params). Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_documentation(app.jedi, file_path, line, character, source)
     await ctx.debug(f"get_documentation entries={len(result.entries)}")
@@ -191,7 +191,7 @@ async def get_documentation(
 
 
 async def get_signature_help(ctx: MCPContext, file_path: str, line: int, character: int) -> SignatureInfo | None:
-    """Get function signature help at a call site. Use when the cursor is inside a function call's parentheses to see parameter names, types, and which parameter is active. Tries Pyright first, falls back to Jedi for dynamic code. Related: get_completions, get_documentation."""
+    """Get function signature help at a call site. Use when the cursor is inside a function call's parentheses to see parameter names, types, and which parameter is active. Tries Pyright first, falls back to Jedi for dynamic code. Related: get_completions, get_documentation. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_signature_help(app.pyright, file_path, line, character, jedi=app.jedi)
     await ctx.debug(f"get_signature_help found={result is not None}")
@@ -204,7 +204,7 @@ async def get_document_highlights(
     line: int,
     character: int,
 ) -> list[DocumentHighlight]:
-    """Highlight all read and write accesses of a symbol within a single file. Use to understand how a variable is used locally — which lines read it vs. which lines assign to it. Related: find_references (cross-file)."""
+    """Highlight all read and write accesses of a symbol within a single file. Use to understand how a variable is used locally — which lines read it vs. which lines assign to it. Related: find_references (cross-file). Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_document_highlights(app.pyright, file_path, line, character)
     await ctx.debug(f"get_document_highlights count={len(result)}")
@@ -270,7 +270,7 @@ async def deep_type_inference(
     line: int,
     character: int,
 ) -> list[InferredType]:
-    """Follow imports and statements to resolve final types at a position. Goes deeper than get_type_info by tracing through assignments and imports to their ultimate definitions. Use when get_type_info returns 'Unknown' for dynamic code. Related: get_type_info, get_type_hint_string."""
+    """Follow imports and statements to resolve final types at a position. Goes deeper than get_type_info by tracing through assignments and imports to their ultimate definitions. Use when get_type_info returns 'Unknown' for dynamic code. Related: get_type_info, get_type_hint_string. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.deep_type_inference(app.jedi, file_path, line, character)
     await ctx.debug(f"deep_type_inference count={len(result)}")
@@ -283,7 +283,7 @@ async def get_type_hint_string(
     line: int,
     character: int,
 ) -> list[TypeHintResult]:
-    """Return ready-to-use type annotation strings like ``Iterable[int]`` for a symbol. Use when adding missing type hints — provides copy-paste-ready annotations. Related: deep_type_inference, get_type_info."""
+    """Return ready-to-use type annotation strings like ``Iterable[int]`` for a symbol. Use when adding missing type hints — provides copy-paste-ready annotations. Related: deep_type_inference, get_type_info. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_type_hint_string(app.jedi, file_path, line, character)
     await ctx.debug(f"get_type_hint_string count={len(result)}")
@@ -304,7 +304,7 @@ async def get_context(
     line: int,
     character: int,
 ) -> ScopeContext | None:
-    """Return the enclosing function, class, or module scope at a position. Use to understand code structure and what scope a given line belongs to. Related: get_symbol_outline, call_hierarchy."""
+    """Return the enclosing function, class, or module scope at a position. Use to understand code structure and what scope a given line belongs to. Related: get_symbol_outline, call_hierarchy. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.get_context(app.jedi, file_path, line, character)
     await ctx.debug(f"get_context kind={result.kind if result else 'none'}")
@@ -341,7 +341,7 @@ async def call_hierarchy(
     depth: int = 1,
     max_items: int | None = 200,
 ) -> CallHierarchyResult:
-    """Discover which functions call a given function (callers) and which functions it calls (callees). Use to understand call chains before refactoring. Set direction to 'callers', 'callees', or 'both'. Increase depth for deeper traversal. Related: type_hierarchy, find_references."""
+    """Discover which functions call a given function (callers) and which functions it calls (callees). Use to understand call chains before refactoring. Set direction to 'callers', 'callees', or 'both'. Increase depth for deeper traversal. Related: type_hierarchy, find_references. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.call_hierarchy(app.pyright, file_path, line, character, direction, depth, max_items)
     await ctx.debug(
@@ -367,7 +367,7 @@ async def test_impact_select(
 
 
 async def goto_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-    """Jump to where a symbol is defined. Use when you encounter a function call, variable, or import and want to see its implementation. Follows imports to their source. Combines Pyright and Jedi for best coverage. Related: get_declaration, get_type_definition, find_implementations."""
+    """Jump to where a symbol is defined. Use when you encounter a function call, variable, or import and want to see its implementation. Follows imports to their source. Combines Pyright and Jedi for best coverage. Related: get_declaration, get_type_definition, find_implementations. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.goto_definition(app.pyright, app.jedi, file_path, line, character)
     await ctx.debug(f"goto_definition count={len(result)}")
@@ -384,7 +384,7 @@ async def type_hierarchy(
     max_items: int | None = 200,
     class_name: str | None = None,
 ) -> TypeHierarchyResult:
-    """Discover class inheritance — supertypes (parents) and subtypes (children) of a class. Use to understand class hierarchies before refactoring or to find all implementations of a base class. Set direction to 'supertypes', 'subtypes', or 'both'. Related: call_hierarchy, find_implementations."""
+    """Discover class inheritance — supertypes (parents) and subtypes (children) of a class. Use to understand class hierarchies before refactoring or to find all implementations of a base class. Set direction to 'supertypes', 'subtypes', or 'both'. Related: call_hierarchy, find_implementations. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.type_hierarchy(
         app.pyright,
@@ -412,7 +412,7 @@ async def selection_range(ctx: MCPContext, file_path: str, positions: list[Posit
 
 
 async def find_implementations(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-    """Find concrete implementations of an abstract method or protocol. Use when you have a base class method and need to find all classes that implement it. Related: type_hierarchy, goto_definition."""
+    """Find concrete implementations of an abstract method or protocol. Use when you have a base class method and need to find all classes that implement it. Related: type_hierarchy, goto_definition. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.find_implementations(app.pyright, file_path, line, character)
     await ctx.debug(f"find_implementations count={len(result)}")
@@ -420,7 +420,7 @@ async def find_implementations(ctx: MCPContext, file_path: str, line: int, chara
 
 
 async def get_declaration(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-    """Navigate to the declaration site of a symbol (where it is first declared, not necessarily defined). For most Python code, this is equivalent to goto_definition. Related: goto_definition, get_type_definition."""
+    """Navigate to the declaration site of a symbol (where it is first declared, not necessarily defined). For most Python code, this is equivalent to goto_definition. Related: goto_definition, get_type_definition. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.get_declaration(app.pyright, file_path, line, character)
     await ctx.debug(f"get_declaration count={len(result)}")
@@ -428,7 +428,7 @@ async def get_declaration(ctx: MCPContext, file_path: str, line: int, character:
 
 
 async def get_type_definition(ctx: MCPContext, file_path: str, line: int, character: int) -> list[Location]:
-    """Navigate to the type definition of a symbol (e.g., from a variable to its class definition). Use when you want to see the class behind an instance, not just where the instance was assigned. Related: goto_definition, get_type_info."""
+    """Navigate to the type definition of a symbol (e.g., from a variable to its class definition). Use when you want to see the class behind an instance, not just where the instance was assigned. Related: goto_definition, get_type_info. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.get_type_definition(app.pyright, file_path, line, character)
     await ctx.debug(f"get_type_definition count={len(result)}")
@@ -452,7 +452,7 @@ async def rename_symbol(
     apply: bool = False,
     include_diff: bool = False,
 ) -> RefactorResult:
-    """Rename a symbol across the entire project — updates all references, imports, and usages. Use prepare_rename first to verify the symbol is renameable. Defaults to preview mode (apply=False); set apply=True to write changes. Set include_diff=True to get unified diffs in preview. Uses Pyright validation + rope execution. Related: prepare_rename, find_references."""
+    """Rename a symbol across the entire project — updates all references, imports, and usages. Use prepare_rename first to verify the symbol is renameable. Defaults to preview mode (apply=False); set apply=True to write changes. Set include_diff=True to get unified diffs in preview. Uses Pyright validation + rope execution. Related: prepare_rename, find_references. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.rename_symbol(
         app.pyright,
@@ -479,7 +479,7 @@ async def extract_method(
     similar: bool = False,
     apply: bool = False,
 ) -> RefactorResult:
-    """Extract a code selection into a new method, automatically detecting parameters and return values. Use when a block of code is too long or does a distinct subtask. Set similar=True to also replace other identical code fragments. Defaults to preview mode. Related: extract_variable, inline_variable."""
+    """Extract a code selection into a new method, automatically detecting parameters and return values. Use when a block of code is too long or does a distinct subtask. Set similar=True to also replace other identical code fragments. Defaults to preview mode. Related: extract_variable, inline_variable. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.extract_method(
         app.pyright,
@@ -507,7 +507,7 @@ async def extract_variable(
     variable_name: str,
     apply: bool = False,
 ) -> RefactorResult:
-    """Extract an expression into a named variable, replacing the original expression with the variable name. Use when a complex expression appears multiple times or needs a descriptive name for clarity. Defaults to preview mode. Related: extract_method, inline_variable."""
+    """Extract an expression into a named variable, replacing the original expression with the variable name. Use when a complex expression appears multiple times or needs a descriptive name for clarity. Defaults to preview mode. Related: extract_method, inline_variable. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.extract_variable(
         app.pyright,
@@ -531,7 +531,7 @@ async def inline_variable(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Inline a variable — replace all usages with its assigned value and remove the assignment. Use when a variable adds no clarity and is only used to hold a temporary value. The inverse of extract_variable. Defaults to preview mode. Related: extract_variable, extract_method."""
+    """Inline a variable — replace all usages with its assigned value and remove the assignment. Use when a variable adds no clarity and is only used to hold a temporary value. The inverse of extract_variable. Defaults to preview mode. Related: extract_variable, extract_method. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.inline_variable(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"inline_variable edits={len(result.edits)} applied={result.applied}")
@@ -560,7 +560,7 @@ async def apply_code_action(
     action_title: str | None = None,
     apply: bool = False,
 ) -> RefactorResult:
-    """Apply a Pyright code action (quick fix, refactoring suggestion) at a location. Use when Pyright diagnostics suggest a fix — pass the action_title to select a specific action, or omit it to list available actions. Defaults to preview mode. Related: organize_imports, get_diagnostics."""
+    """Apply a Pyright code action (quick fix, refactoring suggestion) at a location. Use when Pyright diagnostics suggest a fix — pass the action_title to select a specific action, or omit it to list available actions. Defaults to preview mode. Related: organize_imports, get_diagnostics. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.apply_code_action(app.pyright, file_path, line, character, action_title, apply)
     await ctx.debug(f"apply_code_action edits={len(result.edits)} applied={result.applied}")
@@ -699,7 +699,7 @@ async def autoimport_search(
 
 
 async def prepare_rename(ctx: MCPContext, file_path: str, line: int, character: int) -> PrepareRenameResult | None:
-    """Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, find_references."""
+    """Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, find_references. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.prepare_rename(app.pyright, file_path, line, character)
     await ctx.debug(f"prepare_rename valid={result is not None}")
@@ -715,7 +715,7 @@ async def introduce_parameter(
     default_value: str = "",
     apply: bool = False,
 ) -> RefactorResult:
-    """Convert a local expression into a function parameter, adding it to the signature and updating all call sites with a default value. Use when you want to make a hardcoded value configurable. Defaults to preview mode. Related: change_signature, encapsulate_field."""
+    """Convert a local expression into a function parameter, adding it to the signature and updating all call sites with a default value. Use when you want to make a hardcoded value configurable. Defaults to preview mode. Related: change_signature, encapsulate_field. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.introduce_parameter(
         app.pyright,
@@ -738,7 +738,7 @@ async def encapsulate_field(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Wrap a class field with property getter/setter accessors, updating all direct field accesses. Use to add validation, logging, or lazy initialization to field access without changing callers. Defaults to preview mode. Related: introduce_parameter, local_to_field."""
+    """Wrap a class field with property getter/setter accessors, updating all direct field accesses. Use to add validation, logging, or lazy initialization to field access without changing callers. Defaults to preview mode. Related: introduce_parameter, local_to_field. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.encapsulate_field(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"encapsulate_field edits={len(result.edits)} applied={result.applied}")
@@ -753,7 +753,7 @@ async def change_signature(
     operations: list[SignatureOperation],
     apply: bool = False,
 ) -> RefactorResult:
-    """Modify a function's signature — add, remove, reorder, or rename parameters — and update all call sites. Operations: 'add', 'remove', 'reorder', 'rename', 'inline_default', 'normalize'. Defaults to preview mode. Related: introduce_parameter, rename_symbol."""
+    """Modify a function's signature — add, remove, reorder, or rename parameters — and update all call sites. Operations: 'add', 'remove', 'reorder', 'rename', 'inline_default', 'normalize'. Defaults to preview mode. Related: introduce_parameter, rename_symbol. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, operations, apply)
     await ctx.debug(f"change_signature edits={len(result.edits)} applied={result.applied}")
@@ -783,7 +783,7 @@ async def use_function(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Find code blocks duplicating a function's body and replace them with calls to that function. Use to eliminate copy-paste duplication. Point to the function definition, and rope will find matching patterns across the project. Defaults to preview mode. Related: extract_method, restructure."""
+    """Find code blocks duplicating a function's body and replace them with calls to that function. Use to eliminate copy-paste duplication. Point to the function definition, and rope will find matching patterns across the project. Defaults to preview mode. Related: extract_method, restructure. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.use_function(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"use_function edits={len(result.edits)} applied={result.applied}")
@@ -799,7 +799,7 @@ async def introduce_factory(
     global_factory: bool = True,
     apply: bool = False,
 ) -> RefactorResult:
-    """Create a factory function that wraps a class constructor, updating all direct instantiations to use the factory. Use when you need to add indirection for dependency injection or when subclass selection logic is needed. Defaults to preview mode. Related: extract_method, method_object."""
+    """Create a factory function that wraps a class constructor, updating all direct instantiations to use the factory. Use when you need to add indirection for dependency injection or when subclass selection logic is needed. Defaults to preview mode. Related: extract_method, method_object. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.introduce_factory(
         app.pyright,
@@ -830,7 +830,7 @@ async def local_to_field(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Promote a local variable inside a method to an instance field (self.name), updating all usages within the class. Use when a computed value needs to be shared across methods. Defaults to preview mode. Related: encapsulate_field, extract_variable."""
+    """Promote a local variable inside a method to an instance field (self.name), updating all usages within the class. Use when a computed value needs to be shared across methods. Defaults to preview mode. Related: encapsulate_field, extract_variable. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.local_to_field(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"local_to_field edits={len(result.edits)} applied={result.applied}")
@@ -845,7 +845,7 @@ async def method_object(
     classname: str | None = None,
     apply: bool = False,
 ) -> RefactorResult:
-    """Convert a method with complex logic into a callable object (functor class) with __call__. Use when a method has many local variables and would benefit from being its own class with fields. Defaults to preview mode. Related: extract_method, introduce_factory."""
+    """Convert a method with complex logic into a callable object (functor class) with __call__. Use when a method has many local variables and would benefit from being its own class with fields. Defaults to preview mode. Related: extract_method, introduce_factory. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.method_object(app.pyright, app.rope, file_path, line, character, classname, apply)
     await ctx.debug(f"method_object edits={len(result.edits)} applied={result.applied}")
@@ -859,7 +859,7 @@ async def inline_method(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Inline a function/method body into all call sites and remove the original definition. Use when a method is trivial or called in only one place and adds unnecessary indirection. The inverse of extract_method. Defaults to preview mode. Related: inline_variable, extract_method."""
+    """Inline a function/method body into all call sites and remove the original definition. Use when a method is trivial or called in only one place and adds unnecessary indirection. The inverse of extract_method. Defaults to preview mode. Related: inline_variable, extract_method. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.inline_method(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"inline_method edits={len(result.edits)} applied={result.applied}")
@@ -873,7 +873,7 @@ async def inline_parameter(
     character: int,
     apply: bool = False,
 ) -> RefactorResult:
-    """Remove a parameter by inlining its default value into the function body. Use when a parameter is always called with the same value and can be replaced with a constant. Position cursor on the parameter name in the function definition. Defaults to preview mode. Related: change_signature, introduce_parameter."""
+    """Remove a parameter by inlining its default value into the function body. Use when a parameter is always called with the same value and can be replaced with a constant. Position cursor on the parameter name in the function definition. Defaults to preview mode. Related: change_signature, introduce_parameter. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.inline_parameter(app.pyright, app.rope, file_path, line, character, apply)
     await ctx.debug(f"inline_parameter edits={len(result.edits)} applied={result.applied}")
@@ -888,7 +888,7 @@ async def move_method(
     destination_attr: str,
     apply: bool = False,
 ) -> RefactorResult:
-    """Move a method from one class to another, creating a delegate in the original class. Use when a method uses another class's data more than its own. The destination_attr is the attribute name on the source class that references the target class instance. Defaults to preview mode. Related: move_symbol, extract_method."""
+    """Move a method from one class to another, creating a delegate in the original class. Use when a method uses another class's data more than its own. The destination_attr is the attribute name on the source class that references the target class instance. Defaults to preview mode. Related: move_symbol, extract_method. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.move_method(app.pyright, app.rope, file_path, line, character, destination_attr, apply)
     await ctx.debug(f"move_method edits={len(result.edits)} applied={result.applied}")
@@ -916,7 +916,7 @@ async def generate_code(
     kind: str,
     apply: bool = False,
 ) -> RefactorResult:
-    """Generate a missing class, function, variable, module, or package from a usage site. Use when code references a name that doesn't exist yet — rope creates a skeleton definition. The kind parameter must be one of: 'class', 'function', 'variable', 'module', 'package'. Defaults to preview mode. Related: extract_method, introduce_factory."""
+    """Generate a missing class, function, variable, module, or package from a usage site. Use when code references a name that doesn't exist yet — rope creates a skeleton definition. The kind parameter must be one of: 'class', 'function', 'variable', 'module', 'package'. Defaults to preview mode. Related: extract_method, introduce_factory. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await refactoring.generate_code(app.pyright, app.rope, file_path, line, character, kind, apply)
     await ctx.debug(f"generate_code kind={kind} edits={len(result.edits)} applied={result.applied}")
@@ -1167,7 +1167,7 @@ async def get_keyword_help(
     line: int,
     character: int,
 ) -> DocumentationResult:
-    """Documentation for Python keywords and operators. Use for keywords like yield, async, with and operators, not just names. Powered by Jedi. Related: get_documentation."""
+    """Documentation for Python keywords and operators. Use for keywords like yield, async, with and operators, not just names. Powered by Jedi. Related: get_documentation. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await app.jedi.get_help(file_path, line, character)
     await ctx.debug(f"get_keyword_help entries={len(result.entries)}")
@@ -1180,7 +1180,7 @@ async def get_sub_definitions(
     line: int,
     character: int,
 ) -> list[NameEntry]:
-    """List sub-definitions of a name (e.g., methods of a class from a reference). Uses Jedi Name.defined_names(). Related: goto_definition, get_symbol_outline."""
+    """List sub-definitions of a name (e.g., methods of a class from a reference). Uses Jedi Name.defined_names(). Related: goto_definition, get_symbol_outline. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await app.jedi.get_sub_definitions(file_path, line, character)
     await ctx.debug(f"get_sub_definitions count={len(result)}")
@@ -1193,7 +1193,7 @@ async def simulate_execution(
     line: int,
     character: int,
 ) -> list[TypeInfo]:
-    """Simulate calling a callable and return result types. Uses Jedi Name.execute(). Related: get_type_info, deep_type_inference."""
+    """Simulate calling a callable and return result types. Uses Jedi Name.execute(). Related: get_type_info, deep_type_inference. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await app.jedi.simulate_execute(file_path, line, character)
     await ctx.debug(f"simulate_execution count={len(result)}")
@@ -1285,7 +1285,7 @@ async def multi_project_rename(
     new_name: str,
     apply: bool = False,
 ) -> RefactorResult:
-    """Rename a symbol across multiple Rope projects simultaneously. Provide additional workspace roots beyond the primary project. Related: rename_symbol."""
+    """Rename a symbol across multiple Rope projects simultaneously. Provide additional workspace roots beyond the primary project. Related: rename_symbol. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await app.rope.multi_project_rename(additional_roots, file_path, line, character, new_name, apply)
     await ctx.debug(f"multi_project_rename edits={len(result.edits)} applied={result.applied}")
