@@ -1,8 +1,10 @@
 {
   "schemaVersion": 4,
   "generatedAt": "2026-06-20T21:51:05Z",
-  "backlogSnapshot": "2026-06-20T04:21:58Z",
+  "backlogSnapshot": "2026-06-20T22:32:44Z",
   "addendaLoaded": false,
+  "completed": true,
+  "completedAt": "2026-06-20T22:37:30Z",
   "phase": "complete",
   "cycleCount": 0,
   "maxCycles": 2,
@@ -31,7 +33,7 @@
     {
       "id": "mypy-2x-migration",
       "order": 1,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "mypy-2x-migration"
       ],
@@ -53,10 +55,10 @@
         "anchorStale": false,
         "ruleOneBundleResolved": "n/a"
       },
-      "branch": null,
+      "branch": "remediation/mypy-2x-migration",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/76",
+      "mergedAt": "2026-06-20T22:37:04Z",
       "notes": null,
       "fileSetHash": "f531c814d8aa3e703eef79f2d13c7ec8f3ec8e3a44ac95ae0ce497025f9a1eb5",
       "stanzaHash": "fce54666af06fef796845924252fd1e9892fd84f1773bb888eda0b3ba37d432c",
