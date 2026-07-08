@@ -3,8 +3,9 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-06-20T22:32:44Z
+**updated_at:** 2026-07-08T19:45:01Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
+<!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
 <!-- Replace the updated_at value above with a FULL ISO 8601 datetime on every change.
      Date-only values (2026-01-01) are INVALID — they invite placeholder drift. -->
@@ -35,7 +36,7 @@
 - **Detail lives in `items/<id>.md`, evidence in referenced reports** — not in this file. The `do` cell carries the title + next step only; the detail file carries anchors + acceptance + a one-line evidence summary plus the report path.
 - **Weak-evidence flag.** When a row's signal is thin (single retro session, self-audit only, etc.) say so explicitly in the `do` cell ("Weaker evidence — N until external session reproduces").
 - **Priority tiers:** Critical > High > Medium > Low > Defer.
-- Best-practices reference: `ai_docs/references/mcp_best_practices.md`.
+- Best-practices reference: `ai_docs/references/mcp_best_practices/README.md`.
 - See `workflow.md` → **Backlog closure** for close-in-PR expectations.
 
 ---
@@ -73,6 +74,8 @@
 | cand-docstring-sync | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | M | items/cand-docstring-sync.md |
 | pyright-position-request-param-merge-guard | Low | — | **Harden `_position_request` envelope merge** — stop `extra_params` from clobbering `textDocument`/`position` (base keys win or `ValueError`); latent only. [type: defect] [source: backlog-sweep-20260528-pr50] | S | items/pyright-position-request-param-merge-guard.md |
 | jedi-hierarchy-swallowed-exceptions | Low | — | **Document/narrow 8 best-effort exception swallows** — `jedi_backend.py` (6) + `hierarchy.py` (2): narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260528] | M | items/jedi-hierarchy-swallowed-exceptions.md |
+| backend-fallback-swallowed-exceptions | Low | — | **Narrow/comment 6 more best-effort exception swallows** — pyright_lsp.py::prepare_rename (silent, no log) + server.py::_maybe_fetch_roots (2 sites) + rope_backend.py AutoImport pre-warm/search (2 sites) + references.py::_add_context_lines: narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260708] | M | items/backend-fallback-swallowed-exceptions.md |
+| dead-code-symbol-scan-silent-drop | Low | — | **Silent per-item scan failures in dead_code/unused_symbol_sweep/get_module_dependencies** — gather(return_exceptions=True) drops in dead_code.py/unused_symbols.py and a bare except:continue in dependencies.py surface zero skipped/error signal to callers; add a count or note, sibling to structural-search-silent-file-drop. [type: observability] [source: doc-audit-20260708] | M | items/dead-code-symbol-scan-silent-drop.md |
 | codemod-multifile-atomicity | Low | — | **Multi-file codemod apply is non-atomic (CST + rope/LSP)** — route both write loops (CST + `result_from_text_edits`) through one shared atomic/partial-result helper. [type: defect] [source: structural-replace-impl-review-20260619] | M | items/codemod-multifile-atomicity.md |
 | cand-rename-cst-alias | Low | — | **LibCST alias-aware `rename_symbol` variant** — rewrite `import X as Y` / `from m import X as Y` rebindings rope/Jedi miss; abort on alias collision; dry-run. [type: enhancement] [source: brainstorm-BRAIN-001] | M | items/cand-rename-cst-alias.md |
 | cand-fix-circular-imports | Low | — | **New tool: auto-fix circular imports** — detect cycles via `get_module_dependencies`, hoist type-only edge imports into `if TYPE_CHECKING:` + stringify annotations; conservative, dry-run mandatory. [type: enhancement] [source: brainstorm-BRAIN-004] | M | items/cand-fix-circular-imports.md |
@@ -101,7 +104,7 @@
 - `ai_docs/workflow.md` — execution flow and backlog closure rules
 - `ai_docs/architecture.md` — current system architecture
 - `ai_docs/items/` — per-row implementation detail (Anchors/Acceptance/Evidence); seed new files from `templates/items.md`
-- `ai_docs/references/mcp_best_practices.md` — MCP design reference
+- `ai_docs/references/mcp_best_practices/README.md` — MCP design reference
 - `../CI_POLICY.md` — merge gating policy
-- `../audit-reports/application-brainstorm.md` — not-yet-sized product/refactor ideas (BRAIN-014..017 current) for brainstorm/planning intake; promote a BRAIN row to a sized backlog row when its first slice is ready
-- `ai_docs/plans/20260527T205134Z_backlog-sweep/plan.md` — Backlog sweep (20260527T205134Z), completed 2026-05-29. Shipped 6 initiatives across 6 PRs (#50, #51, #52, #57, #58, #59); closed 6 backlog rows.
+- `../audit-reports/application-brainstorm.md` — not-yet-sized product/refactor ideas (BRAIN-001..022 as of Pass 6, 2026-06-19) for brainstorm/planning intake; promote a BRAIN row to a sized backlog row when its first slice is ready
+- `ai_docs/archive/plans/20260527T205134Z_backlog-sweep/plan.md` — Backlog sweep (20260527T205134Z), completed 2026-05-29, archived 2026-07-08 (30+ days stable). Shipped 6 initiatives across 6 PRs (#50, #51, #52, #57, #58, #59); closed 6 backlog rows.

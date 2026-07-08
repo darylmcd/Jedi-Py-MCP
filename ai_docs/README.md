@@ -22,7 +22,7 @@ Read order is defined by `../AGENTS.md`.
 - `architecture.md`: compact system architecture reference
 - `ai_docs/domains/python-refactor/reference.md`: domain-specific entry point and authoritative tool count
 - `ai_docs/domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
-- `ai_docs/references/mcp_best_practices.md`: general MCP server best practices reference
+- `ai_docs/references/mcp_best_practices/README.md`: general MCP server best practices reference, split into 4 topic files
 - `ai_docs/references/testing.md`: stable test strategy and command reference
 - `ai_docs/references/tooling/python.md`: Python/runtime tooling reference
 - `ai_docs/prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
@@ -40,6 +40,7 @@ Read order is defined by `../AGENTS.md`.
 - `../src/python_refactor_mcp/util/diff.py`: text edit and atomic write helpers
 - `../src/python_refactor_mcp/tools/`: tool modules
 - `../tests/unit/`: current automated coverage
+- `../tests/contract/`: MCP protocol compliance coverage
 - `../tests/integration/`: transport and end-to-end coverage
 
 ## Read By Task

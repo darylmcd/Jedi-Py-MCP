@@ -32,7 +32,7 @@ just run C:\path\to\python\project
   "tool": "find_references",
   "arguments": {
     "file_path": "src/python_refactor_mcp/config.py",
-    "line": 42,
+    "line": 25,
     "character": 4,
     "include_context": true
   }
@@ -43,7 +43,7 @@ just run C:\path\to\python\project
 
 ### Example 2: Preview a rename before applying
 
-**Prompt:** "Rename the `_get_app_context` helper to `_resolve_context` but show me the diff first."
+**Prompt:** "Rename the `_get_current_backends` helper to `_resolve_context` but show me the diff first."
 
 **Tool call (step 1 -- preview):**
 ```json
@@ -51,7 +51,7 @@ just run C:\path\to\python\project
   "tool": "rename_symbol",
   "arguments": {
     "file_path": "src/python_refactor_mcp/server.py",
-    "line": 141,
+    "line": 102,
     "character": 4,
     "new_name": "_resolve_context",
     "apply": false

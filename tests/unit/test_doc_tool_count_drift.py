@@ -31,13 +31,15 @@ ALLOWED_SOURCES = {
 # Subtrees holding transient/generated artifacts that legitimately reference
 # the current tool count when capturing repo state at a point in time.
 # Reference docs (architecture, mcp-checklist, etc.) remain policed.
-EXCLUDED_SUBTREES = ("plans/", "reports/")
+# "archive/plans/" and "archive/reports/" cover the same trees once doc-audit's
+# 30-day-stable retention rule moves them out of "plans/"/"reports/".
+EXCLUDED_SUBTREES = ("plans/", "reports/", "archive/plans/", "archive/reports/")
 # Counts at or above this are server-wide totals, not per-category subsets.
 # Today the server has 91 tools and the largest category (Refactoring) has 32;
 # 50 is comfortably between them and well below general LLM "tool sprawl"
 # thresholds (e.g. mcp_best_practices.md's "30-40 tools" guidance).
 SERVER_WIDE_THRESHOLD = 50
-PATTERN = re.compile(r"\b(\d+) tools\b")
+PATTERN = re.compile(r"\b(\d+) (?:tools|available)\b")
 
 
 def test_no_server_wide_tool_count_drift() -> None:
@@ -61,9 +63,12 @@ def test_no_server_wide_tool_count_drift() -> None:
 
 
 # Matches server-wide tool-count claims in prose: "96 tools", "96 MCP tools",
-# "96-tool reference". Per-category counts (e.g. "Analysis (18 tools)") fall
-# under SERVER_WIDE_THRESHOLD and are intentionally ignored.
-_LIVE_COUNT_RE = re.compile(r"\b(\d+)[ -](?:MCP )?tools?\b")
+# "96-tool reference", "91 available". Per-category counts (e.g. "Analysis (18
+# tools)") fall under SERVER_WIDE_THRESHOLD and are intentionally ignored.
+# "available" is matched standalone (no "tools" required) because a prior drift
+# ("## Tools Reference (91 available)" in deep-review-refactor.md) evaded a
+# tools-suffix-only regex for a full audit cycle before being caught.
+_LIVE_COUNT_RE = re.compile(r"\b(\d+)[ -](?:MCP )?(?:tools?|available)\b")
 
 # Directories of current-state docs whose server-wide counts must match reality.
 # ``plans/`` and ``reports/`` hold point-in-time snapshots; CHANGELOG.md narrates

@@ -72,7 +72,7 @@ Minimum per-release checks for current tools:
 ## D. New Tool Intake Checklist (for Next 10 picks)
 
 For each candidate from the roadmap:
-- [ ] Confirm backend API exists and is stable (Pyright/Jedi/rope) — record the verification in the backlog row's `blocker` column (`none`, `custom-cst`, `rope-api-absent`, `redundant-with-X`, etc.).
+- [ ] Confirm backend API exists and is stable (Pyright/Jedi/rope) — record the verification as a `[type: …]`/`[source: …]` tag in the backlog row's `do` cell (v15 slim-index schema: `id | pri | deps | do | size | detail` — there is no separate `blocker` column).
 - [ ] Define MCP request args and response model first.
 - [ ] Add server registration and domain docs in same change.
 - [ ] Add unit tests for conversion/mapping and error handling.
@@ -111,7 +111,7 @@ Add a short prompt bank for every tool you expose.
 
 ### Tool Prompt Bank
 
-Every tool on the current server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
+Every tool on the current 98-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
 
 #### Navigation & lookups
 
@@ -262,6 +262,14 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `get_keyword_help` for `match` and return a one-line summary."
   - Validation: "Run `get_keyword_help` on a non-keyword identifier and show the validation error."
   - Chaining: "Use `get_keyword_help` to confirm language semantics before suggesting a `restructure`."
+- `test_impact_select`:
+  - Goal: "Run `test_impact_select` with a changed-symbol anchor (`file_path`/`line`/`character`) and return the pytest node IDs that transitively exercise it."
+  - Validation: "Run `test_impact_select` on a symbol with zero test callers and confirm the empty-result envelope."
+  - Chaining: "Use `call_hierarchy` to confirm the caller graph, then `test_impact_select` to pick the minimal test set to re-run after a change."
+- `security_autofix`:
+  - Goal: "Run `security_autofix` on a file with `apply=false` and return which `yaml.load(...)` call sites it would rewrite to `yaml.safe_load(...)`."
+  - Validation: "Run `security_autofix` on a call site passing an explicit `Loader=`, and confirm it is skipped/counted rather than rewritten."
+  - Chaining: "Run `security_scan` to locate the SEC022 finding, then `security_autofix` with `apply=true` to fix it, then `security_scan` again to confirm it's clear."
 
 #### Search
 
@@ -277,10 +285,18 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `structural_search` for `except Exception: pass` and return each match location."
   - Validation: "Run `structural_search` with a malformed pattern and show the parse-error response."
   - Chaining: "Use `structural_search` matches as candidates for `apply_code_action` or `restructure`."
+- `structural_replace`:
+  - Goal: "Run `structural_replace` with a matcher pattern + `$name`-capture replacement template on one file, `apply=false`, and return the proposed edits."
+  - Validation: "Run `structural_replace` with a replacement template referencing an undefined `$name` capture and show the validation error."
+  - Chaining: "Use `structural_search` to confirm match sites, then `structural_replace` with the same pattern to rewrite them."
 - `dead_code_detection`:
   - Goal: "Run `dead_code_detection` and return only unreferenced public functions."
   - Validation: "Run `dead_code_detection` on a package where every symbol is exported and confirm zero findings."
   - Chaining: "Feed `dead_code_detection` results into `find_references` to confirm zero sites before deleting."
+- `unused_symbol_sweep`:
+  - Goal: "Run `unused_symbol_sweep` on a package and return exported symbols with zero cross-file references."
+  - Validation: "Run `unused_symbol_sweep` on a module whose export is registered via an `mcp`/`tool` decorator and confirm it is skipped."
+  - Chaining: "Feed `unused_symbol_sweep` results into `find_references` to confirm zero sites, then propose deletion."
 - `find_duplicated_code`:
   - Goal: "Run `find_duplicated_code` and return the top 3 clones by size."
   - Validation: "Run `find_duplicated_code` on a single-file project and confirm empty result."
@@ -312,6 +328,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `extract_method` on a selection with `apply=false` and return the new method signature."
   - Validation: "Run `extract_method` on a range spanning two functions and show the scope-violation error."
   - Chaining: "Call `selection_range`, then `extract_method` on the outermost expression range."
+- `extract_superclass`:
+  - Goal: "Run `extract_superclass` on a class with a named member subset and `apply=false`, and return the proposed base-class body."
+  - Validation: "Run `extract_superclass` including an `@classmethod`/`@staticmethod`/`@property` member and show the unsupported-member-kind error."
+  - Chaining: "Run `extract_superclass` preview, then `interface_conformance` against the new base to confirm the subclass still satisfies it."
 - `extract_variable`:
   - Goal: "Run `extract_variable` on an expression with `apply=false` and return proposed local name."
   - Validation: "Run `extract_variable` on an assignment LHS and show the invalid-target error."
@@ -459,6 +479,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `diff_preview` on a pending TextEdit list and summarize top 3 hunks."
   - Validation: "Run `diff_preview` with an empty edit list and confirm the no-op response."
   - Chaining: "Pipe any refactor `apply=false` result into `diff_preview`; only apply if diff looks right."
+- `refactor_transaction`:
+  - Goal: "Run `refactor_transaction` with an ordered `(tool, args)` step list and return the per-step `applied`/`rolled_back`/`failed` status."
+  - Validation: "Run `refactor_transaction` with two steps whose char spans overlap and show the overlap-abort + full rollback."
+  - Chaining: "Preview each step individually, then compose them into one `refactor_transaction` call for atomic apply."
 - `begin_change_stack`:
   - Goal: "Run `begin_change_stack` and return the new stack id."
   - Validation: "Run `begin_change_stack` when one is already open and show the nested-stack rejection."
@@ -490,6 +514,10 @@ Every tool on the current server has a Goal / Validation / Chaining prompt tripl
   - Goal: "Run `list_environments` and return the resolved interpreter path for the primary workspace."
   - Validation: "Run `list_environments` in an environment with no venv and confirm the fallback interpreter entry."
   - Chaining: "Use `list_environments` output to decide whether to call `create_type_stubs`."
+- `server_status`:
+  - Goal: "Run `server_status` and return the `degraded` flag plus per-workspace backend liveness."
+  - Validation: "Run `server_status` with zero workspaces loaded and confirm it still returns a valid envelope."
+  - Chaining: "Call `server_status` first when a tool call behaves unexpectedly, to rule out a Pyright-down fallback-to-Jedi condition."
 - `restart_server`:
   - Goal: "Run `restart_server` and confirm the Pyright LSP lifecycle restarts cleanly."
   - Validation: "Run `restart_server` mid-refactor and show the queued-operation rejection."
