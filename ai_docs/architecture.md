@@ -3,17 +3,28 @@
 
 Purpose: compact architecture reference for AI contributors.
 
-## System Layout
+## Code Map
 
-| Path | Role |
-|------|------|
-| `src/python_refactor_mcp/__main__.py` | Entry point |
-| `src/python_refactor_mcp/server.py` | Server lifecycle, tool registration (count tracked in `domains/python-refactor/reference.md`) |
-| `src/python_refactor_mcp/config.py` | Runtime and workspace discovery |
-| `src/python_refactor_mcp/models.py` | Shared Pydantic response models |
-| `src/python_refactor_mcp/backends/` | Pyright LSP, Jedi, and rope integrations |
-| `src/python_refactor_mcp/tools/` | Tool orchestration by domain |
-| `src/python_refactor_mcp/util/` | LSP client, diff helpers, shared protocols |
+| Domain / Feature | Source path(s) | Key types | Tests |
+|---|---|---|---|
+| Server lifecycle & tool registration | `src/python_refactor_mcp/server.py`, `src/python_refactor_mcp/tool_registry.py` | `TOOL_RECORDS`, `_tool_error_boundary` | `tests/unit/test_server.py`, `tests/contract/` |
+| Config & workspace discovery | `src/python_refactor_mcp/config.py` | `WorkspaceRegistry`, `MultiWorkspaceContext` | `tests/unit/` |
+| Shared response models | `src/python_refactor_mcp/models.py` | `TypeInfo`, `Diagnostic`, `RefactorResult`, `SymbolOutlineItem`, `DiffPreview` | `tests/unit/` |
+| Error types | `src/python_refactor_mcp/errors.py` | `BackendError` subclasses | `tests/unit/` |
+| Pyright LSP backend | `src/python_refactor_mcp/backends/pyright_lsp.py` | `PyrightLSPClient` | `tests/unit/`, `tests/integration/` |
+| Jedi backend | `src/python_refactor_mcp/backends/jedi_backend.py` | `JediBackend` | `tests/unit/` |
+| rope backend | `src/python_refactor_mcp/backends/rope_backend.py` | `RopeBackend` | `tests/unit/` |
+| Shared backend threading helper | `src/python_refactor_mcp/backends/_threading.py` | `run_in_thread` | `tests/unit/` |
+| LibCST apply foundation | `src/python_refactor_mcp/util/cst_apply.py` | CST apply/codemod helpers | `tests/unit/` |
+| Tool orchestration | `src/python_refactor_mcp/tools/analysis/`, `.../navigation/`, `.../refactoring/`, `.../search/`, `.../metrics/`, `.../composite.py` | per-category tool implementations | `tests/unit/`, `tests/contract/` |
+| Shared LSP/diff/path utilities | `src/python_refactor_mcp/util/` | LSP client, diff, path helpers | `tests/unit/` |
+
+## Entry points
+
+| Entry point | Starts |
+|---|---|
+| `src/python_refactor_mcp/__main__.py` | CLI entry — parses the `workspace_root` argument, calls `server.run_server()` |
+| `python-refactor-mcp` console script (`pyproject.toml`) | Installed-package equivalent of `__main__.py` |
 
 ## Backend Roles
 
@@ -47,6 +58,6 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 
 ## Known Gaps
 
-- `change_signature` no longer strips Python 3 type annotations — a LibCST post-pass (`tools/refactoring/signature_annotations.py`) restores annotations rope's `ArgumentNormalizer`/`ArgumentAdder` drop. **Residual:** rope still drops parameter *default values* on rename/normalize, and the renamed parameter's annotation is not restored under combined reorder+rename. Tracked by `cand-change-signature-cst`.
+- `change_signature` restores type annotations via a LibCST post-pass; rope still drops parameter *default values* on rename/normalize (tracked by `cand-change-signature-cst`).
 - `list_environments` may return empty results depending on virtualenv layout (known Jedi discovery limitation).
 - Pyright diagnostics on lines with `# type: ignore` may still surface in tool results (LSP filtering limitation).

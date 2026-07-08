@@ -9,12 +9,13 @@
 - Cross-project read order: this repo has no local `ai_docs/ecosystem/` planning docs; use only explicitly named external repo or integration context.
 - MUST: every planning file carries a scope tag.
 - MUST: cross-project and reference files carry the required scope banner.
+- MUST (reachability): every `artifact: plan|roadmap` file marked `status: active` is reachable from the Routing table below; every directory under `ai_docs/plans/` is either a timestamped `*_backlog-sweep/`/`*remediation/` tree (owned by `/reconcile-plans`) or registered in that table.
 - MUST NOT: duplicate roadmap content here; this file is a router only.
 - MUST NOT: mix scopes within a routing-table section.
 
 ## Next-step protocol
 
-1. User named NO specific repo / adapter / ecosystem / integration / cross-repo term -> scope = in-repo -> read `backlog.md` -> STOP. Do not open `ai_docs/ecosystem/**`.
+1. User named NO specific repo / adapter / ecosystem / integration / cross-repo term -> scope = in-repo -> read `ai_docs/backlog.md` -> STOP. Do not open `ai_docs/ecosystem/**`.
 2. User named another repo / adapter / ecosystem / integration / cross-repo work -> scope = cross-project -> there is no local `ai_docs/ecosystem/` router in this repo; use only explicitly named external context.
 3. Both scopes named -> answer each as a separate question; do not merge into one recommendation.
 

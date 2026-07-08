@@ -27,7 +27,7 @@ Restated from `~/.claude/CLAUDE.md` (canonical source). These eight directive **
 - Workflow and collaboration: `ai_docs/workflow.md`
 - CI policy: `CI_POLICY.md`
 - Build/run/test commands: `ai_docs/runtime.md`
-- Open work / backlog rules: `ai_docs/backlog.md` (see **Agent contract** in that file)
+- Open work / backlog rules: `ai_docs/backlog.md` (see **Agent contract** in `ai_docs/backlog.md`)
 - Operational reminder layer: `.cursor/rules/operational-essentials.md`
 - Claude pointer: `CLAUDE.md` points to this file (collapsed-pointer form — no mirror)
 
@@ -46,7 +46,7 @@ After the required reads, use `ai_docs/README.md` to pull additional docs on dem
 
 Next-step protocol:
 
-1. User named NO specific repo / adapter / ecosystem / integration / cross-repo term -> scope = in-repo -> read `backlog.md` -> STOP. Do not open `ai_docs/ecosystem/**`.
+1. User named NO specific repo / adapter / ecosystem / integration / cross-repo term -> scope = in-repo -> read `ai_docs/backlog.md` -> STOP. Do not open `ai_docs/ecosystem/**`.
 2. User named another repo / adapter / ecosystem / integration / cross-repo work -> scope = cross-project -> there is no local `ai_docs/ecosystem/` router in this repo; use only explicitly named external context.
 3. Both scopes named -> answer each as a separate question; do not merge into one recommendation.
 

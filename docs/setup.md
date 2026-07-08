@@ -26,13 +26,7 @@ Install with build tooling:
 python -m pip install -e ".[build]"
 ```
 
-Install from requirements:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-The `pyright` requirement installs the `pyright-langserver` executable used by the server.
+The `pyright` dependency (declared in `pyproject.toml`) installs the `pyright-langserver` executable used by the server.
 
 ## Executable Build
 
@@ -78,7 +72,7 @@ Direct commands:
 - `python -m ruff check .` validates lint cleanliness.
 - `python -m pyright .` validates the Pyright lane used by CI.
 - `python -m mypy .` validates the strict mypy lane used by CI.
-- `python -m pytest tests/unit/ -v` runs the unit suite.
+- `python -m pytest tests/unit/ tests/contract/ -v` runs the unit + contract suite.
 - `.\scripts\test-integration.ps1` runs the integration suite against the supported test harness.
 
 ## Configuration
@@ -157,7 +151,7 @@ Other runtime discovery:
 
 ### Build script fails
 
-- Install build dependencies with `python -m pip install -e ".[build]"` or `python -m pip install -r requirements.txt`.
+- Install build dependencies with `python -m pip install -e ".[build]"`.
 - Run the script from PowerShell.
 - Use `-Clean` to remove stale PyInstaller artifacts.
 
