@@ -45,7 +45,8 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 ## Local Run
 
 - Install from source: `python -m pip install .`
-- Install for development: `python -m pip install -e ".[dev]"`
+- Install the locked development environment: `uv sync --locked --all-extras`
+- Install for development without uv: `python -m pip install -e ".[dev]"`
 - Install with build tooling: `python -m pip install -e ".[build]"`
 - Start the stdio server: `python -m python_refactor_mcp <workspace_root>`
 - Check the CLI entrypoint: `python -m python_refactor_mcp --version`
@@ -73,8 +74,8 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 
 ## CI Summary
 
-1. Create `.venv`.
-2. Install `.[dev,build]`.
+1. Install the repository-required uv version.
+2. Sync `.venv` from `uv.lock` with all extras.
 3. Run `ruff`.
 4. Run `pyright`.
 5. Run `mypy`.

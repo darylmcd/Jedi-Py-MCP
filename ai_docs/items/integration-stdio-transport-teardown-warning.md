@@ -15,3 +15,4 @@
 ## Evidence
 
 - Live `just ci` on 2026-08-28: all 27 integration tests passed, then Python 3.14 reported an unclosed proactor subprocess transport during final fixture teardown.
+Fresh locked-environment probe on 2026-08-28 found two orphaned pyright.langserver processes plus their Node child holding .venv open after prior MCP/integration activity. The mcp_session fixture also catches and suppresses the anyio different-task RuntimeError around context teardown; remediation must remove that suppression by making context ownership deterministic and must assert no repo-scoped Pyright child remains after the integration suite. A single-test probe exited cleanly, so the defect remains intermittent.

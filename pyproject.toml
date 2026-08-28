@@ -11,7 +11,7 @@ requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Jedi-Py-MCP Contributors" }]
 dependencies = [
-  "mcp>=1.27",
+  "mcp>=1.27,<2",
   "pydantic>=2.13",
   "jedi>=0.20",
   "rope>=1.14",
@@ -66,3 +66,6 @@ python_version = "3.14"
 strict = true
 packages = ["python_refactor_mcp"]
 exclude = ["tests/.*", "build/.*", "dist/.*"]
+
+[tool.uv]
+required-version = "==0.11.1"
