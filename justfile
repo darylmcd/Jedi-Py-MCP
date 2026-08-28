@@ -67,6 +67,10 @@ run workspace:
 bump-reinstall version target_python="python":
     {{ python }} scripts/bump_reinstall.py "{{ version }}" --target-python "{{ target_python }}"
 
+# Repair or refresh the current locked release without changing its version
+reinstall target_python="python":
+    {{ python }} scripts/bump_reinstall.py --reinstall-only --target-python "{{ target_python }}"
+
 # --- Aggregates ---
 
 # Fast local sanity check before pushing

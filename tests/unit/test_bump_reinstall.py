@@ -119,6 +119,7 @@ def test_bump_and_reinstall_orchestrates_locked_install_and_verification(
     assert ["uv", "lock"] in calls
     assert any("--no-emit-project" in command for command in calls)
     assert any("--force-reinstall" in command and "--no-deps" in command for command in calls)
+    assert any(command[-3:] == ["-m", "pip", "check"] for command in calls)
 
 
 def test_bump_and_reinstall_restores_release_files_when_a_command_fails(
@@ -138,3 +139,45 @@ def test_bump_and_reinstall_restores_release_files_when_a_command_fails(
         bump_reinstall.bump_and_reinstall(tmp_path, "patch", "python")
 
     assert {path: path.read_bytes() for path in files.all()} == originals
+
+
+def test_bump_and_reinstall_retains_release_files_after_installation_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _release_files(tmp_path)
+
+    monkeypatch.setattr(bump_reinstall, "_resolve_executable", lambda raw: raw)
+
+    def fail_install(arguments: list[str], repo_root: Path) -> str:
+        if "install" in arguments:
+            raise RuntimeError("install failed")
+        return ""
+
+    monkeypatch.setattr(bump_reinstall, "_run", fail_install)
+
+    with pytest.raises(RuntimeError, match="release files were finalized"):
+        bump_reinstall.bump_and_reinstall(tmp_path, "patch", "python")
+
+    assert read_release_version(files) == ReleaseVersion.parse("1.2.4")
+    assert "## [1.2.4]" in files.changelog.read_text(encoding="utf-8")
+
+
+def test_reinstall_current_does_not_mutate_release_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    files = _release_files(tmp_path)
+    originals = {path: path.read_bytes() for path in files.all()}
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bump_reinstall, "_resolve_executable", lambda raw: raw)
+
+    def fake_run(arguments: list[str], repo_root: Path) -> str:
+        calls.append(arguments)
+        if arguments[-2:] == ["python_refactor_mcp", "--version"]:
+            return "python-refactor-mcp 1.2.3"
+        return ""
+
+    monkeypatch.setattr(bump_reinstall, "_run", fake_run)
+
+    assert bump_reinstall.reinstall_current(tmp_path, "python") == ReleaseVersion.parse("1.2.3")
+    assert {path: path.read_bytes() for path in files.all()} == originals
+    assert ["uv", "lock", "--check"] in calls
+    assert any(command[-3:] == ["-m", "pip", "check"] for command in calls)

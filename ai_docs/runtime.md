@@ -42,6 +42,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Build executable (one-file) | `./scripts/build.ps1 -OneFile` | `just build-onefile` |
 | Run server | `python -m python_refactor_mcp <workspace_root>` | `just run <workspace_root>` |
 | Bump + reinstall | `python scripts/bump_reinstall.py patch --target-python python` | `just bump-reinstall patch` |
+| Reinstall current release | `python scripts/bump_reinstall.py --reinstall-only --target-python python` | `just reinstall` |
 
 ## Local Run
 
@@ -51,7 +52,8 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 - Install with build tooling: `python -m pip install -e ".[build]"`
 - Start the stdio server: `python -m python_refactor_mcp <workspace_root>`
 - Check the CLI entrypoint: `python -m python_refactor_mcp --version`
-- Bump `major`, `minor`, `patch`, or to an explicit greater release; refresh `uv.lock`; reinstall the exact locked runtime dependencies and editable package into the client interpreter; then verify its CLI: `just bump-reinstall patch [target_python]`. The default target is `python` on PATH because that is the command in `manifest.json` and the local Claude MCP configuration.
+- Bump `major`, `minor`, `patch`, or to an explicit greater release; refresh `uv.lock`; reinstall the exact locked runtime dependencies and editable package into the client interpreter; run `pip check`; then verify its CLI: `just bump-reinstall patch [target_python]`. The default target is `python` on PATH because that is the command in `manifest.json` and the local Claude MCP configuration. Pre-install failures restore release files; failures after installation starts retain them so source metadata cannot contradict a partially updated interpreter.
+- Repair a failed/removed install or refresh the current locked release without changing version metadata: `just reinstall [target_python]`.
 
 ## Config And Environment
 
