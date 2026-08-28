@@ -9,6 +9,8 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-28
+
 ### Fixed
 
 - **Fixed (packaging/CI):** Migrated the server and clients to MCP SDK 2.1.1 (`MCPServer`, the v2 `Context` shape, snake-case protocol attributes, and snake-case tool annotations). Deprecated client-pushed protocol logs are now standard lazy-formatted Python logs, with Ruff guarding against eager f-string interpolation. Hosted CI now syncs the committed `uv.lock` instead of resolving open-ended dependencies with pip, preventing clean installs from selecting an untested SDK API.
@@ -40,7 +42,7 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 
 ### Maintenance
 
-- **Maintenance:** Added a guarded `just bump-reinstall <major|minor|patch|version> [target_python]` release recipe. It rejects drifted or non-increasing versions, updates all three hand-maintained version surfaces, assembles the populated Unreleased changelog, refreshes `uv.lock`, installs exact locked runtime dependencies plus the editable server into the interpreter used by MCP clients, verifies the CLI-reported version, and restores release-managed files if any step fails.
+- **Maintenance:** Added guarded `just bump-reinstall <major|minor|patch|version> [target_python]` and `just reinstall [target_python]` release recipes. They reject drifted or non-increasing versions, update all three hand-maintained version surfaces, assemble the populated Unreleased changelog, refresh or validate `uv.lock`, install exact locked runtime dependencies plus the editable server into the interpreter used by MCP clients, run `pip check`, and verify the CLI-reported version. Pre-install failures restore release files; failures after installation starts retain them so metadata remains repairable through the reinstall-only path instead of contradicting a partially updated interpreter.
 - **Maintenance:** Refreshed the authoritative lock to mypy 2.3.1, LibCST 1.9.0, Pydantic 2.13.5, Pyright 1.1.411, PyInstaller 6.22.2, pytest 9.1.1, and Ruff 0.16.5. Hosted third-party actions are upgraded to their current Node 24 releases and pinned to immutable commit SHAs, and the repository requires uv 0.11.1 so dependency resolution is reproducible.
 - **Maintenance:** Reconciled stale server-wide tool counts to the canonical surface (`README.md` and `.ai-doc-audit.md` said 91; `reference.md` is the single source). All now read 98 after the additions above. Closes `changelog-tool-count-drift` and `changelog-unreleased-tool-tally`.
 - **Maintenance:** Completed the prompt-example bank in `ai_docs/domains/python-refactor/mcp-checklist.md` — every tool on the current server (87 total across navigation, analysis, search, refactoring, metrics, history, and infrastructure) now has a Goal / Validation / Chaining prompt triple. Closes `mcp-checklist-prompts`.
@@ -144,5 +146,6 @@ Category order used in each release: **Fixed** → **Changed — BREAKING** → 
 - **Added:** Wave-2 tool surface, hardening, integration coverage.
 - **Added:** P0/P1 backlog items — security, hardening, usability, performance (#13).
 
-[Unreleased]: https://github.com/darylmcd/Jedi-Py-MCP/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/darylmcd/Jedi-Py-MCP/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/darylmcd/Jedi-Py-MCP/releases/tag/v0.5.0
 [0.4.1]: https://github.com/darylmcd/Jedi-Py-MCP/releases/tag/v0.4.1

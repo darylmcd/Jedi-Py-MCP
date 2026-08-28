@@ -195,6 +195,56 @@ def _resolve_executable(raw: str) -> str:
     return resolved
 
 
+def _export_locked_runtime(uv_executable: str, repo_root: Path, requirements: Path) -> None:
+    """Export exact runtime dependencies from the committed lock."""
+    _run(
+        [
+            uv_executable,
+            "export",
+            "--locked",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-hashes",
+            "--output-file",
+            str(requirements),
+        ],
+        repo_root,
+    )
+
+
+def _install_and_verify(repo_root: Path, python_executable: str, requirements: Path, expected: ReleaseVersion) -> None:
+    """Synchronize one interpreter, validate its dependency graph, and probe the CLI."""
+    _run([python_executable, "-m", "pip", "install", "--upgrade", "-r", str(requirements)], repo_root)
+    _run(
+        [python_executable, "-m", "pip", "install", "--force-reinstall", "--no-deps", "--editable", "."],
+        repo_root,
+    )
+    _run([python_executable, "-m", "pip", "check"], repo_root)
+    reported = _run([python_executable, "-m", "python_refactor_mcp", "--version"], repo_root)
+    expected_output = f"{_PACKAGE_NAME} {expected}"
+    if reported != expected_output:
+        raise RuntimeError(f"Reinstalled CLI reported {reported!r}; expected {expected_output!r}")
+
+
+def reinstall_current(repo_root: Path, target_python: str) -> ReleaseVersion:
+    """Repair or refresh the current release without mutating release metadata."""
+    files = ReleaseFiles.from_root(repo_root)
+    missing = [str(path) for path in files.all() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing release-managed files: {', '.join(missing)}")
+
+    current = read_release_version(files)
+    python_executable = _resolve_executable(target_python)
+    uv_executable = _resolve_executable("uv")
+    _run([uv_executable, "lock", "--check"], repo_root)
+    with tempfile.TemporaryDirectory(prefix="python-refactor-mcp-reinstall-") as temp_dir:
+        requirements = Path(temp_dir) / "runtime-requirements.txt"
+        _export_locked_runtime(uv_executable, repo_root, requirements)
+        _install_and_verify(repo_root, python_executable, requirements, current)
+    print(f"Reinstalled {_PACKAGE_NAME} {current} and verified {python_executable}.")
+    return current
+
+
 def bump_and_reinstall(repo_root: Path, requested: str, target_python: str) -> ReleaseVersion:
     """Execute the guarded bump, lock refresh, locked reinstall, and CLI verification."""
     files = ReleaseFiles.from_root(repo_root)
@@ -208,40 +258,28 @@ def bump_and_reinstall(repo_root: Path, requested: str, target_python: str) -> R
     uv_executable = _resolve_executable("uv")
     snapshots = {path: path.read_bytes() for path in files.all()}
 
-    try:
-        update_version_surfaces(files, current, target)
-        assemble_changelog(files.changelog, current, target, date.today())
-        _run([uv_executable, "lock"], repo_root)
-        with tempfile.TemporaryDirectory(prefix="python-refactor-mcp-release-") as temp_dir:
-            requirements = Path(temp_dir) / "runtime-requirements.txt"
-            _run(
-                [
-                    uv_executable,
-                    "export",
-                    "--locked",
-                    "--no-dev",
-                    "--no-emit-project",
-                    "--no-hashes",
-                    "--output-file",
-                    str(requirements),
-                ],
-                repo_root,
-            )
-            _run([python_executable, "-m", "pip", "install", "--upgrade", "-r", str(requirements)], repo_root)
-        _run(
-            [python_executable, "-m", "pip", "install", "--force-reinstall", "--no-deps", "--editable", "."],
-            repo_root,
-        )
-        reported = _run([python_executable, "-m", "python_refactor_mcp", "--version"], repo_root)
-        expected = f"{_PACKAGE_NAME} {target}"
-        if reported != expected:
-            raise RuntimeError(f"Reinstalled CLI reported {reported!r}; expected {expected!r}")
-        if read_release_version(files) != target:
-            raise RuntimeError("Release version surfaces drifted during the bump")
-    except BaseException:
-        for path, content in snapshots.items():
-            path.write_bytes(content)
-        raise
+    with tempfile.TemporaryDirectory(prefix="python-refactor-mcp-release-") as temp_dir:
+        requirements = Path(temp_dir) / "runtime-requirements.txt"
+        try:
+            update_version_surfaces(files, current, target)
+            assemble_changelog(files.changelog, current, target, date.today())
+            _run([uv_executable, "lock"], repo_root)
+            _export_locked_runtime(uv_executable, repo_root, requirements)
+        except BaseException:
+            for path, content in snapshots.items():
+                path.write_bytes(content)
+            raise
+
+        try:
+            _install_and_verify(repo_root, python_executable, requirements, target)
+        except BaseException as exc:
+            raise RuntimeError(
+                "Installation failed after release files were finalized; they were retained to match any partial "
+                f"environment changes. Repair with: just reinstall {target_python!r}"
+            ) from exc
+
+    if read_release_version(files) != target:
+        raise RuntimeError("Release version surfaces drifted during the bump")
 
     print(f"Bumped {_PACKAGE_NAME} {current} -> {target} and verified {python_executable}.")
     return target
@@ -249,7 +287,16 @@ def bump_and_reinstall(repo_root: Path, requested: str, target_python: str) -> R
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("version", help="major, minor, patch, or an explicit greater major.minor.patch version")
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="major, minor, patch, or an explicit greater major.minor.patch version",
+    )
+    parser.add_argument(
+        "--reinstall-only",
+        action="store_true",
+        help="reinstall and verify the current locked release without changing version metadata",
+    )
     parser.add_argument(
         "--target-python",
         default="python",
@@ -262,7 +309,14 @@ def main() -> int:
     args = _parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     try:
-        bump_and_reinstall(repo_root, args.version, args.target_python)
+        if args.reinstall_only:
+            if args.version is not None:
+                raise ValueError("--reinstall-only does not accept a version")
+            reinstall_current(repo_root, args.target_python)
+        else:
+            if args.version is None:
+                raise ValueError("a bump version or --reinstall-only is required")
+            bump_and_reinstall(repo_root, args.version, args.target_python)
     except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"bump-reinstall failed: {exc}", file=sys.stderr)
         return 1
