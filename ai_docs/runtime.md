@@ -41,14 +41,17 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Build executable (directory bundle) | `./scripts/build.ps1` | `just build-release` |
 | Build executable (one-file) | `./scripts/build.ps1 -OneFile` | `just build-onefile` |
 | Run server | `python -m python_refactor_mcp <workspace_root>` | `just run <workspace_root>` |
+| Bump + reinstall | `python scripts/bump_reinstall.py patch --target-python python` | `just bump-reinstall patch` |
 
 ## Local Run
 
 - Install from source: `python -m pip install .`
-- Install for development: `python -m pip install -e ".[dev]"`
+- Install the locked development environment: `uv sync --locked --all-extras`
+- Install for development without uv: `python -m pip install -e ".[dev]"`
 - Install with build tooling: `python -m pip install -e ".[build]"`
 - Start the stdio server: `python -m python_refactor_mcp <workspace_root>`
 - Check the CLI entrypoint: `python -m python_refactor_mcp --version`
+- Bump `major`, `minor`, `patch`, or to an explicit greater release; refresh `uv.lock`; reinstall the exact locked runtime dependencies and editable package into the client interpreter; then verify its CLI: `just bump-reinstall patch [target_python]`. The default target is `python` on PATH because that is the command in `manifest.json` and the local Claude MCP configuration.
 
 ## Config And Environment
 
@@ -66,6 +69,7 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 ## Packaging And Distribution
 
 - Python package metadata lives in `pyproject.toml`.
+- Release versions are synchronized across `pyproject.toml`, `src/python_refactor_mcp/__init__.py`, and `manifest.json`; `scripts/bump_reinstall.py` also assembles the populated `CHANGELOG.md` Unreleased section and refreshes the derived `uv.lock` entry.
 - Editable and non-editable installs are supported from source.
 - The console script entrypoint is `python-refactor-mcp`.
 - Windows executable packaging is handled by `scripts/build.ps1` and `build.bat`.
@@ -73,8 +77,8 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 
 ## CI Summary
 
-1. Create `.venv`.
-2. Install `.[dev,build]`.
+1. Install the repository-required uv version.
+2. Sync `.venv` from `uv.lock` with all extras.
 3. Run `ruff`.
 4. Run `pyright`.
 5. Run `mypy`.

@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-28T18:34:46Z
+**updated_at:** 2026-08-28T19:15:50Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -57,6 +57,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
+| `changelog-fragment-release-workflow` | Medium | — | Migrate the populated Unreleased changelog to validated per-change fragments and make bump-reinstall consume them atomically. | M | items/changelog-fragment-release-workflow.md |
 
 ## Low
 
@@ -80,7 +81,6 @@
 | cand-structured-error-envelope | Low | — | **Structured error envelope at the MCP boundary** — map each `BackendError` subclass to a stable code in `_tool_error_boundary` instead of bare `ValueError`; message text unchanged. [type: enhancement] [source: BRAIN-018 · audit-reports/application-brainstorm.md] | M | items/cand-structured-error-envelope.md |
 | cand-test-impact-nodeid-precision | Low | — | **Precise pytest node-IDs for test_impact_select** — emit `file::Class::method` for class-based test callers (reuse hierarchy.py class derivation); parametrized cases stay slice 2. [type: enhancement] [source: BRAIN-021 · audit-reports/application-brainstorm.md] | S | items/cand-test-impact-nodeid-precision.md |
 | pyright-validate-position-redundant-read | Low | — | **`_validate_position` redundant full-file read** — reuse `ensure_file_open`'s content instead of a second `read_text` per call on the ~12-tool position hot path; negligible vs LSP cost (hygiene). [type: refactor] [source: pr71-cq-review-20260620] | S | items/pyright-validate-position-redundant-read.md |
-| `integration-stdio-transport-teardown-warning` | Low | — | **Drain Windows stdio transport on integration teardown** — identify the MCP SDK or fixture owner and close it without warning suppression. [type: defect] [source: just-ci-20260828] | S | items/integration-stdio-transport-teardown-warning.md |
 
 ## Defer
 

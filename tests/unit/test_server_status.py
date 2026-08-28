@@ -85,4 +85,4 @@ async def test_server_status_registered_and_readonly() -> None:
     """server_status is registered on the MCP instance as a read-only tool."""
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     assert "server_status" in tools
-    assert "ctx" not in tools["server_status"].inputSchema.get("properties", {})
+    assert "ctx" not in tools["server_status"].input_schema.get("properties", {})

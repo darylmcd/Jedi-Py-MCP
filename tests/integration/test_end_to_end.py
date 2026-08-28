@@ -54,8 +54,8 @@ async def test_find_references_returns_locations(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert payload.get("total_count", 0) >= 2
 
@@ -78,8 +78,8 @@ async def test_get_type_info_returns_non_empty_type(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     type_string = str(payload.get("type_string", "")).strip()
     assert type_string != ""
@@ -105,8 +105,8 @@ async def test_get_diagnostics_reports_intentional_error(
 
     result = await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
 
-    assert result.isError is not True
-    payload = _unwrap_result_payload(result.structuredContent)
+    assert result.is_error is not True
+    payload = _unwrap_result_payload(result.structured_content)
     assert isinstance(payload, list)
     assert any("bad" in str(item.get("message", "")) or "int" in str(item.get("message", "")) for item in payload)
 
@@ -132,8 +132,8 @@ async def test_rename_symbol_returns_edits_without_applying(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert payload.get("applied") is False
     assert len(payload.get("edits", [])) >= 1
@@ -161,8 +161,8 @@ async def test_rename_symbol_apply_writes_file(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert payload.get("applied") is True
     updated = service_path.read_text(encoding="utf-8")
@@ -185,8 +185,8 @@ async def test_find_constructors_finds_call_sites(
         },
     )
 
-    assert result.isError is not True
-    payload = _unwrap_result_payload(result.structuredContent)
+    assert result.is_error is not True
+    payload = _unwrap_result_payload(result.structured_content)
     assert isinstance(payload, list)
     assert len(payload) >= 1
 
@@ -211,8 +211,8 @@ async def test_rename_symbol_applies_and_returns_validation(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert payload.get("applied") is True
     updated = service_path.read_text(encoding="utf-8")
@@ -237,8 +237,8 @@ async def test_get_type_info_returns_type_metadata(
         },
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert str(payload.get("type_string", "")).strip() != ""
 
@@ -258,8 +258,8 @@ async def test_get_symbol_outline_returns_items(
         },
     )
 
-    assert result.isError is not True
-    payload = _unwrap_result_payload(result.structuredContent)
+    assert result.is_error is not True
+    payload = _unwrap_result_payload(result.structured_content)
     assert isinstance(payload, list)
     assert any(str(item.get("name", "")) == "User" for item in payload)
 
@@ -276,8 +276,8 @@ async def test_search_symbols_finds_workspace_symbols(
         },
     )
 
-    assert result.isError is not True
-    payload = _unwrap_result_payload(result.structuredContent)
+    assert result.is_error is not True
+    payload = _unwrap_result_payload(result.structured_content)
     assert isinstance(payload, list)
     assert any("User" in str(item.get("name", "")) for item in payload)
 
@@ -295,8 +295,8 @@ async def test_get_workspace_diagnostics_returns_summary(
     items: list[object] = []
     for _ in range(8):
         result = await mcp_session.call_tool("get_workspace_diagnostics", {})
-        assert result.isError is not True
-        payload = _unwrap_result_payload(result.structuredContent)
+        assert result.is_error is not True
+        payload = _unwrap_result_payload(result.structured_content)
         if isinstance(payload, dict):
             raw_items = payload.get("items", [])
             items = raw_items if isinstance(raw_items, list) else []
@@ -338,8 +338,8 @@ async def test_prepare_rename_and_followup_refactor(
         },
     )
 
-    assert prepared.isError is not True
-    payload = prepared.structuredContent
+    assert prepared.is_error is not True
+    payload = prepared.structured_content
     assert payload is None or isinstance(payload, dict)
 
 
@@ -361,10 +361,10 @@ async def test_navigation_additions_return_locations(
         {"file_path": str(models_path), "line": line, "character": character},
     )
 
-    assert declaration.isError is not True
-    assert type_definition.isError is not True
-    decl_payload = _unwrap_result_payload(declaration.structuredContent)
-    type_payload = _unwrap_result_payload(type_definition.structuredContent)
+    assert declaration.is_error is not True
+    assert type_definition.is_error is not True
+    decl_payload = _unwrap_result_payload(declaration.structured_content)
+    type_payload = _unwrap_result_payload(type_definition.structured_content)
     assert isinstance(decl_payload, list)
     assert isinstance(type_payload, list)
 
@@ -387,10 +387,10 @@ async def test_document_highlights_and_folding_ranges(
         {"file_path": str(service_path)},
     )
 
-    assert highlights.isError is not True
-    assert folding.isError is not True
-    highlight_payload = _unwrap_result_payload(highlights.structuredContent)
-    folding_payload = _unwrap_result_payload(folding.structuredContent)
+    assert highlights.is_error is not True
+    assert folding.is_error is not True
+    highlight_payload = _unwrap_result_payload(highlights.structured_content)
+    folding_payload = _unwrap_result_payload(folding.structured_content)
     assert isinstance(highlight_payload, list)
     assert isinstance(folding_payload, list)
 
@@ -412,10 +412,10 @@ async def test_inlay_and_semantic_tokens(
         {"file_path": str(service_path)},
     )
 
-    assert inlay.isError is not True
-    assert semantic.isError is not True
-    inlay_payload = _unwrap_result_payload(inlay.structuredContent)
-    semantic_payload = _unwrap_result_payload(semantic.structuredContent)
+    assert inlay.is_error is not True
+    assert semantic.is_error is not True
+    inlay_payload = _unwrap_result_payload(inlay.structured_content)
+    semantic_payload = _unwrap_result_payload(semantic.structured_content)
     assert isinstance(inlay_payload, list)
     assert isinstance(semantic_payload, list)
 
@@ -435,8 +435,8 @@ async def test_get_signature_help_returns_nullable_payload(
         {"file_path": str(service_path), "line": line, "character": character},
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert payload is None or isinstance(payload, dict)
 
 
@@ -454,8 +454,8 @@ async def test_get_documentation_returns_structured_payload(
         {"file_path": str(models_path), "line": line, "character": character},
     )
 
-    assert result.isError is not True
-    payload = result.structuredContent
+    assert result.is_error is not True
+    payload = result.structured_content
     assert isinstance(payload, dict)
     assert isinstance(payload.get("entries", []), list)
 
@@ -494,10 +494,10 @@ async def test_type_hierarchy_and_selection_range_tools(
         },
     )
 
-    assert type_result.isError is not True
-    assert selection_result.isError is not True
-    type_payload = type_result.structuredContent
-    selection_payload = _unwrap_result_payload(selection_result.structuredContent)
+    assert type_result.is_error is not True
+    assert selection_result.is_error is not True
+    type_payload = type_result.structured_content
+    selection_payload = _unwrap_result_payload(selection_result.structured_content)
     assert isinstance(type_payload, dict)
     assert isinstance(selection_payload, list)
 
@@ -569,12 +569,12 @@ async def test_new_refactoring_tools_preview_mode(
         },
     )
 
-    assert change_signature.isError is not True
-    assert restructure.isError is not True
-    assert use_function.isError is not True
-    assert introduce_factory.isError is not True
-    assert local_to_field.isError is not True
-    assert method_object.isError is not True
+    assert change_signature.is_error is not True
+    assert restructure.is_error is not True
+    assert use_function.is_error is not True
+    assert introduce_factory.is_error is not True
+    assert local_to_field.is_error is not True
+    assert method_object.is_error is not True
 
     for response in (
         change_signature,
@@ -584,7 +584,7 @@ async def test_new_refactoring_tools_preview_mode(
         local_to_field,
         method_object,
     ):
-        _assert_refactor_preview_payload(response.structuredContent)
+        _assert_refactor_preview_payload(response.structured_content)
 
 
 @pytest.mark.asyncio
@@ -604,8 +604,8 @@ async def test_module_to_package_preview_mode(
         {"file_path": str(module_path), "apply": False},
     )
 
-    assert result.isError is not True
-    _assert_refactor_preview_payload(result.structuredContent)
+    assert result.is_error is not True
+    _assert_refactor_preview_payload(result.structured_content)
 
 
 @pytest.mark.asyncio
@@ -631,8 +631,8 @@ async def test_failure_paths_return_tool_errors(
         {"file_path": str(sample_workspace / "src" / "missing.py"), "apply": False},
     )
 
-    assert bad_direction.isError is True
-    assert missing_file.isError is True
+    assert bad_direction.is_error is True
+    assert missing_file.is_error is True
 
 
 # ── PR 3-A: Integration smoke tests for introduce_parameter and encapsulate_field ──
@@ -659,8 +659,8 @@ async def test_introduce_parameter_preview_mode(
         },
     )
 
-    assert result.isError is not True
-    _assert_refactor_preview_payload(result.structuredContent)
+    assert result.is_error is not True
+    _assert_refactor_preview_payload(result.structured_content)
 
 
 @pytest.mark.asyncio
@@ -682,8 +682,8 @@ async def test_encapsulate_field_preview_mode(
         },
     )
 
-    assert result.isError is not True
-    _assert_refactor_preview_payload(result.structuredContent)
+    assert result.is_error is not True
+    _assert_refactor_preview_payload(result.structured_content)
 
 
 # ── PR 3-B: Failure-path integration scenarios ──
@@ -708,7 +708,7 @@ async def test_rename_at_invalid_position_returns_error(
         },
     )
 
-    assert result.isError is True
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
@@ -732,7 +732,7 @@ async def test_extract_method_invalid_range_returns_error(
         },
     )
 
-    assert result.isError is True
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
@@ -750,7 +750,7 @@ async def test_find_references_nonexistent_file_returns_error(
         },
     )
 
-    assert result.isError is True
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
@@ -767,8 +767,8 @@ async def test_format_code_preview_returns_refactor_payload(
         {"file_path": str(target), "apply": False},
     )
 
-    assert result.isError is False
-    payload = _unwrap_result_payload(result.structuredContent)
+    assert result.is_error is False
+    payload = _unwrap_result_payload(result.structured_content)
     _assert_refactor_preview_payload(payload)
     assert isinstance(payload, dict)
     assert payload["files_affected"] == [str(target)]

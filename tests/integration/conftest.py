@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 from collections.abc import AsyncIterator
@@ -60,15 +61,28 @@ async def mcp_session(sample_workspace: Path) -> AsyncIterator[ClientSession]:
         env=server_env,
     )
 
-    try:
-        async with stdio_client(server_params) as (read_stream, write_stream), ClientSession(
-            read_stream,
-            write_stream,
-        ) as session:
-            await session.initialize()
-            yield session
-    except RuntimeError as exc:
-        # Python 3.14 + pytest-asyncio may finalize this async-generator fixture in a
-        # different task, which can surface as an anyio cancel-scope teardown mismatch.
-        if "Attempted to exit cancel scope in a different task" not in str(exc):
+    ready: asyncio.Future[ClientSession] = asyncio.get_running_loop().create_future()
+    stop = asyncio.Event()
+
+    async def own_session() -> None:
+        """Keep AnyIO cancel-scope entry and exit in one asyncio task."""
+        try:
+            async with stdio_client(server_params) as (read_stream, write_stream), ClientSession(
+                read_stream,
+                write_stream,
+            ) as session:
+                await session.initialize()
+                ready.set_result(session)
+                await stop.wait()
+        except BaseException as exc:
+            if not ready.done():
+                ready.set_exception(exc)
+                return
             raise
+
+    owner_task = asyncio.create_task(own_session(), name="mcp-test-session-owner")
+    try:
+        yield await ready
+    finally:
+        stop.set()
+        await owner_task

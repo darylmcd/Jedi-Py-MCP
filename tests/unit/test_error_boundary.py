@@ -9,6 +9,7 @@ translation.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -43,7 +44,6 @@ def _ctx_with(multi_ctx: MultiWorkspaceContext) -> SimpleNamespace:
     session = MagicMock()
     return SimpleNamespace(
         request_context=SimpleNamespace(lifespan_context=multi_ctx, session=session),
-        debug=AsyncMock(),
     )
 
 
@@ -57,7 +57,7 @@ async def test_resolve_backends_uses_primary_path(tmp_path: Path) -> None:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     resolved = await _resolve_backends(ctx, {"file_path": str(root / "mod.py")})
@@ -73,7 +73,7 @@ async def test_resolve_backends_list_path_fallback(tmp_path: Path) -> None:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     resolved = await _resolve_backends(ctx, {"file_paths": [str(root / "a.py"), str(root / "b.py")]})
@@ -89,7 +89,7 @@ async def test_resolve_backends_uses_nested_transaction_path(tmp_path: Path) -> 
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
     target = root / "mod.py"
 
@@ -109,7 +109,7 @@ async def test_resolve_backends_no_path_uses_most_recent(tmp_path: Path) -> None
     registry = MagicMock()
     registry.get_most_recent = MagicMock(return_value=backends)
     registry.get_backends = AsyncMock()
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     resolved = await _resolve_backends(ctx, {"limit": 5})
@@ -127,7 +127,7 @@ async def test_resolve_backends_cli_fallback_when_no_recent(tmp_path: Path) -> N
     registry = MagicMock()
     registry.get_most_recent = MagicMock(return_value=None)
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=cli_root, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=cli_root)
     ctx = _ctx_with(multi_ctx)
 
     resolved = await _resolve_backends(ctx, {})
@@ -154,22 +154,20 @@ async def test_resolve_backends_none_when_ctx_is_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_backends_triggers_lazy_root_fetch(tmp_path: Path) -> None:
-    """Roots are fetched once per lifespan and the swallow stays inside resolution."""
+async def test_resolve_backends_does_not_request_deprecated_roots(tmp_path: Path) -> None:
+    """Workspace resolution relies on request paths, not deprecated MCP roots."""
     root = tmp_path / "ws"
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    registry.set_roots = AsyncMock()
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=False)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
-    # list_roots raises -> the debug-level swallow must keep this non-fatal.
-    ctx.request_context.session.list_roots = AsyncMock(side_effect=RuntimeError("no roots"))
+    ctx.request_context.session.list_roots = AsyncMock()
 
     resolved = await _resolve_backends(ctx, {"file_path": str(root / "mod.py")})
 
     assert resolved is backends
-    assert multi_ctx.roots_fetched is True  # marked fetched despite the failure
+    ctx.request_context.session.list_roots.assert_not_awaited()
 
 
 # ── _validate_params ─────────────────────────────────────────────────────
@@ -241,7 +239,7 @@ async def test_wrapper_translates_backend_error(tmp_path: Path) -> None:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     @_tool_error_boundary
@@ -259,7 +257,7 @@ async def test_wrapper_sets_contextvar_for_tool(tmp_path: Path) -> None:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     seen: dict[str, object] = {}
@@ -282,7 +280,7 @@ async def test_wrapper_resets_contextvar_after_call(tmp_path: Path) -> None:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     @_tool_error_boundary
@@ -303,7 +301,7 @@ async def test_wrapper_validates_path_against_resolved_workspace(tmp_path: Path)
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     called = False
@@ -321,24 +319,23 @@ async def test_wrapper_validates_path_against_resolved_workspace(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_wrapper_records_timing_via_ctx_debug(tmp_path: Path) -> None:
-    """The wrapper emits a timing debug line through ctx.debug."""
+async def test_wrapper_records_timing_via_server_log(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The wrapper emits timing through standard server logging."""
     root = tmp_path / "ws"
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
     @_tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
         return "ok"
 
-    await tool(ctx, file_path=str(root / "mod.py"))
+    with caplog.at_level(logging.DEBUG, logger="python_refactor_mcp.server"):
+        await tool(ctx, file_path=str(root / "mod.py"))
 
-    ctx.debug.assert_awaited_once()
-    (message,), _ = ctx.debug.await_args
-    assert "tool completed in" in message
+    assert "tool completed in" in caplog.text
 
 
 @pytest.mark.asyncio

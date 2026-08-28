@@ -21,13 +21,13 @@ async def test_tool_count_within_limits() -> None:
 
 @pytest.mark.asyncio
 async def test_all_tools_have_annotations() -> None:
-    """Every tool must have MCP annotations with readOnlyHint and destructiveHint."""
+    """Every tool must have explicit MCP read-only and destructive annotations."""
     tools = await server.mcp.list_tools()
     for tool in tools:
         assert tool.annotations is not None, f"Tool '{tool.name}' is missing annotations"
-        assert tool.annotations.readOnlyHint is not None, f"Tool '{tool.name}' missing readOnlyHint"
-        assert tool.annotations.destructiveHint is not None, f"Tool '{tool.name}' missing destructiveHint"
-        assert tool.annotations.openWorldHint is not None, f"Tool '{tool.name}' missing openWorldHint"
+        assert tool.annotations.read_only_hint is not None, f"Tool '{tool.name}' missing read_only_hint"
+        assert tool.annotations.destructive_hint is not None, f"Tool '{tool.name}' missing destructive_hint"
+        assert tool.annotations.open_world_hint is not None, f"Tool '{tool.name}' missing open_world_hint"
 
 
 @pytest.mark.asyncio
@@ -35,9 +35,9 @@ async def test_readonly_tools_are_idempotent() -> None:
     """Read-only tools should be marked idempotent."""
     tools = await server.mcp.list_tools()
     for tool in tools:
-        if tool.annotations and tool.annotations.readOnlyHint:
-            assert tool.annotations.idempotentHint is True, (
-                f"Read-only tool '{tool.name}' should have idempotentHint=True"
+        if tool.annotations and tool.annotations.read_only_hint:
+            assert tool.annotations.idempotent_hint is True, (
+                f"Read-only tool '{tool.name}' should have idempotent_hint=True"
             )
 
 
@@ -56,8 +56,8 @@ async def test_destructive_tools_have_apply_parameter() -> None:
         "refactor_transaction",
     }
     for tool in tools:
-        if tool.annotations and not tool.annotations.readOnlyHint and tool.name not in skip_tools:
-            props = tool.inputSchema.get("properties", {})
+        if tool.annotations and not tool.annotations.read_only_hint and tool.name not in skip_tools:
+            props = tool.input_schema.get("properties", {})
             assert "apply" in props, f"Non-readonly tool '{tool.name}' should have 'apply' parameter"
 
 
@@ -66,7 +66,7 @@ async def test_no_ctx_in_schemas() -> None:
     """The internal ctx parameter must never appear in tool schemas."""
     tools = await server.mcp.list_tools()
     for tool in tools:
-        props = tool.inputSchema.get("properties", {})
+        props = tool.input_schema.get("properties", {})
         assert "ctx" not in props, f"Tool '{tool.name}' exposes internal 'ctx' parameter"
 
 
@@ -87,8 +87,8 @@ async def test_tool_descriptions_are_workflow_oriented() -> None:
 @pytest.mark.asyncio
 async def test_server_has_version() -> None:
     """Server should expose its version matching the package version."""
-    # The FastMCP instance stores the version
-    assert server.mcp._mcp_server.name == "Python Refactor"  # pyright: ignore[reportPrivateUsage]
+    assert server.mcp.name == "Python Refactor"
+    assert server.mcp.version == server.__version__
 
 
 @pytest.mark.asyncio
@@ -96,10 +96,10 @@ async def test_annotation_variants_exist() -> None:
     """Server should use all three annotation variants: READONLY, DESTRUCTIVE, ADDITIVE."""
     tools = await server.mcp.list_tools()
     annotations = [t.annotations for t in tools if t.annotations is not None]
-    assert any(a.readOnlyHint for a in annotations), "No tools use READONLY annotations"
-    assert any(a.destructiveHint for a in annotations), "No tools use DESTRUCTIVE annotations"
+    assert any(a.read_only_hint for a in annotations), "No tools use READONLY annotations"
+    assert any(a.destructive_hint for a in annotations), "No tools use DESTRUCTIVE annotations"
     assert any(
-        not a.readOnlyHint and not a.destructiveHint for a in annotations
+        not a.read_only_hint and not a.destructive_hint for a in annotations
     ), "No tools use ADDITIVE annotations"
 
 
