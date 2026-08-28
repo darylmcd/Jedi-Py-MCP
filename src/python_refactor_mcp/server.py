@@ -1,4 +1,4 @@
-"""FastMCP server shell and tool registration."""
+"""MCP server shell and tool registration."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.errors import BackendError
@@ -86,11 +86,7 @@ def _transaction_step_args(kwargs: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _transaction_step_paths(kwargs: dict[str, Any]) -> list[str]:
     """Extract nested ``refactor_transaction`` file paths in request order."""
-    return [
-        file_path
-        for args in _transaction_step_args(kwargs)
-        if isinstance(file_path := args.get("file_path"), str)
-    ]
+    return [file_path for args in _transaction_step_args(kwargs) if isinstance(file_path := args.get("file_path"), str)]
 
 
 # ── Multi-workspace context ──────────────────────────────────────────────
@@ -104,20 +100,9 @@ class MultiWorkspaceContext:
 
     registry: WorkspaceRegistry
     cli_workspace_root: Path | None
-    roots_fetched: bool = False
 
 
 _workspace_root: Path | None = None
-# FastMCP's ``find_context_parameter`` only strips the injected ``ctx`` from a
-# tool's public input schema when the parameter resolves to the *bare* ``Context``
-# class (it does not recognise a parametrised ``Context[...]`` alias). So at
-# runtime ``MCPContext`` MUST be that bare class. Under the type checker we alias
-# it to the fully-parametrised form instead, which satisfies mypy strict's
-# ``type-arg`` rule without a per-line ignore or a module-wide override.
-if TYPE_CHECKING:
-    MCPContext = Context[Any, Any, Any]
-else:
-    MCPContext = Context
 
 # ContextVar set by _tool_error_boundary so tool functions can read their
 # resolved WorkspaceBackends without signature changes.
@@ -137,7 +122,7 @@ def _get_current_backends() -> WorkspaceBackends:
         )
 
 
-def _get_multi_context(ctx: MCPContext) -> MultiWorkspaceContext:
+def _get_multi_context(ctx: Context) -> MultiWorkspaceContext:
     """Extract MultiWorkspaceContext from the MCP lifespan context."""
     request_context = getattr(ctx, "request_context", None)
     if request_context is None:
@@ -150,32 +135,7 @@ def _get_multi_context(ctx: MCPContext) -> MultiWorkspaceContext:
     return lifespan_context
 
 
-async def _maybe_fetch_roots(ctx: MCPContext, multi_ctx: MultiWorkspaceContext) -> None:
-    """Lazily fetch MCP roots from the client once per lifespan."""
-    if multi_ctx.roots_fetched:
-        return
-
-    try:
-        session = ctx.request_context.session
-        roots_result = await session.list_roots()
-        from python_refactor_mcp.util.paths import uri_to_path  # noqa: PLC0415
-
-        root_paths = []
-        for root in roots_result.roots:
-            try:
-                root_paths.append(Path(uri_to_path(str(root.uri))).resolve())
-            except Exception:
-                _LOGGER.warning("Failed to convert root URI: %s", root.uri)
-        if root_paths:
-            await multi_ctx.registry.set_roots(root_paths)
-            _LOGGER.info("Updated workspace roots from MCP client: %s", root_paths)
-    except Exception:
-        _LOGGER.debug("MCP roots/list not available from client", exc_info=True)
-
-    multi_ctx.roots_fetched = True
-
-
-async def _resolve_backends(ctx: MCPContext | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
+async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
     """Resolve the WorkspaceBackends for a tool call from its context and kwargs.
 
     Performs the multi-workspace context lookup, the lazy MCP roots fetch,
@@ -194,9 +154,6 @@ async def _resolve_backends(ctx: MCPContext | None, kwargs: dict[str, Any]) -> W
 
     assert ctx is not None
     registry = multi_ctx.registry
-
-    # Lazy MCP roots fetch.
-    await _maybe_fetch_roots(ctx, multi_ctx)
 
     # Find the primary file path from kwargs.
     primary_path: str | None = None
@@ -246,9 +203,7 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
     for param_name in _LIST_PATH_PARAMS:
         values = kwargs.get(param_name)
         if isinstance(values, list):
-            kwargs[param_name] = [
-                validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)
-            ]
+            kwargs[param_name] = [validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)]
 
     for args in _transaction_step_args(kwargs):
         file_path = args.get("file_path")
@@ -296,9 +251,7 @@ def _tool_error_boundary(  # noqa: UP047
                 raise ValueError(str(exc)) from exc
             finally:
                 elapsed_ms = (time.perf_counter() - start) * 1000
-                if ctx is not None:
-                    with contextlib.suppress(Exception):
-                        await ctx.debug(f"{func.__name__} completed in {elapsed_ms:.1f}ms")
+                _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
         finally:
             if token is not None:
                 _current_backends.reset(token)
@@ -310,7 +263,7 @@ def _tool_error_boundary(  # noqa: UP047
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncGenerator[MultiWorkspaceContext]:
+async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContext]:
     """Create workspace registry and optionally pre-warm the CLI workspace."""
     _ = server
     max_ws = int(os.environ.get("MAX_WORKSPACES", "3"))
@@ -349,10 +302,11 @@ Workflow tips:
 - Use get_type_info for type inspection; it combines Pyright and Jedi results.
 """
 
-mcp = FastMCP(
+mcp = MCPServer(
     "Python Refactor",
     instructions=_SERVER_INSTRUCTIONS,
     lifespan=app_lifespan,
+    version=__version__,
 )
 
 # Register the 86 pure-delegation tools and pull in the shared annotation
@@ -377,7 +331,7 @@ register_tools(mcp)
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_completions(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str,
     line: int,
     character: int,
@@ -391,14 +345,14 @@ async def get_completions(
         result, _ = apply_limit(result, limit)
     else:
         result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
-    await ctx.debug(f"get_completions count={len(result)} fuzzy={fuzzy}")
+    _LOGGER.debug("get_completions count=%s fuzzy=%s", len(result), fuzzy)
     return result
 
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_inlay_hints(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str,
     start_line: int = 0,
     start_character: int = 0,
@@ -421,7 +375,7 @@ async def get_inlay_hints(
         end_line,
         end_character,
     )
-    await ctx.debug(f"get_inlay_hints count={len(result)}")
+    _LOGGER.debug("get_inlay_hints count=%s", len(result))
     return result
 
 
@@ -433,7 +387,7 @@ async def get_inlay_hints(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_symbol_outline(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str | None = None,
     kind_filter: list[str] | None = None,
     name_pattern: str | None = None,
@@ -460,7 +414,7 @@ async def get_symbol_outline(
         file_paths,
         offset,
     )
-    await ctx.debug(f"get_symbol_outline count={len(result)}")
+    _LOGGER.debug("get_symbol_outline count=%s", len(result))
     return result
 
 
@@ -472,7 +426,7 @@ async def get_symbol_outline(
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def argument_normalizer(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str,
     line: int,
     character: int,
@@ -482,14 +436,14 @@ async def argument_normalizer(
     app = _get_current_backends()
     ops = [SignatureOperation(op="normalize")]
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
-    await ctx.debug(f"argument_normalizer edits={len(result.edits)} applied={result.applied}")
+    _LOGGER.debug("argument_normalizer edits=%s applied=%s", len(result.edits), result.applied)
     return result
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def argument_default_inliner(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str,
     line: int,
     character: int,
@@ -500,7 +454,7 @@ async def argument_default_inliner(
     app = _get_current_backends()
     ops = [SignatureOperation(op="inline_default", index=index)]
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
-    await ctx.debug(f"argument_default_inliner edits={len(result.edits)} applied={result.applied}")
+    _LOGGER.debug("argument_default_inliner edits=%s applied=%s", len(result.edits), result.applied)
     return result
 
 
@@ -512,7 +466,7 @@ async def argument_default_inliner(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def find_unused_imports(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> list[UnusedImport]:
@@ -522,7 +476,7 @@ async def find_unused_imports(
         raise ValueError("Either file_path or file_paths must be provided.")
     effective_path = file_path if file_path is not None else file_paths[0]  # type: ignore[index]
     result = await metrics.find_unused_imports(app.pyright, effective_path, file_paths)
-    await ctx.debug(f"find_unused_imports count={len(result)}")
+    _LOGGER.debug("find_unused_imports count=%s", len(result))
     return result
 
 
@@ -534,35 +488,35 @@ async def find_unused_imports(
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def get_test_coverage_map(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> TestCoverageMap:
     """Map source symbols to test references. Shows which functions/classes have test coverage. Related: find_references, dead_code_detection."""
     app = _get_current_backends()
     result = await _get_test_coverage_map(app.pyright, file_path, file_paths)
-    await ctx.debug(f"get_test_coverage_map total={result.total_symbols} covered={result.covered_count}")
+    _LOGGER.debug("get_test_coverage_map total=%s covered=%s", result.total_symbols, result.covered_count)
     return result
 
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
 async def security_scan(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> SecurityScanResult:
     """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Related: get_diagnostics, dead_code_detection."""
     _ = _get_current_backends()
     result = await _security_scan(file_path, file_paths)
-    await ctx.debug(f"security_scan files={result.files_scanned} findings={result.total_findings}")
+    _LOGGER.debug("security_scan files=%s findings=%s", result.files_scanned, result.total_findings)
     return result
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def security_autofix(
-    ctx: MCPContext,
+    ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
     apply: bool = False,
@@ -570,14 +524,14 @@ async def security_autofix(
     """Rewrite unsafe yaml.load() calls (SEC022) to yaml.safe_load(). Targets the literal yaml.load attribute call; calls that already pass an explicit Loader= are skipped (reported in the description). Defaults to preview mode (apply=False). Behavior-changing: safe_load rejects arbitrary tags/object construction that load permits. Related: security_scan."""
     app = _get_current_backends()
     result = await _security_autofix(app.pyright, file_path, file_paths, apply)
-    await ctx.debug(f"security_autofix edits={len(result.edits)} applied={result.applied}")
+    _LOGGER.debug("security_autofix edits=%s applied=%s", len(result.edits), result.applied)
     return result
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 @_tool_error_boundary
 async def structural_replace(
-    ctx: MCPContext,
+    ctx: Context,
     pattern: str,
     replacement: str,
     file_path: str | None = None,
@@ -587,7 +541,7 @@ async def structural_replace(
     """Find structural matches with a LibCST matcher pattern and rewrite them. The pattern uses the same matcher DSL as structural_search (e.g. m.Call(func=m.Attribute(value=m.Name('logger'), attr=m.Name('warn')), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])); capture sub-nodes with m.SaveMatchedNode(matcher, 'name') and reference them in the replacement template as $name (e.g. 'logger.warning($a)'). Expression-position matches only. Requires file_path or file_paths; defaults to preview mode (apply=False). Related: structural_search, restructure."""
     app = _get_current_backends()
     result = await _structural_replace(app.pyright, pattern, replacement, file_path, file_paths, apply)
-    await ctx.debug(f"structural_replace edits={len(result.edits)} applied={result.applied}")
+    _LOGGER.debug("structural_replace edits=%s applied=%s", len(result.edits), result.applied)
     return result
 
 
@@ -627,10 +581,10 @@ def _build_server_status(multi_ctx: MultiWorkspaceContext) -> ServerStatus:
 
 @mcp.tool(annotations=_READONLY)
 @_tool_error_boundary
-async def server_status(ctx: MCPContext) -> ServerStatus:
+async def server_status(ctx: Context) -> ServerStatus:
     """Report read-only server health: version, known workspace roots, and per-workspace backend liveness (Pyright subprocess up, Jedi/rope ready). Use to tell whether results came from a healthy Pyright or a degraded Jedi fallback. Works even when no workspace is loaded. Probes are cheap and non-blocking. Related: list_environments, restart_server."""
     status = _build_server_status(_get_multi_context(ctx))
-    await ctx.debug(f"server_status workspaces={len(status.active_workspaces)} degraded={status.degraded}")
+    _LOGGER.debug("server_status workspaces=%s degraded=%s", len(status.active_workspaces), status.degraded)
     return status
 
 
@@ -640,7 +594,7 @@ async def server_status(ctx: MCPContext) -> ServerStatus:
 
 
 def run_server(workspace_root: str | None = None) -> None:
-    """Start the FastMCP server using stdio transport.
+    """Start the MCP server using stdio transport.
 
     If *workspace_root* is provided, backends for that workspace are
     eagerly initialized at startup.  If omitted, the server starts cold

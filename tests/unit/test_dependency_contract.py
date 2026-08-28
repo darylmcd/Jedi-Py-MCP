@@ -11,7 +11,7 @@ from packaging.requirements import Requirement
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_mcp_dependency_excludes_breaking_major_version() -> None:
+def test_mcp_dependency_targets_current_major_version() -> None:
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     mcp_requirement = next(
         Requirement(raw)
@@ -19,8 +19,8 @@ def test_mcp_dependency_excludes_breaking_major_version() -> None:
         if Requirement(raw).name == "mcp"
     )
 
-    assert mcp_requirement.specifier.contains("1.27")
-    assert not mcp_requirement.specifier.contains("2.0")
+    assert mcp_requirement.specifier.contains("2.1")
+    assert not mcp_requirement.specifier.contains("3.0")
 
 
 def test_hosted_ci_syncs_the_authoritative_lockfile() -> None:

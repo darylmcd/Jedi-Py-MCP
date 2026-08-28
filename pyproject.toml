@@ -11,7 +11,7 @@ requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Jedi-Py-MCP Contributors" }]
 dependencies = [
-  "mcp>=1.27,<2",
+  "mcp>=2.1,<3",
   "pydantic>=2.13",
   "jedi>=0.20",
   "rope>=1.14",
@@ -41,7 +41,7 @@ line-length = 120
 indent-style = "space"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "G004"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tool docstrings in server.py are intentionally long (LLM-facing descriptions).

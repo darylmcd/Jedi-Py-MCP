@@ -63,6 +63,10 @@ typecheck-mypy:
 run workspace:
     {{ python }} -m python_refactor_mcp {{ workspace }}
 
+# Bump release metadata, refresh uv.lock, reinstall into the client Python, and verify the CLI
+bump-reinstall version target_python="python":
+    {{ python }} scripts/bump_reinstall.py "{{ version }}" --target-python "{{ target_python }}"
+
 # --- Aggregates ---
 
 # Fast local sanity check before pushing

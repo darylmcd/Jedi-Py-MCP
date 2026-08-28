@@ -18,7 +18,7 @@ async def test_server_registers_all_stage_one_tools() -> None:
     """Ensure the expanded MCP tool surface is registered on the MCP instance."""
     tools = await server.mcp.list_tools()
     assert len(tools) == 98
-    assert all("ctx" not in tool.inputSchema.get("properties", {}) for tool in tools)
+    assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in tools)
 
 
 @pytest.mark.asyncio
@@ -47,8 +47,8 @@ async def test_position_based_tools_document_zero_based_convention() -> None:
     position_tools = [
         tool
         for tool in tools
-        if {"line", "start_line"} & set(tool.inputSchema.get("properties", {}))
-        or _contains_position_ref(tool.inputSchema.get("properties", {}))
+        if {"line", "start_line"} & set(tool.input_schema.get("properties", {}))
+        or _contains_position_ref(tool.input_schema.get("properties", {}))
     ]
     # Guard against the selector silently matching nothing (e.g. a schema-shape
     # change), which would make the assertion below vacuously pass.
