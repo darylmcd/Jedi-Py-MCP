@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Position, Range
+from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Position, Range, ScanFailure
 
 from ._helpers import PyrightSearchBackend, name_position, python_files
 
@@ -245,10 +245,22 @@ async def unused_symbol_sweep(
     )
 
     unused: dict[tuple[str, str, int, int], DeadCodeItem] = {}
-    for result in results:
+    scan_failures: list[ScanFailure] = []
+    for (path, name, _kind, _symbol_range), result in zip(
+        symbols_to_check, results, strict=True
+    ):
         if isinstance(result, DeadCodeItem):
             key = (result.file_path, result.name, result.range.start.line, result.range.start.character)
             unused[key] = result
+        elif isinstance(result, BaseException):
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path.resolve()),
+                    phase="references",
+                    error_type=type(result).__name__,
+                    subject=name,
+                )
+            )
 
     all_items = sorted(
         unused.values(),
@@ -265,4 +277,5 @@ async def unused_symbol_sweep(
         total_count=total_count,
         offset=offset,
         truncated=truncated,
+        scan_failures=scan_failures,
     )

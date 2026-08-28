@@ -544,6 +544,10 @@ class PyrightLSPClient:
             "position": {"line": line, "character": char},
         }
         if extra_params:
+            reserved = {"textDocument", "position"} & extra_params.keys()
+            if reserved:
+                names = ", ".join(sorted(reserved))
+                raise ValueError(f"extra_params may not override reserved LSP envelope keys: {names}")
             params.update(extra_params)
 
         return await self._request(lsp_method, params)

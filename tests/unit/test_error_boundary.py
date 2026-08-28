@@ -83,6 +83,26 @@ async def test_resolve_backends_list_path_fallback(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolve_backends_uses_nested_transaction_path(tmp_path: Path) -> None:
+    """refactor_transaction resolves from its first nested step file path."""
+    root = tmp_path / "ws"
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(return_value=backends)
+    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None, roots_fetched=True)
+    ctx = _ctx_with(multi_ctx)
+    target = root / "mod.py"
+
+    resolved = await _resolve_backends(
+        ctx,
+        {"steps": [{"tool": "rename_symbol", "args": {"file_path": str(target)}}]},
+    )
+
+    assert resolved is backends
+    registry.get_backends.assert_awaited_once_with(str(target))
+
+
+@pytest.mark.asyncio
 async def test_resolve_backends_no_path_uses_most_recent(tmp_path: Path) -> None:
     """No path params -> registry.get_most_recent() supplies the fallback."""
     backends = _backends(tmp_path / "ws")
@@ -176,6 +196,23 @@ def test_validate_params_validates_list_paths(tmp_path: Path) -> None:
     kwargs = {"file_paths": [str(tmp_path / "a.py"), str(tmp_path / "b.py")]}
     _validate_params(kwargs, tmp_path)
     assert kwargs["file_paths"] == [
+        str((tmp_path / "a.py").resolve()),
+        str((tmp_path / "b.py").resolve()),
+    ]
+
+
+def test_validate_params_resolves_nested_transaction_paths(tmp_path: Path) -> None:
+    """Every transaction step path is normalized against the selected workspace."""
+    kwargs = {
+        "steps": [
+            {"tool": "rename_symbol", "args": {"file_path": str(tmp_path / "a.py")}},
+            {"tool": "rename_symbol", "args": {"file_path": str(tmp_path / "b.py")}},
+        ]
+    }
+
+    _validate_params(kwargs, tmp_path)
+
+    assert [step["args"]["file_path"] for step in kwargs["steps"]] == [
         str((tmp_path / "a.py").resolve()),
         str((tmp_path / "b.py").resolve()),
     ]

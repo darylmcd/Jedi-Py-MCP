@@ -61,6 +61,7 @@ async def test_two_tool_transaction_commits(tmp_path: Path) -> None:
     assert result.rolled_back is False
     assert len(result.steps) == 2
     assert all(step.status == "applied" for step in result.steps)
+    assert set(result.files_affected) == {diff.file_path for diff in result.diffs}
 
     content = module.read_text(encoding="utf-8")
     assert "def plus(alpha, b):" in content
@@ -136,6 +137,43 @@ async def test_overlap_detection_returns_rolled_back_result(tmp_path: Path) -> N
     assert result.steps[1].status == "failed"
     assert "overlap" in (result.steps[1].error or "")
     assert module.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.asyncio
+async def test_line_insertion_does_not_overlap_later_unchanged_line(tmp_path: Path) -> None:
+    """A line-count-changing first step must not mark every shifted line as touched."""
+    module = tmp_path / "m.py"
+    module.write_text(
+        "def calculate():\n"
+        "    total = 1 + 2\n"
+        "    later = 3\n"
+        "    return total + later\n",
+        encoding="utf-8",
+    )
+    backend = _backend(tmp_path)
+
+    result = await composite.refactor_transaction(
+        backend,
+        steps=[
+            {
+                "tool": "extract_variable",
+                "args": {
+                    "file_path": str(module),
+                    "start_line": 1,
+                    "start_character": 12,
+                    "end_line": 1,
+                    "end_character": 17,
+                    "variable_name": "subtotal",
+                },
+            },
+            _rename(module, 3, 4, "after"),
+        ],
+    )
+
+    assert result.applied is True
+    content = module.read_text(encoding="utf-8")
+    assert "subtotal = 1 + 2" in content
+    assert "after = 3" in content
 
 
 @pytest.mark.asyncio

@@ -74,6 +74,7 @@ from python_refactor_mcp.models import (
     SignatureOperation,
     StaticError,
     StructuralSearchResult,
+    SymbolAnchor,
     SymbolInfo,
     SyntaxErrorItem,
     TestImpactResult,
@@ -360,11 +361,11 @@ async def call_hierarchy(
 
 async def test_impact_select(
     ctx: MCPContext,
-    symbols: list[dict[str, Any]],
+    symbols: list[SymbolAnchor],
     depth: int = 2,
     max_items: int = 200,
 ) -> TestImpactResult:
-    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor is a dict with keys file_path (required), line, and character (default 0). Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map."""
+    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor has file_path, line, and character. Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await analysis.test_impact_select(app.pyright, symbols, depth, max_items)
     await ctx.debug(
@@ -411,7 +412,7 @@ async def type_hierarchy(
 
 
 async def selection_range(ctx: MCPContext, file_path: str, positions: list[Position]) -> list[SelectionRangeResult]:
-    """Get nested selection ranges (inner-most to outer-most scope) at source positions. Use for smart expand/shrink selection — progressively selects expression, statement, block, function, class, module. Related: get_folding_ranges."""
+    """Get nested selection ranges (inner-most to outer-most scope) at source positions. Use for smart expand/shrink selection — progressively selects expression, statement, block, function, class, module. Related: get_folding_ranges. Positions are 0-based (line and character offsets, LSP convention)."""
     app = _get_current_backends()
     result = await navigation.selection_range(app.pyright, file_path, positions)
     await ctx.debug(f"selection_range count={len(result)}")
@@ -968,9 +969,18 @@ async def structural_search(
 ) -> StructuralSearchResult:
     """Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Check files_scanned in the response to distinguish "found nothing" from "failed to scan". Related: restructure (pattern-based replace), dead_code_detection."""
     app = _get_current_backends()
-    matches, files_scanned = await search.structural_search(app.config, pattern, file_path, language, limit)
-    await ctx.debug(f"structural_search language={language} matches={len(matches)} files_scanned={files_scanned}")
-    return StructuralSearchResult(matches=matches, files_scanned=files_scanned)
+    matches, files_scanned, scan_failures = await search.structural_search(
+        app.config, pattern, file_path, language, limit
+    )
+    await ctx.debug(
+        f"structural_search language={language} matches={len(matches)} "
+        f"files_scanned={files_scanned} scan_failures={len(scan_failures)}"
+    )
+    return StructuralSearchResult(
+        matches=matches,
+        files_scanned=files_scanned,
+        scan_failures=scan_failures,
+    )
 
 
 async def dead_code_detection(

@@ -19,6 +19,7 @@ from python_refactor_mcp.models import (
     Position,
     Range,
     RefactorResult,
+    ScanFailure,
     StructuralMatch,
     TextEdit,
 )
@@ -144,7 +145,7 @@ async def structural_search(
     file_path: str | None = None,
     language: str = "python",
     limit: int | None = None,
-) -> tuple[list[StructuralMatch], int]:
+) -> tuple[list[StructuralMatch], int, list[ScanFailure]]:
     """Run LibCST matcher-based structural search for Python code."""
     if language.strip().lower() != "python":
         raise ValueError("Only language='python' is supported.")
@@ -197,9 +198,18 @@ async def structural_search(
         return_exceptions=True,
     )
     files_scanned = sum(1 for r in all_results if isinstance(r, list))
+    scan_failures = [
+        ScanFailure(
+            file_path=str(path.resolve()),
+            phase="read_or_parse",
+            error_type=type(result).__name__,
+        )
+        for path, result in zip(candidate_files, all_results, strict=True)
+        if isinstance(result, BaseException)
+    ]
     flattened = [item for result in all_results if isinstance(result, list) for item in result]
     sorted_items = sorted(flattened, key=lambda item: (item.file_path, *range_sort_key(item.range)))
-    return apply_limit_items(sorted_items, limit), files_scanned
+    return apply_limit_items(sorted_items, limit), files_scanned, scan_failures
 
 
 # ── structural_replace ───────────────────────────────────────────────────

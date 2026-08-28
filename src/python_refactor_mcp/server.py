@@ -68,6 +68,31 @@ _IDENTIFIER_PARAMS: tuple[str, ...] = (
 )
 
 
+def _transaction_step_args(kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return mutable argument objects from well-shaped transaction steps."""
+    steps = kwargs.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    step_args: list[dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        args = step.get("args")
+        if isinstance(args, dict):
+            step_args.append(args)
+    return step_args
+
+
+def _transaction_step_paths(kwargs: dict[str, Any]) -> list[str]:
+    """Extract nested ``refactor_transaction`` file paths in request order."""
+    return [
+        file_path
+        for args in _transaction_step_args(kwargs)
+        if isinstance(file_path := args.get("file_path"), str)
+    ]
+
+
 # ── Multi-workspace context ──────────────────────────────────────────────
 
 _LOGGER = logging.getLogger(__name__)
@@ -188,6 +213,10 @@ async def _resolve_backends(ctx: MCPContext | None, kwargs: dict[str, Any]) -> W
                 if first is not None:
                     primary_path = first
                     break
+    if primary_path is None:
+        nested_paths = _transaction_step_paths(kwargs)
+        if nested_paths:
+            primary_path = nested_paths[0]
 
     # Resolve workspace backends.
     if primary_path is not None:
@@ -220,6 +249,11 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
             kwargs[param_name] = [
                 validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)
             ]
+
+    for args in _transaction_step_args(kwargs):
+        file_path = args.get("file_path")
+        if isinstance(file_path, str):
+            args["file_path"] = validate_workspace_path(file_path, workspace_root)
 
     for param_name in _IDENTIFIER_PARAMS:
         value = kwargs.get(param_name)

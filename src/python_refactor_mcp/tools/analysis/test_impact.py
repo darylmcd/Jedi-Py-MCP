@@ -11,10 +11,14 @@ resolved to pytest's exact collected IDs (documented on
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
-from python_refactor_mcp.models import CallHierarchyItem, TestImpactEntry, TestImpactResult
+from python_refactor_mcp.models import (
+    CallHierarchyItem,
+    SymbolAnchor,
+    TestImpactEntry,
+    TestImpactResult,
+)
 from python_refactor_mcp.tools.navigation.hierarchy import call_hierarchy
 
 
@@ -30,7 +34,7 @@ def _node_id(item: CallHierarchyItem) -> str:
 
 async def test_impact_select(
     pyright: PyrightLSPClient,
-    symbols: list[dict[str, Any]],
+    symbols: list[SymbolAnchor],
     depth: int = 2,
     max_items: int = 200,
 ) -> TestImpactResult:
@@ -45,9 +49,9 @@ async def test_impact_select(
     any_truncated = False
 
     for anchor in symbols:
-        file_path = str(anchor["file_path"])
-        line = int(anchor.get("line", 0))
-        character = int(anchor.get("character", 0))
+        file_path = anchor.file_path
+        line = anchor.line
+        character = anchor.character
 
         result = await call_hierarchy(
             pyright, file_path, line, character, "callers", depth, max_items

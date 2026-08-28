@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import os
 import tempfile
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -87,17 +88,36 @@ def build_unified_diff(file_path: str, edits: list[TextEdit]) -> str:
     return "".join(diff_lines)
 
 
-def write_atomic(file_path: str, content: str) -> None:
-    """Write file content atomically using a temp file and rename."""
+def _replace_atomic(file_path: str, writer: Callable[[int], None], error_message: str) -> None:
+    """Create a sibling temp file, populate it through *writer*, then replace."""
     path = Path(file_path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp_file:
-            tmp_file.write(content)
+        writer(fd)
         os.replace(tmp_name, str(path))
     except Exception as exc:
         with suppress(OSError):
             os.unlink(tmp_name)
-        raise RopeError(f"Atomic write failed for {path}") from exc
+        raise RopeError(f"{error_message} for {path}") from exc
+
+
+def write_atomic(file_path: str, content: str) -> None:
+    """Write file content atomically using a temp file and rename."""
+
+    def _write(fd: int) -> None:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp_file:
+            tmp_file.write(content)
+
+    _replace_atomic(file_path, _write, "Atomic write failed")
+
+
+def write_bytes_atomic(file_path: str, content: bytes) -> None:
+    """Write exact file bytes atomically without newline or encoding conversion."""
+
+    def _write(fd: int) -> None:
+        with os.fdopen(fd, "wb") as tmp_file:
+            tmp_file.write(content)
+
+    _replace_atomic(file_path, _write, "Atomic byte write failed")

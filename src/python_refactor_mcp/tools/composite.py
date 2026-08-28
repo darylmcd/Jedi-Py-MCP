@@ -14,6 +14,7 @@ from python_refactor_mcp.models import (
     TransactionStepResult,
 )
 from python_refactor_mcp.util.diff import build_unified_diff
+from python_refactor_mcp.util.paths import normalize_path
 
 if TYPE_CHECKING:
     from python_refactor_mcp.backends.rope_backend import RopeBackend
@@ -59,7 +60,7 @@ def _collect_target_files(steps: list[tuple[str, dict[str, Any]]]) -> list[str]:
     for _tool, args in steps:
         file_path = args.get("file_path")
         if isinstance(file_path, str):
-            resolved = str(Path(file_path).resolve())
+            resolved = normalize_path(file_path)
             if resolved not in files:
                 files.append(resolved)
     return files

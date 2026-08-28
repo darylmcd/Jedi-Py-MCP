@@ -6,7 +6,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -66,6 +67,14 @@ class LSPClientHarness(LSPClient):
     async def route_message(self, message: JSONDict) -> None:
         """Route a decoded message through the internal dispatcher."""
         await self._route_message(message)
+
+    def pending_count(self) -> int:
+        """Return the number of request futures still owned by the client."""
+        return len(self._pending)
+
+    def set_subprocess_manager(self, manager: Any) -> None:
+        """Replace the subprocess manager with a narrow transport fake."""
+        self._subprocess_mgr = manager
 
 
 class PyrightClientHarness(PyrightLSPClient):
@@ -138,6 +147,23 @@ async def test_notification_routing() -> None:
     )
 
     assert received == [{"uri": "file:///tmp/a.py", "diagnostics": []}]
+
+
+@pytest.mark.asyncio
+async def test_request_write_failure_does_not_orphan_pending_future() -> None:
+    """A transport failure before awaiting the response still releases request state."""
+    client = LSPClientHarness()
+    process = MagicMock()
+    process.stdin = MagicMock()
+    process.stdin.drain = AsyncMock(side_effect=BrokenPipeError("closed"))
+    manager = MagicMock()
+    manager.require_process.return_value = process
+    client.set_subprocess_manager(manager)
+
+    with pytest.raises(BrokenPipeError, match="closed"):
+        await client.send_request("shutdown", {})
+
+    assert client.pending_count() == 0
 
 
 def test_windows_uri_conversion_round_trip() -> None:
@@ -693,6 +719,26 @@ async def test_position_request_references_merges_extra_params_without_clobber(t
         "position": {"line": 2, "character": 5},
         "context": {"includeDeclaration": True},
     }
+
+
+@pytest.mark.asyncio
+async def test_position_request_rejects_reserved_extra_params(tmp_path: Path) -> None:
+    """Future callers cannot replace the canonical document or position envelope."""
+    backend, fake_client, sample = _position_harness(tmp_path, {})
+
+    with pytest.raises(ValueError, match="reserved LSP envelope keys: position, textDocument"):
+        await backend._position_request(
+            "textDocument/references",
+            str(sample.resolve()),
+            0,
+            0,
+            extra_params={
+                "textDocument": {"uri": "file:///wrong.py"},
+                "position": {"line": 99, "character": 99},
+            },
+        )
+
+    assert fake_client.requests == []
 
 
 @pytest.mark.asyncio
