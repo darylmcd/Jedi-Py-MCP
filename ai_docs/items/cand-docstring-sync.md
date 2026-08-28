@@ -1,6 +1,6 @@
 # cand-docstring-sync — New tool: docstring_sync (signature vs docstring param diff)
 
-**row:** `cand-docstring-sync` · **pri:** `Low` · **size:** `M`
+**row:** `cand-docstring-sync` · **pri:** `Low` · **size:** `L`
 
 ## Anchors
 

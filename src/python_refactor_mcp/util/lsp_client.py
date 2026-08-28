@@ -126,11 +126,14 @@ class LSPClient:
             "params": params,
         }
 
-        async with self._write_lock:
-            process.stdin.write(encode_lsp_message(payload))
-            await process.stdin.drain()
-
         try:
+            # Keep the write inside the cleanup boundary.  A subprocess can
+            # exit between ``require_process`` and ``drain``; if that happens,
+            # the request future must not remain orphaned in ``_pending``.
+            async with self._write_lock:
+                process.stdin.write(encode_lsp_message(payload))
+                await process.stdin.drain()
+
             response = await future
             return response
         finally:

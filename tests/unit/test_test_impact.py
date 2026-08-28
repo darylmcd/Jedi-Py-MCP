@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import CallHierarchyItem, Position, Range
+from python_refactor_mcp.models import CallHierarchyItem, Position, Range, SymbolAnchor
 from python_refactor_mcp.tools import analysis
 
 
@@ -40,7 +40,7 @@ async def test_test_impact_select_returns_test_node_ids() -> None:
     pyright.get_incoming_calls.side_effect = _incoming
 
     result = await analysis.test_impact_select(
-        pyright, [{"file_path": "/repo/mod.py", "line": 1, "character": 0}]
+        pyright, [SymbolAnchor(file_path="/repo/mod.py", line=1, character=0)]
     )
 
     assert len(result.entries) == 1
@@ -68,7 +68,7 @@ async def test_test_impact_select_excludes_non_test_callers() -> None:
     pyright.get_incoming_calls.side_effect = _incoming
 
     result = await analysis.test_impact_select(
-        pyright, [{"file_path": "/repo/mod.py", "line": 1, "character": 0}]
+        pyright, [SymbolAnchor(file_path="/repo/mod.py", line=1, character=0)]
     )
 
     assert result.entries[0].pytest_node_ids == []
@@ -86,7 +86,7 @@ async def test_test_impact_select_handles_no_callers() -> None:
     pyright.get_incoming_calls.return_value = []
 
     result = await analysis.test_impact_select(
-        pyright, [{"file_path": "/repo/mod.py", "line": 1, "character": 0}]
+        pyright, [SymbolAnchor(file_path="/repo/mod.py", line=1, character=0)]
     )
 
     assert result.entries[0].symbol == "target"

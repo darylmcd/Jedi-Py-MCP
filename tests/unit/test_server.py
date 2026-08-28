@@ -27,24 +27,33 @@ async def test_position_based_tools_document_zero_based_convention() -> None:
 
     Data-driven and drift-proof, mirroring the tool-count gate above: it
     enumerates the live tool surface and selects every tool whose input schema
-    exposes a caller-supplied position parameter directly as ``line``/``character``
-    (or the ``start_line``/``start_character`` range form). Any future
-    line/character-shaped position tool is auto-covered — its description must
-    carry :data:`POSITION_CONVENTION_PHRASE` or this gate fails. Tools that nest
-    positions inside a ``Position`` object (e.g. ``selection_range`` with
-    ``positions: list[Position]``) are NOT matched by this selector; their
-    callers learn the convention from the ``Position`` model's own description.
-    Extending the phrase + selector to those is tracked separately.
+    exposes a caller-supplied position directly as ``line``/``start_line`` or
+    indirectly through the canonical ``Position``/``SymbolAnchor`` models.
+    Any future position tool is auto-covered.
     """
     tools = await server.mcp.list_tools()
+
+    def _contains_position_ref(value: object) -> bool:
+        if isinstance(value, dict):
+            ref = value.get("$ref")
+            return (
+                isinstance(ref, str)
+                and (ref.endswith("/Position") or ref.endswith("/SymbolAnchor"))
+            ) or any(_contains_position_ref(child) for child in value.values())
+        if isinstance(value, list):
+            return any(_contains_position_ref(child) for child in value)
+        return False
+
     position_tools = [
         tool
         for tool in tools
         if {"line", "start_line"} & set(tool.inputSchema.get("properties", {}))
+        or _contains_position_ref(tool.inputSchema.get("properties", {}))
     ]
     # Guard against the selector silently matching nothing (e.g. a schema-shape
     # change), which would make the assertion below vacuously pass.
     assert position_tools, "expected at least one position-based tool in the surface"
+    assert {"selection_range", "test_impact_select"} <= {tool.name for tool in position_tools}
 
     missing = [
         tool.name

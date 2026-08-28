@@ -59,7 +59,7 @@ async def test_structural_search_returns_matches(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    results, files_scanned = await search.structural_search(
+    results, files_scanned, scan_failures = await search.structural_search(
         _config(tmp_path),
         "m.Call(func=m.Name('print'))",
         str(source),
@@ -68,6 +68,25 @@ async def test_structural_search_returns_matches(tmp_path: Path) -> None:
     assert len(results) == 2
     assert all("print" in item.matched_text for item in results)
     assert files_scanned == 1
+    assert scan_failures == []
+
+
+@pytest.mark.asyncio
+async def test_structural_search_reports_parse_failures(tmp_path: Path) -> None:
+    """Invalid files are visible to callers instead of disappearing from results."""
+    (tmp_path / "valid.py").write_text("print('ok')\n", encoding="utf-8")
+    invalid = tmp_path / "invalid.py"
+    invalid.write_text("def broken(:\n", encoding="utf-8")
+
+    results, files_scanned, scan_failures = await search.structural_search(
+        _config(tmp_path), "m.Call(func=m.Name('print'))"
+    )
+
+    assert len(results) == 1
+    assert files_scanned == 1
+    assert len(scan_failures) == 1
+    assert scan_failures[0].file_path == str(invalid.resolve())
+    assert scan_failures[0].phase == "read_or_parse"
 
 
 @pytest.mark.asyncio
@@ -91,6 +110,20 @@ async def test_dead_code_detection_marks_unreferenced_symbols(tmp_path: Path) ->
     names = {item.name for item in result.items}
     assert "dead_func" in names
     assert "DeadClass" in names
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_reports_diagnostic_failures(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text("# no symbols\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics.side_effect = RuntimeError("backend unavailable")
+
+    result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
+
+    assert len(result.scan_failures) == 1
+    assert result.scan_failures[0].file_path == str(source.resolve())
+    assert result.scan_failures[0].error_type == "RuntimeError"
 
 
 @pytest.mark.asyncio
@@ -188,6 +221,19 @@ async def test_unused_symbol_sweep_flags_unreferenced_exports(tmp_path: Path) ->
     names = {item.name for item in result.items}
     assert "public_unused" in names
     assert "PublicWidget" in names
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_reports_reference_failures(tmp_path: Path) -> None:
+    source = tmp_path / "api.py"
+    source.write_text("def public_name():\n    return 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_references.side_effect = RuntimeError("backend unavailable")
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), str(source))
+
+    assert len(result.scan_failures) == 1
+    assert result.scan_failures[0].subject == "public_name"
 
 
 @pytest.mark.asyncio

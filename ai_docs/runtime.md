@@ -19,7 +19,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Virtual environment | `.venv` |
 | Hosted CI | `.github/workflows/ci.yml` — lint, Pyright, mypy, unit + contract tests, integration tests on Python 3.14 (Windows) |
 | Task runner | `justfile` |
-| `rg` availability | Not installed |
+| `rg` availability | Installed on PATH |
 
 ## Canonical Runner
 

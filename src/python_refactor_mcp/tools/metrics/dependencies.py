@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import DependencyGraph, ModuleDependency
+from python_refactor_mcp.models import DependencyGraph, ModuleDependency, ScanFailure
 
 
 def _resolve_module_to_file(module_name: str, workspace_root: Path) -> str | None:
@@ -88,6 +88,7 @@ async def get_module_dependencies(
     all_deps: list[ModuleDependency] = []
     modules: set[str] = set()
     graph: dict[str, set[str]] = {}
+    scan_failures: list[ScanFailure] = []
 
     for fp in paths:
         source = str(fp.resolve())
@@ -95,7 +96,14 @@ async def get_module_dependencies(
         try:
             content = fp.read_text(encoding="utf-8")
             tree = ast.parse(content, filename=str(fp))
-        except (SyntaxError, OSError):
+        except (SyntaxError, OSError) as exc:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=source,
+                    phase="read_or_parse",
+                    error_type=type(exc).__name__,
+                )
+            )
             continue
 
         if source not in graph:
@@ -133,4 +141,5 @@ async def get_module_dependencies(
         dependencies=all_deps,
         modules=sorted(modules),
         circular_dependencies=cycles,
+        scan_failures=scan_failures,
     )

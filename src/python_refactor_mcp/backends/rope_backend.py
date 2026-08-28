@@ -8,7 +8,6 @@ import os
 import re
 from collections.abc import Callable
 from difflib import SequenceMatcher
-from itertools import zip_longest
 from pathlib import Path
 from typing import Any, cast
 
@@ -45,7 +44,8 @@ from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
-from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
+from python_refactor_mcp.util.diff import apply_text_edits, write_atomic, write_bytes_atomic
+from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ TRANSACTION_TOOLS: tuple[str, ...] = (
 
 def _absolute_path(path: str) -> str:
     """Return normalized absolute path string."""
-    return str(Path(path).resolve())
+    return normalize_path(path)
 
 
 def _build_add(op: SignatureOperation) -> list[object]:
@@ -131,6 +131,8 @@ class RopeBackend:
         """Initialize backend config and deferred rope project state."""
         self._config = config
         self._project: Project | None = None
+        self._change_stack: Any | None = None
+        self._change_stack_originals: dict[str, bytes] = {}
         raw = os.environ.get("ROPE_OPERATION_TIMEOUT_SECONDS", "")
         try:
             self._timeout = max(float(raw), 1.0) if raw else _DEFAULT_ROPE_TIMEOUT
@@ -276,6 +278,18 @@ class RopeBackend:
             return RefactorResult(edits=[], files_affected=[], description=description, applied=False)
         edits = self._changes_to_edits(changes)
         if apply:
+            if self._change_stack is not None:
+                for edit in edits:
+                    if edit.file_path not in self._change_stack_originals:
+                        self._change_stack_originals[edit.file_path] = Path(edit.file_path).read_bytes()
+                self._change_stack.push(changes)
+                files_affected = sorted({edit.file_path for edit in edits})
+                return RefactorResult(
+                    edits=edits,
+                    files_affected=files_affected,
+                    description=description,
+                    applied=True,
+                )
             files_affected = self._apply_edits(edits)
             return RefactorResult(
                 edits=edits,
@@ -949,28 +963,78 @@ class RopeBackend:
         """Start a new atomic change stack for chaining refactorings."""
         from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
 
+        if self._change_stack is not None:
+            raise RopeError("A change stack is already active")
         project = self._require_project()
         self._change_stack = ChangeStack(project)
-        self._change_stack.__enter__()  # pyright: ignore[reportAttributeAccessIssue]
+        self._change_stack_originals = {}
         return "Change stack started"
 
     async def commit_change_stack(self) -> RefactorResult:
-        """Commit and apply the current change stack."""
-        if not hasattr(self, "_change_stack") or self._change_stack is None:
+        """Collapse the current stack into one rope history entry and keep its edits."""
+        if self._change_stack is None:
             raise RopeError("No active change stack to commit")
-        self._change_stack.__exit__(None, None, None)  # pyright: ignore[reportAttributeAccessIssue]
-        result = RefactorResult(
-            edits=[], files_affected=[], description="Change stack committed", applied=True,
+
+        stack = self._change_stack
+        originals = dict(self._change_stack_originals)
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            merged = stack.merged()
+            try:
+                # ChangeStack.push applies every constituent change immediately.
+                # Restore the original tree, then apply the merged ChangeSet once
+                # so rope history contains one atomic command.
+                stack.pop_all()
+                edits = self._changes_to_edits(merged)
+                project.do(merged)
+            except Exception:
+                for file_path, original in originals.items():
+                    write_bytes_atomic(file_path, original)
+                raise
+            finally:
+                self._change_stack = None
+                self._change_stack_originals = {}
+            return RefactorResult(
+                edits=edits,
+                files_affected=sorted({edit.file_path for edit in edits}),
+                description="Change stack committed",
+                applied=True,
+            )
+
+        return await run_in_thread(
+            _work,
+            timeout=self._timeout,
+            error_cls=RopeError,
+            op_name="rope.commit_change_stack",
+            logger=_LOGGER,
         )
-        self._change_stack = None
-        return result
 
     async def rollback_change_stack(self) -> str:
-        """Discard the current change stack without applying."""
-        if not hasattr(self, "_change_stack") or self._change_stack is None:
+        """Revert every change pushed since ``begin_change_stack``."""
+        if self._change_stack is None:
             raise RopeError("No active change stack to rollback")
-        self._change_stack = None
-        return "Change stack rolled back"
+
+        stack = self._change_stack
+        originals = dict(self._change_stack_originals)
+
+        def _work() -> str:
+            try:
+                stack.pop_all()
+                for file_path, original in originals.items():
+                    write_bytes_atomic(file_path, original)
+            finally:
+                self._change_stack = None
+                self._change_stack_originals = {}
+            return "Change stack rolled back"
+
+        return await run_in_thread(
+            _work,
+            timeout=self._timeout,
+            error_cls=RopeError,
+            op_name="rope.rollback_change_stack",
+            logger=_LOGGER,
+        )
 
     # ── Atomic multi-step transaction ──
 
@@ -1053,18 +1117,32 @@ class RopeBackend:
             old_lines = Path(absolute_file).read_text(encoding="utf-8").splitlines()
             new_lines = str(change.new_contents).splitlines()
             cells: set[tuple[int, int]] = set()
-            for line_no, (old, new) in enumerate(zip_longest(old_lines, new_lines, fillvalue="")):
-                if old == new:
+            line_matcher = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+            for line_op, old_start, old_end, new_start, new_end in line_matcher.get_opcodes():
+                if line_op == "equal":
                     continue
-                matcher = SequenceMatcher(None, old, new)
-                for op, i1, i2, _j1, _j2 in matcher.get_opcodes():
-                    if op == "equal":
-                        continue
-                    # Mark touched columns on the OLD-side span (delete/replace)
-                    # plus the OLD anchor column of inserts, so same-position
-                    # rewrites in different steps collide.
-                    for col in range(i1, max(i2, i1 + 1)):
-                        cells.add((line_no, col))
+
+                old_block = old_lines[old_start:old_end]
+                new_block = new_lines[new_start:new_end]
+                paired_count = min(len(old_block), len(new_block))
+                for offset in range(paired_count):
+                    old = old_block[offset]
+                    new = new_block[offset]
+                    char_matcher = SequenceMatcher(None, old, new, autojunk=False)
+                    for char_op, i1, i2, j1, j2 in char_matcher.get_opcodes():
+                        if char_op == "equal":
+                            continue
+                        for col in range(i1, max(i2, i1 + 1)):
+                            cells.add((old_start + offset, col))
+                        for col in range(j1, max(j2, j1 + 1)):
+                            cells.add((new_start + offset, col))
+
+                for offset, old in enumerate(old_block[paired_count:], start=paired_count):
+                    for col in range(max(len(old), 1)):
+                        cells.add((old_start + offset, col))
+                for offset, new in enumerate(new_block[paired_count:], start=paired_count):
+                    for col in range(max(len(new), 1)):
+                        cells.add((new_start + offset, col))
             if cells:
                 spans[absolute_file] = cells
         return spans

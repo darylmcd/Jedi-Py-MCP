@@ -1,6 +1,6 @@
 # cand-convert-to-dataclass — New tool: convert plain class to @dataclass
 
-**row:** `cand-convert-to-dataclass` · **pri:** `Low` · **size:** `M`
+**row:** `cand-convert-to-dataclass` · **pri:** `Low` · **size:** `L`
 
 ## Anchors
 

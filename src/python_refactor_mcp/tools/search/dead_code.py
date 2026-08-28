@@ -14,6 +14,7 @@ from python_refactor_mcp.models import (
     PaginatedDeadCode,
     Position,
     Range,
+    ScanFailure,
 )
 
 from ._helpers import (
@@ -228,9 +229,18 @@ async def dead_code_detection(
 
     diag_results = await asyncio.gather(*[_fetch_diags(p) for p in target_files], return_exceptions=True)
     all_diagnostics: list[Diagnostic] = []
-    for diag_result in diag_results:
+    scan_failures: list[ScanFailure] = []
+    for path, diag_result in zip(target_files, diag_results, strict=True):
         if isinstance(diag_result, list):
             all_diagnostics.extend(diag_result)
+        else:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path.resolve()),
+                    phase="diagnostics",
+                    error_type=type(diag_result).__name__,
+                )
+            )
 
     for diagnostic in all_diagnostics:
         if not _is_dead_code_diagnostic(diagnostic):
@@ -253,10 +263,21 @@ async def dead_code_detection(
         *[_check_symbol(pyright, sem, p, n, k, r) for p, n, k, r in symbols_to_check],
         return_exceptions=True,
     )
-    for ref_result in ref_results:
+    for (path, name, _kind, _symbol_range), ref_result in zip(
+        symbols_to_check, ref_results, strict=True
+    ):
         if isinstance(ref_result, DeadCodeItem):
             key = (ref_result.file_path, ref_result.name, ref_result.range.start.line, ref_result.range.start.character)
             dead_items[key] = ref_result
+        elif isinstance(ref_result, BaseException):
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path.resolve()),
+                    phase="references",
+                    error_type=type(ref_result).__name__,
+                    subject=name,
+                )
+            )
 
     # Phase 3: Sort and paginate results.
     all_items = sorted(
@@ -274,4 +295,5 @@ async def dead_code_detection(
         total_count=total_count,
         offset=offset,
         truncated=truncated,
+        scan_failures=scan_failures,
     )

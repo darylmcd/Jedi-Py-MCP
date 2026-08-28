@@ -12,6 +12,12 @@ class Position(BaseModel):
     character: int = Field(ge=0)
 
 
+class SymbolAnchor(Position):
+    """File-backed 0-based position used to seed symbol graph analysis."""
+
+    file_path: str
+
+
 class Range(BaseModel):
     """Text range in a file using 0-based positions."""
 
@@ -331,11 +337,21 @@ class StructuralMatch(BaseModel):
     matched_text: str
 
 
+class ScanFailure(BaseModel):
+    """Stable, payload-safe signal that one scan unit could not be inspected."""
+
+    file_path: str
+    phase: str
+    error_type: str
+    subject: str | None = None
+
+
 class StructuralSearchResult(BaseModel):
     """Result of a structural search including scan metadata."""
 
     matches: list[StructuralMatch]
     files_scanned: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class DeadCodeItem(BaseModel):
@@ -382,7 +398,10 @@ class Paginated[T](BaseModel):
 
 
 PaginatedDiagnosticSummary = Paginated[DiagnosticSummary]
-PaginatedDeadCode = Paginated[DeadCodeItem]
+class PaginatedDeadCode(Paginated[DeadCodeItem]):
+    """Dead-code page plus explicit failures from diagnostics/reference scans."""
+
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class DiffPreview(BaseModel):
@@ -483,6 +502,7 @@ class DependencyGraph(BaseModel):
     dependencies: list[ModuleDependency]
     modules: list[str]
     circular_dependencies: list[list[str]]
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class UnusedImport(BaseModel):
