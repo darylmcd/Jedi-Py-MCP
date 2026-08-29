@@ -84,6 +84,57 @@ async def test_rename_returns_text_edits(rope_backend: tuple[RopeBackend, Path])
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("import_line", "alias", "new_name", "usage", "expected_import", "expected_usage"),
+    [
+        (
+            "from calc import add as combine",
+            "combine",
+            "sum_values",
+            "result = combine(1, 2)",
+            "from calc import add as sum_values",
+            "result = sum_values(1, 2)",
+        ),
+        (
+            "import calc as math_ops",
+            "math_ops",
+            "calculator",
+            "result = math_ops.add(1, 2)",
+            "import calc as calculator",
+            "result = calculator.add(1, 2)",
+        ),
+    ],
+)
+async def test_rename_rewrites_import_alias_and_usages_in_preview(
+    rope_backend: tuple[RopeBackend, Path],
+    import_line: str,
+    alias: str,
+    new_name: str,
+    usage: str,
+    expected_import: str,
+    expected_usage: str,
+) -> None:
+    """Rope already performs alias-aware rewrites without a custom CST pass."""
+    backend, module = rope_backend
+    consumer = module.parent / "consumer.py"
+    original = f"{import_line}\n{usage}\n"
+    consumer.write_text(original, encoding="utf-8")
+
+    result = await backend.rename(
+        str(consumer),
+        line=0,
+        character=import_line.index(alias),
+        new_name=new_name,
+        apply=False,
+    )
+
+    edit = next(edit for edit in result.edits if Path(edit.file_path).resolve() == consumer.resolve())
+    assert expected_import in edit.new_text
+    assert expected_usage in edit.new_text
+    assert consumer.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.asyncio
 async def test_extract_method_returns_edits(rope_backend: tuple[RopeBackend, Path]) -> None:
     """Extract method creates changes for a selected range."""
     backend, module = rope_backend

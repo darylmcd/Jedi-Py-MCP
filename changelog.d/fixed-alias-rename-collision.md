@@ -1,0 +1,1 @@
+- **Fixed:** Reject import-alias renames that collide with existing same-scope bindings while preserving preview-safe alias rewrites.
