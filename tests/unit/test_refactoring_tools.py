@@ -50,47 +50,113 @@ def test_result_from_text_edits_preflights_multi_file_batch(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_rename_symbol_delegates_to_rope_no_apply() -> None:
+async def test_rename_symbol_delegates_to_rope_no_apply(tmp_path: Path) -> None:
     """Ensure rename delegates arguments and skips diagnostics when not applied."""
+    module = tmp_path / "a.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    module_path = str(module)
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.rename.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py")],
-        files_affected=["/repo/a.py"],
+        edits=[_edit(module_path)],
+        files_affected=[module_path],
         description="rename",
         applied=False,
     )
 
-    result = await refactoring.rename_symbol(pyright, rope, "/repo/a.py", 1, 2, "new_name", apply=False)
+    result = await refactoring.rename_symbol(pyright, rope, module_path, 0, 0, "new_name", apply=False)
 
     assert result.applied is False
-    rope.rename.assert_awaited_once_with("/repo/a.py", 1, 2, "new_name", False)
+    rope.rename.assert_awaited_once_with(module_path, 0, 0, "new_name", False)
     pyright.notify_file_changed.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_rename_symbol_apply_refreshes_diagnostics() -> None:
+async def test_rename_symbol_apply_refreshes_diagnostics(tmp_path: Path) -> None:
     """Ensure apply mode notifies Pyright and attaches refreshed diagnostics."""
+    first = tmp_path / "a.py"
+    second = tmp_path / "b.py"
+    first.write_text("value = 1\n", encoding="utf-8")
+    second.write_text("other = 2\n", encoding="utf-8")
+    first_path = str(first)
+    second_path = str(second)
     pyright = AsyncMock()
     rope = AsyncMock()
 
     rope.rename.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py"), _edit("/repo/b.py")],
-        files_affected=["/repo/b.py", "/repo/a.py", "/repo/a.py"],
+        edits=[_edit(first_path), _edit(second_path)],
+        files_affected=[second_path, first_path, first_path],
         description="rename",
         applied=True,
     )
     pyright.get_diagnostics.side_effect = [
-        [_diag("/repo/a.py", 2), _diag("/repo/a.py", 1)],
-        [_diag("/repo/b.py", 3)],
+        [_diag(first_path, 2), _diag(first_path, 1)],
+        [_diag(second_path, 3)],
     ]
 
-    result = await refactoring.rename_symbol(pyright, rope, "/repo/a.py", 1, 2, "new_name", apply=True)
+    result = await refactoring.rename_symbol(pyright, rope, first_path, 0, 0, "new_name", apply=True)
 
     assert result.diagnostics_after is not None
-    assert [item.file_path for item in result.diagnostics_after] == ["/repo/a.py", "/repo/a.py", "/repo/b.py"]
-    pyright.notify_file_changed.assert_any_await("/repo/a.py")
-    pyright.notify_file_changed.assert_any_await("/repo/b.py")
+    assert [item.file_path for item in result.diagnostics_after] == [first_path, first_path, second_path]
+    pyright.notify_file_changed.assert_any_await(first_path)
+    pyright.notify_file_changed.assert_any_await(second_path)
+
+
+@pytest.mark.asyncio
+async def test_import_alias_rename_rejects_same_scope_collision(tmp_path: Path) -> None:
+    """An alias rename cannot silently merge with an existing local binding."""
+    module = tmp_path / "consumer.py"
+    source = (
+        "from provider import Widget as Alias\n"
+        "Renamed = object()\n"
+        "instance = Alias()\n"
+    )
+    module.write_text(source, encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.prepare_rename.return_value = object()
+    rope = AsyncMock()
+
+    with pytest.raises(ValueError, match="target name is already bound in the same scope"):
+        await refactoring.rename_symbol(
+            pyright,
+            rope,
+            str(module),
+            line=0,
+            character=source.splitlines()[0].index("Alias"),
+            new_name="Renamed",
+        )
+    rope.rename.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_import_alias_rename_allows_available_name(tmp_path: Path) -> None:
+    """An unbound target name continues to Rope's alias-aware rename path."""
+    module = tmp_path / "consumer.py"
+    source = "import provider as alias\ninstance = alias.Widget()\n"
+    module.write_text(source, encoding="utf-8")
+    alias_character = source.splitlines()[0].index("alias")
+
+    pyright = AsyncMock()
+    pyright.prepare_rename.return_value = object()
+    rope = AsyncMock()
+    rope.rename.return_value = RefactorResult(
+        edits=[],
+        files_affected=[],
+        description="rename",
+        applied=False,
+    )
+
+    await refactoring.rename_symbol(
+        pyright,
+        rope,
+        str(module),
+        line=0,
+        character=alias_character,
+        new_name="available",
+    )
+
+    rope.rename.assert_awaited_once_with(str(module), 0, alias_character, "available", False)
 
 
 @pytest.mark.asyncio
@@ -422,15 +488,17 @@ async def test_autoimport_search_returns_suggestions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rename_symbol_rope_raises_propagates() -> None:
+async def test_rename_symbol_rope_raises_propagates(tmp_path: Path) -> None:
     """When rope raises during rename, the error propagates."""
+    module = tmp_path / "a.py"
+    module.write_text("value = 1\n", encoding="utf-8")
     pyright = AsyncMock()
     rope = AsyncMock()
     pyright.prepare_rename.return_value = object()
     rope.rename.side_effect = ValueError("rope failed")
 
     with pytest.raises(ValueError, match="rope failed"):
-        await refactoring.rename_symbol(pyright, rope, "/repo/a.py", 0, 0, "new_name", apply=False)
+        await refactoring.rename_symbol(pyright, rope, str(module), 0, 0, "new_name", apply=False)
 
 
 def test_change_signature_invalid_op_raises() -> None:
