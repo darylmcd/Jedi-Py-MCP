@@ -183,25 +183,71 @@ async def test_search_symbols_merges_pyright_and_jedi_results() -> None:
         container=None,
     )]
 
-    results = await search.search_symbols(pyright, jedi, "Widget")
+    result = await search.search_symbols(pyright, jedi, "Widget")
 
-    assert [item.name for item in results] == ["Widget", "WidgetFactory"]
+    assert [item.name for item in result.items] == ["Widget", "WidgetFactory"]
+    assert result.total_count == 2
+    assert result.backend_failures == []
+
+    limited = await search.search_symbols(pyright, jedi, "Widget", limit=1)
+    assert [item.name for item in limited.items] == ["Widget"]
+    assert limited.total_count == 2
+    assert limited.truncated is True
 
 
 # ── PR 3-B: Invalid-input / failure-path unit tests ──
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_both_fail_returns_empty() -> None:
-    """When both Pyright and Jedi raise, return empty list."""
+async def test_search_symbols_both_fail_reports_backend_failures() -> None:
+    """When both backends raise, preserve stable failure provenance."""
     pyright = AsyncMock()
     jedi = AsyncMock()
-    pyright.search_symbols.side_effect = RuntimeError("pyright crashed")
+    pyright.workspace_symbol.side_effect = RuntimeError("pyright crashed")
     jedi.search_symbols.side_effect = RuntimeError("jedi crashed")
 
-    results = await search.search_symbols(pyright, jedi, "Widget")
+    result = await search.search_symbols(pyright, jedi, "Widget")
 
-    assert results == []
+    assert result.items == []
+    assert [(failure.backend, failure.operation, failure.error_type) for failure in result.backend_failures] == [
+        ("pyright", "workspace_symbol", "RuntimeError"),
+        ("jedi", "search_symbols", "RuntimeError"),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_report_parse_failures(tool_name: str, tmp_path: Path) -> None:
+    """A malformed file is a visible partial scan, not an empty success."""
+    invalid = tmp_path / "invalid.py"
+    invalid.write_text("def broken(:\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await getattr(search, tool_name)(pyright, _config(tmp_path), str(invalid))
+
+    assert result.items == []
+    assert len(result.scan_failures) == 1
+    assert result.scan_failures[0].file_path == str(invalid.resolve())
+    assert result.scan_failures[0].phase == "symbol_scan"
+    assert result.scan_failures[0].error_type == "SyntaxError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_report_missing_files(tool_name: str, tmp_path: Path) -> None:
+    """An explicitly requested missing file remains visible in scan metadata."""
+    missing = tmp_path / "missing.py"
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await getattr(search, tool_name)(pyright, _config(tmp_path), str(missing))
+
+    assert result.items == []
+    assert len(result.scan_failures) == 1
+    assert result.scan_failures[0].file_path == str(missing.resolve())
+    assert result.scan_failures[0].phase == "symbol_scan"
+    assert result.scan_failures[0].error_type == "FileNotFoundError"
 
 
 @pytest.mark.asyncio

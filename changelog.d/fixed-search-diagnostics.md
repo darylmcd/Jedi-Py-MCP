@@ -1,0 +1,1 @@
+- **Fixed:** Search tools now report partial backend and file-scan failures explicitly, emit actionable warning summaries, share one module-symbol scan implementation, and avoid Rope AutoImport default-change warnings.

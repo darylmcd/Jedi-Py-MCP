@@ -17,170 +17,24 @@ per exported symbol. ``limit`` bounds the response size but not the work done.
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import re
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Position, Range, ScanFailure
+from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Range, ScanFailure
 
-from ._helpers import PyrightSearchBackend, name_position, python_files
-
-
-def _is_test_file(path: Path) -> bool:
-    """Return True if the file looks like a test file."""
-    name = path.name
-    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
-
-
-def _resolve_targets(
-    file_path: str | None,
-    file_paths: list[str] | None,
-    root_path: str | None,
-    config: ServerConfig,
-    exclude_test_files: bool,
-) -> list[Path]:
-    """Determine which files to scan for unused exports."""
-    if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
-    if file_paths is not None:
-        targets = [Path(p).resolve() for p in file_paths]
-    elif file_path is not None:
-        targets = [Path(file_path).resolve()]
-    else:
-        targets = python_files(effective_root)
-    if exclude_test_files:
-        targets = [p for p in targets if not _is_test_file(p)]
-    return targets
+from ._helpers import (
+    PyrightSearchBackend,
+    resolve_target_files,
+    scan_module_level_symbols,
+    score_dead_code_confidence,
+)
 
 
-def _confidence(name: str) -> str:
-    """Score confidence that an unreferenced export is genuinely unused."""
-    lower = name.lower()
-    if lower in {"logger", "_logger", "log", "_log"}:
-        return "low"
-    if name.startswith("test_") or name.startswith("Test"):
-        return "low"
-    if name.startswith("__") and name.endswith("__"):
-        return "low"
-    return "medium"
-
-
-def _decorator_skips_symbol(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
-    """Return True if a decorator marks the symbol as externally registered.
-
-    Decorators whose dotted name contains ``mcp`` or ``tool`` (e.g. ``@mcp.tool``)
-    register the symbol with a framework, so a zero-reference result is expected
-    and not evidence of dead code.
-    """
-    for decorator in node.decorator_list:
-        target: ast.expr = decorator.func if isinstance(decorator, ast.Call) else decorator
-        parts: list[str] = []
-        while isinstance(target, ast.Attribute):
-            parts.append(target.attr)
-            target = target.value
-        if isinstance(target, ast.Name):
-            parts.append(target.id)
-        dotted = ".".join(reversed(parts)).lower()
-        if "mcp" in dotted or "tool" in dotted:
-            return True
-    return False
-
-
-def _module_exports(module: ast.Module) -> set[str] | None:
-    """Return the names listed in a module-level ``__all__``, or None if absent."""
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
-            continue
-        value = node.value
-        if isinstance(value, (ast.List, ast.Tuple)):
-            return {
-                element.value
-                for element in value.elts
-                if isinstance(element, ast.Constant) and isinstance(element.value, str)
-            }
-    return None
-
-
-def _iter_export_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
-    """Collect module-level symbols that form the file's public export surface.
-
-    A symbol is in scope when it is listed in ``__all__`` (if the module defines
-    one) or, absent ``__all__``, when its name does not start with an underscore.
-    Symbols registered via an external decorator are excluded.
-    """
-    source = file_path.read_text(encoding="utf-8")
-    lines = source.splitlines()
-    try:
-        module = ast.parse(source)
-    except SyntaxError:
-        return []
-
-    exports = _module_exports(module)
-
-    def in_surface(name: str) -> bool:
-        if name == "__all__":
-            return False
-        if exports is not None:
-            return name in exports
-        return not name.startswith("_")
-
-    symbols: list[tuple[str, str, Range]] = []
-    for node in module.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if _decorator_skips_symbol(node) or not in_surface(node.name):
-                continue
-            line_index = node.lineno - 1
-            if line_index < 0 or line_index >= len(lines):
-                continue
-            char_index = name_position(lines[line_index], node.col_offset, node.name)
-            kind = "class" if isinstance(node, ast.ClassDef) else "function"
-            symbols.append(
-                (
-                    node.name,
-                    kind,
-                    Range(
-                        start=Position(line=line_index, character=char_index),
-                        end=Position(line=line_index, character=char_index + len(node.name)),
-                    ),
-                )
-            )
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if not isinstance(target, ast.Name) or not in_surface(target.id):
-                    continue
-                symbols.append(
-                    (
-                        target.id,
-                        "variable",
-                        Range(
-                            start=Position(line=target.lineno - 1, character=target.col_offset),
-                            end=Position(
-                                line=target.lineno - 1,
-                                character=target.col_offset + len(target.id),
-                            ),
-                        ),
-                    )
-                )
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            target = node.target
-            if not in_surface(target.id):
-                continue
-            symbols.append(
-                (
-                    target.id,
-                    "variable",
-                    Range(
-                        start=Position(line=target.lineno - 1, character=target.col_offset),
-                        end=Position(line=target.lineno - 1, character=target.col_offset + len(target.id)),
-                    ),
-                )
-            )
-    return symbols
+def _is_externally_registered(decorator_names: tuple[str, ...]) -> bool:
+    """Return whether a framework-like decorator owns the symbol lifecycle."""
+    return any("mcp" in name.lower() or "tool" in name.lower() for name in decorator_names)
 
 
 async def _check_export_symbol(
@@ -210,7 +64,7 @@ async def _check_export_symbol(
         file_path=resolved_path,
         range=symbol_range,
         reason="no external references",
-        confidence=_confidence(name),
+        confidence=score_dead_code_confidence(name, "no external references"),
     )
 
 
@@ -226,17 +80,35 @@ async def unused_symbol_sweep(
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Audit the public export surface for symbols with no cross-file references."""
-    target_files = _resolve_targets(file_path, file_paths, root_path, config, exclude_test_files)
+    target_files = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
+    scan_failures: list[ScanFailure] = []
     for path in target_files:
-        if not path.exists():
+        try:
+            scan = scan_module_level_symbols(path)
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path.resolve()),
+                    phase="symbol_scan",
+                    error_type=type(exc).__name__,
+                )
+            )
             continue
-        for name, kind, symbol_range in _iter_export_symbols(path):
+        for symbol in scan.symbols:
+            name = symbol.name
+            in_surface = (
+                name in scan.explicit_exports
+                if scan.explicit_exports is not None
+                else not name.startswith("_")
+            )
+            if name == "__all__" or not in_surface or _is_externally_registered(symbol.decorator_names):
+                continue
             if any(pattern.search(name) for pattern in compiled_excludes):
                 continue
-            symbols_to_check.append((path, name, kind, symbol_range))
+            symbols_to_check.append((path, name, symbol.kind, symbol.range))
 
     sem = asyncio.Semaphore(10)
     results = await asyncio.gather(
@@ -245,7 +117,6 @@ async def unused_symbol_sweep(
     )
 
     unused: dict[tuple[str, str, int, int], DeadCodeItem] = {}
-    scan_failures: list[ScanFailure] = []
     for (path, name, _kind, _symbol_range), result in zip(
         symbols_to_check, results, strict=True
     ):

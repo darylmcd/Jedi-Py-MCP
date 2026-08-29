@@ -278,8 +278,10 @@ async def test_search_symbols_finds_workspace_symbols(
 
     assert result.is_error is not True
     payload = _unwrap_result_payload(result.structured_content)
-    assert isinstance(payload, list)
-    assert any("User" in str(item.get("name", "")) for item in payload)
+    assert isinstance(payload, dict)
+    assert any("User" in str(item.get("name", "")) for item in payload["items"])
+    assert payload["total_count"] >= 1
+    assert payload["backend_failures"] == []
 
 
 @pytest.mark.asyncio
