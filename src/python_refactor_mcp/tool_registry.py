@@ -1124,7 +1124,7 @@ async def get_module_dependencies(
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> DependencyGraph:
-    """Build an import dependency graph with circular dependency detection. Parses ast.Import/ImportFrom nodes, resolves to file paths, and detects cycles via DFS. Related: get_coupling_metrics, check_layer_violations."""
+    """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths and reports each cyclic strongly connected component deterministically. Related: get_coupling_metrics, check_layer_violations."""
     app = _get_current_backends()
     result = await metrics.get_module_dependencies(app.config, file_path, file_paths)
     _LOGGER.debug(

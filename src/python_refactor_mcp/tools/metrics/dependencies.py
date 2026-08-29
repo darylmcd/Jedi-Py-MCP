@@ -7,67 +7,153 @@ from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import DependencyGraph, ModuleDependency, ScanFailure
+from python_refactor_mcp.util.file_filter import python_files
 
 
-def _resolve_module_to_file(module_name: str, workspace_root: Path) -> str | None:
-    """Try to resolve a module name to a file path within the workspace.
+def _import_roots(workspace_root: Path) -> tuple[Path, ...]:
+    """Return import roots in Python resolution order for common layouts."""
+    roots = [workspace_root / name for name in ("src", "lib")]
+    return tuple(root.resolve() for root in (*roots, workspace_root) if root.is_dir())
 
-    Searches workspace_root directly and common source subdirectories
-    (``src/``, ``lib/``) to support projects with non-flat layouts.
+
+def _resolve_module_to_file(module_name: str, import_roots: tuple[Path, ...]) -> str | None:
+    """Resolve an absolute module name to a file within an import root.
+
+    Source-layout roots precede the workspace root so ``src/pkg/mod.py`` is
+    resolved as ``pkg.mod``, not ``src.pkg.mod``.
     """
-    parts = module_name.split(".")
-    # Build list of search roots: workspace itself, then common source dirs.
-    search_roots = [workspace_root]
-    for subdir_name in ("src", "lib"):
-        subdir = workspace_root / subdir_name
-        if subdir.is_dir():
-            search_roots.append(subdir)
+    if not module_name:
+        return None
 
-    for root in search_roots:
-        # Try as package/__init__.py
-        package_path = root / "/".join(parts) / "__init__.py"
+    parts = module_name.split(".")
+    for root in import_roots:
+        import_path = root.joinpath(*parts)
+        package_path = import_path / "__init__.py"
         if package_path.exists():
             return str(package_path.resolve())
-        # Try as module.py
-        module_path = (
-            root / "/".join(parts[:-1]) / (parts[-1] + ".py") if len(parts) > 1
-            else root / (parts[0] + ".py")
-        )
+        module_path = import_path.with_suffix(".py")
         if module_path.exists():
             return str(module_path.resolve())
     return None
 
 
+def _package_parts(source: Path, import_roots: tuple[Path, ...]) -> tuple[str, ...] | None:
+    """Return the importing module's package relative to its import root."""
+    for root in import_roots:
+        try:
+            relative = source.resolve().relative_to(root)
+        except ValueError:
+            continue
+
+        module_parts = relative.with_suffix("").parts
+        if not module_parts:
+            return ()
+        return module_parts[:-1]
+    return None
+
+
+def _source_first_import_roots(source: Path, import_roots: tuple[Path, ...]) -> tuple[Path, ...]:
+    """Prioritize the source's own root when resolving a relative import."""
+    resolved_source = source.resolve()
+    for root in import_roots:
+        try:
+            resolved_source.relative_to(root)
+        except ValueError:
+            continue
+        return (root, *(candidate for candidate in import_roots if candidate != root))
+    return import_roots
+
+
+def _absolute_from_module(
+    node: ast.ImportFrom,
+    source: Path,
+    import_roots: tuple[Path, ...],
+) -> str | None:
+    """Resolve an ImportFrom module against the source package context."""
+    if node.level == 0:
+        return node.module or ""
+
+    package = _package_parts(source, import_roots)
+    if package is None or node.level > len(package):
+        return None
+
+    parent_hops = node.level - 1
+    base = package[: len(package) - parent_hops] if parent_hops else package
+    if node.module:
+        base = (*base, *node.module.split("."))
+    return ".".join(base)
+
+
+def _from_import_name(node: ast.ImportFrom, alias_name: str) -> str:
+    """Preserve the source-level dotted spelling of an imported name."""
+    prefix = f"{'.' * node.level}{node.module or ''}"
+    separator = "." if node.module else ""
+    return f"{prefix}{separator}{alias_name}"
+
+
+def _resolve_from_target(
+    absolute_module: str | None,
+    alias_name: str,
+    import_roots: tuple[Path, ...],
+) -> str | None:
+    """Resolve a from-import, preferring an imported child module when present."""
+    if absolute_module is None:
+        return None
+
+    if alias_name != "*":
+        child_module = f"{absolute_module}.{alias_name}" if absolute_module else alias_name
+        child_target = _resolve_module_to_file(child_module, import_roots)
+        if child_target is not None:
+            return child_target
+    return _resolve_module_to_file(absolute_module, import_roots)
+
+
 def _find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
-    """Find all circular dependencies via DFS."""
-    cycles: list[list[str]] = []
-    visited: set[str] = set()
-    path: list[str] = []
-    path_set: set[str] = set()
+    """Return deterministic strongly connected components that contain cycles."""
+    next_index = 0
+    indexes: dict[str, int] = {}
+    lowlinks: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    components: list[list[str]] = []
 
-    def dfs(node: str) -> None:
-        if node in path_set:
-            cycle_start = path.index(node)
-            cycle = path[cycle_start:] + [node]
-            normalized = tuple(sorted(cycle[:-1]))
-            if normalized not in seen_cycles:
-                seen_cycles.add(normalized)
-                cycles.append(cycle)
-            return
-        if node in visited:
-            return
-        visited.add(node)
-        path.append(node)
-        path_set.add(node)
-        for neighbor in graph.get(node, set()):
-            dfs(neighbor)
-        path.pop()
-        path_set.discard(node)
+    def strong_connect(node: str) -> None:
+        nonlocal next_index
+        indexes[node] = next_index
+        lowlinks[node] = next_index
+        next_index += 1
+        stack.append(node)
+        on_stack.add(node)
 
-    seen_cycles: set[tuple[str, ...]] = set()
-    for node in graph:
-        dfs(node)
-    return cycles
+        for neighbor in sorted(graph.get(node, set())):
+            if neighbor not in indexes:
+                strong_connect(neighbor)
+                lowlinks[node] = min(lowlinks[node], lowlinks[neighbor])
+            elif neighbor in on_stack:
+                lowlinks[node] = min(lowlinks[node], indexes[neighbor])
+
+        if lowlinks[node] != indexes[node]:
+            return
+
+        component: list[str] = []
+        while True:
+            member = stack.pop()
+            on_stack.remove(member)
+            component.append(member)
+            if member == node:
+                break
+
+        if len(component) > 1 or node in graph.get(node, set()):
+            components.append(sorted(component))
+
+    nodes = set(graph)
+    for targets in graph.values():
+        nodes.update(targets)
+    for node in sorted(nodes):
+        if node not in indexes:
+            strong_connect(node)
+
+    return sorted(components, key=tuple)
 
 
 async def get_module_dependencies(
@@ -83,14 +169,15 @@ async def get_module_dependencies(
     elif file_path:
         paths = [Path(file_path)]
     else:
-        paths = list(workspace_root.rglob("*.py"))
+        paths = python_files(workspace_root)
 
     all_deps: list[ModuleDependency] = []
     modules: set[str] = set()
     graph: dict[str, set[str]] = {}
     scan_failures: list[ScanFailure] = []
+    import_roots = _import_roots(workspace_root)
 
-    for fp in paths:
+    for fp in sorted(paths):
         source = str(fp.resolve())
         modules.add(source)
         try:
@@ -112,7 +199,7 @@ async def get_module_dependencies(
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    target = _resolve_module_to_file(alias.name, workspace_root)
+                    target = _resolve_module_to_file(alias.name, import_roots)
                     all_deps.append(ModuleDependency(
                         source=source,
                         target=target or alias.name,
@@ -123,18 +210,22 @@ async def get_module_dependencies(
                         modules.add(target)
                         graph[source].add(target)
             elif isinstance(node, ast.ImportFrom):
-                module_name = node.module or ""
-                target = _resolve_module_to_file(module_name, workspace_root)
+                absolute_module = _absolute_from_module(node, fp, import_roots)
+                resolution_roots = (
+                    _source_first_import_roots(fp, import_roots) if node.level else import_roots
+                )
                 for alias in node.names:
+                    import_name = _from_import_name(node, alias.name)
+                    target = _resolve_from_target(absolute_module, alias.name, resolution_roots)
                     all_deps.append(ModuleDependency(
                         source=source,
-                        target=target or module_name,
-                        import_name=f"{module_name}.{alias.name}" if module_name else alias.name,
+                        target=target or absolute_module or import_name,
+                        import_name=import_name,
                         line=node.lineno - 1,
                     ))
-                if target:
-                    modules.add(target)
-                    graph[source].add(target)
+                    if target:
+                        modules.add(target)
+                        graph[source].add(target)
 
     cycles = _find_cycles(graph)
     return DependencyGraph(
