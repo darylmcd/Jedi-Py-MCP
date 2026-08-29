@@ -86,6 +86,7 @@ from python_refactor_mcp.models import (
     TypeHierarchyResult,
     TypeHintResult,
     TypeInfo,
+    TypeStubFreshnessResult,
     TypeUsersResult,
 )
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
@@ -334,6 +335,23 @@ async def create_type_stubs(ctx: Context, package_name: str, output_dir: str | N
     app = _get_current_backends()
     result = await analysis.create_type_stubs(app.pyright, package_name, output_dir)
     _LOGGER.debug("create_type_stubs package=%s success=%s", package_name, result)
+    return result
+
+
+async def check_type_stub_freshness(
+    ctx: Context,
+    source_file: str,
+    stub_file: str | None = None,
+) -> TypeStubFreshnessResult:
+    """Compare a Python module's public callable signatures with its `.pyi` stub. Defaults stub_file to the adjacent same-name `.pyi`. Reports missing callables and calling-convention drift while conservatively skipping overload sets and Protocol classes. Related: create_type_stubs, get_type_coverage."""
+    result = analysis.check_type_stub_freshness(source_file, stub_file)
+    _LOGGER.debug(
+        "check_type_stub_freshness fresh=%s missing_stub=%s missing_source=%s mismatches=%s",
+        result.fresh,
+        len(result.missing_in_stub),
+        len(result.missing_in_source),
+        len(result.signature_mismatches),
+    )
     return result
 
 
@@ -1373,6 +1391,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(get_context, _READONLY),
     ToolRecord(get_all_names, _READONLY),
     ToolRecord(create_type_stubs, _ADDITIVE),
+    ToolRecord(check_type_stub_freshness, _READONLY),
     ToolRecord(call_hierarchy, _READONLY),
     ToolRecord(test_impact_select, _READONLY),
     ToolRecord(goto_definition, _READONLY),

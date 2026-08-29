@@ -1,0 +1,1 @@
+- **Added:** Expose a read-only type-stub freshness audit for missing callables and calling-convention drift, with conservative overload and Protocol handling.

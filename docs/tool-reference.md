@@ -1,8 +1,8 @@
 # Tool Reference
 
-98 MCP tools organized by category.
+99 MCP tools organized by category.
 
-## Analysis (18)
+## Analysis (19)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -23,6 +23,7 @@
 | `get_context` | Return surrounding code context for a position. | `ContextResult` |
 | `get_all_names` | Return all names defined or imported in a file. | `list[NameInfo]` |
 | `create_type_stubs` | Generate type stubs for a package. | `bool` |
+| `check_type_stub_freshness` | Compare a module's callable API shape with its `.pyi` stub. | `TypeStubFreshnessResult` |
 | `test_impact_select` | Select pytest tests that transitively exercise changed symbol anchors via call-hierarchy. | `TestImpactResult` |
 
 ## Navigation (10)

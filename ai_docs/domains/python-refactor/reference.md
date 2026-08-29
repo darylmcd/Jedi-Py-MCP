@@ -1,11 +1,11 @@
 # Python Refactor Domain Reference
-<!-- purpose: Domain reference — 98 tools, workflows, key models for python-refactor-mcp. -->
+<!-- purpose: Domain reference — 99 tools, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
 ## Core Files
 
-- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (98 tools)
+- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (99 tools)
 - `src/python_refactor_mcp/config.py` — runtime config discovery
 - `src/python_refactor_mcp/models.py` — shared Pydantic response models
 - `src/python_refactor_mcp/backends/pyright_lsp.py` — Pyright LSP backend
@@ -14,12 +14,12 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/` — tool orchestration modules
 - `src/python_refactor_mcp/util/` — LSP client, diff helpers, shared utilities
 
-## Tool Surface (98 tools)
+## Tool Surface (99 tools)
 
 The canonical tool list is `server.py`. Tools are organized into these categories:
 
-### Analysis (18 tools)
-`find_references`, `find_type_users`, `get_type_info`, `get_completions`, `get_documentation`, `get_signature_help`, `get_document_highlights`, `get_inlay_hints`, `get_semantic_tokens`, `get_diagnostics`, `get_workspace_diagnostics`, `deep_type_inference`, `get_type_hint_string`, `get_syntax_errors`, `get_context`, `get_all_names`, `create_type_stubs`, `test_impact_select`
+### Analysis (19 tools)
+`find_references`, `find_type_users`, `get_type_info`, `get_completions`, `get_documentation`, `get_signature_help`, `get_document_highlights`, `get_inlay_hints`, `get_semantic_tokens`, `get_diagnostics`, `get_workspace_diagnostics`, `deep_type_inference`, `get_type_hint_string`, `get_syntax_errors`, `get_context`, `get_all_names`, `create_type_stubs`, `check_type_stub_freshness`, `test_impact_select`
 
 ### Navigation (10 tools)
 `goto_definition`, `get_declaration`, `get_type_definition`, `find_implementations`, `get_folding_ranges`, `get_symbol_outline`, `call_hierarchy`, `type_hierarchy`, `selection_range`, `get_module_public_api`

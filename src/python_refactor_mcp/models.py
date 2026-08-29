@@ -448,6 +448,27 @@ class TypeHintResult(BaseModel):
     full_name: str | None = None
 
 
+class TypeStubSignatureDrift(BaseModel):
+    """One callable whose public signature differs between source and stub."""
+
+    symbol: str
+    implementation_signature: str
+    stub_signature: str
+
+
+class TypeStubFreshnessResult(BaseModel):
+    """Structural drift between one Python module and its adjacent type stub."""
+
+    source_file: str
+    stub_file: str
+    fresh: bool
+    missing_in_stub: list[str] = Field(default_factory=list)
+    missing_in_source: list[str] = Field(default_factory=list)
+    signature_mismatches: list[TypeStubSignatureDrift] = Field(default_factory=list)
+    skipped_overloads: list[str] = Field(default_factory=list)
+    skipped_protocols: list[str] = Field(default_factory=list)
+
+
 class SyntaxErrorItem(BaseModel):
     """A syntax error detected by Jedi's parser."""
 

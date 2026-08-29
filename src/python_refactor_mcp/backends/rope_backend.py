@@ -6,6 +6,7 @@ import ast
 import logging
 import os
 import re
+import threading
 from collections.abc import Callable
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -131,6 +132,8 @@ class RopeBackend:
         """Initialize backend config and deferred rope project state."""
         self._config = config
         self._project: Project | None = None
+        self._autoimport: AutoImport | None = None
+        self._autoimport_lock = threading.Lock()
         self._change_stack: Any | None = None
         self._change_stack_originals: dict[str, bytes] = {}
         raw = os.environ.get("ROPE_OPERATION_TIMEOUT_SECONDS", "")
@@ -145,20 +148,35 @@ class RopeBackend:
             str(self._config.workspace_root),
             **cast(Any, self._config.rope_prefs),
         )
-        # Pre-warm the AutoImport cache so autoimport_search returns results immediately.
+        # Pre-warm one persistent AutoImport cache. Rope 1.14 removed the
+        # context-manager API, so ownership follows the backend lifecycle.
+        autoimport: AutoImport | None = None
         try:
-            with AutoImport(self._project, memory=True) as ai:  # pyright: ignore[reportGeneralTypeIssues]
-                ai.generate_cache()
+            autoimport = AutoImport(self._project, memory=True)  # pyright: ignore[reportGeneralTypeIssues]
+            autoimport.generate_cache()
+            self._autoimport = autoimport
         except Exception:
             # AutoImport is an optional third-party accelerator. Rope exposes no
             # stable exception family here, so preserve initialization and log it.
             _LOGGER.debug("AutoImport cache pre-warm failed", exc_info=True)
+            if autoimport is not None:
+                try:
+                    autoimport.close()
+                except Exception:
+                    _LOGGER.debug("AutoImport cleanup after pre-warm failure failed", exc_info=True)
 
     def close(self) -> None:
         """Close rope project resources if initialized."""
-        if self._project is not None:
-            self._project.close()
-            self._project = None
+        try:
+            with self._autoimport_lock:
+                autoimport = self._autoimport
+                self._autoimport = None
+                if autoimport is not None:
+                    autoimport.close()
+        finally:
+            if self._project is not None:
+                self._project.close()
+                self._project = None
 
     @property
     def is_ready(self) -> bool:
@@ -859,27 +877,26 @@ class RopeBackend:
     async def autoimport_search(self, name: str) -> list[tuple[str, str]]:
         """Search for importable names using rope's AutoImport SQLite cache.
 
-        Returns a list of (name, module) tuples.
+        Returns ``(import statement, imported name)`` tuples from Rope.
         """
 
         def _work() -> list[tuple[str, str]]:
             project = self._require_project()
-            with AutoImport(project, memory=True) as ai:  # pyright: ignore[reportGeneralTypeIssues]
-                try:
-                    ai.generate_cache()
-                except Exception:
-                    # Search can use an existing cache after any AutoImport
-                    # generation failure; Rope exposes no stable exception family.
-                    _LOGGER.warning("AutoImport cache generation failed; searching existing cache")
-                return cast(list[tuple[str, str]], ai.search(name))
+            with self._autoimport_lock:
+                if self._autoimport is None:
+                    autoimport = AutoImport(project, memory=True)  # pyright: ignore[reportGeneralTypeIssues]
+                    try:
+                        autoimport.generate_cache()
+                    except Exception:
+                        autoimport.close()
+                        raise
+                    self._autoimport = autoimport
+                results: list[tuple[str, str]] = self._autoimport.search(name)
+                return results
 
-        try:
-            return await run_in_thread(
-                _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.autoimport_search", logger=_LOGGER,
-            )
-        except RopeError as exc:
-            _LOGGER.warning("rope autoimport_search failed for '%s': %s", name, exc, exc_info=True)
-            return []
+        return await run_in_thread(
+            _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.autoimport_search", logger=_LOGGER,
+        )
 
     async def find_errors(self, file_path: str) -> list[dict[str, object]]:
         """Run rope's static analysis for bad name/attribute accesses."""
@@ -1243,7 +1260,10 @@ class RopeBackend:
             try:
                 resource = self._resource_for_path(file_path)
                 offset = self._position_to_offset(file_path, line, character)
-                multi = MultiProjectRefactoring(Rename, [project, *other_projects])
+                # Rope's proxy adds the primary project supplied at call time;
+                # passing it here as well duplicates its ChangeSet and can make
+                # a later-project failure restore the wrong primary contents.
+                multi = MultiProjectRefactoring(Rename, other_projects)
                 renamer = multi(project, resource, offset)
                 project_changes = renamer.get_all_changes(new_name)
                 all_edits: list[TextEdit] = []
@@ -1262,8 +1282,15 @@ class RopeBackend:
                                 new_text=change.new_contents,
                             ))
                 if apply:
-                    for proj, changes in project_changes:
-                        proj.do(changes)
+                    # Rope computes every project's final ChangeSet before this
+                    # point. Apply them as one composite history entry so a
+                    # failure in any project rolls back earlier writes and one
+                    # undo reverses the whole cross-project rename.
+                    combined = ChangeSet(f"Multi-project rename to '{new_name}'")
+                    for _, changes in project_changes:
+                        for change in changes.changes:
+                            combined.add_change(change)
+                    project.do(combined)
                 return RefactorResult(
                     edits=all_edits,
                     files_affected=sorted(set(all_files)),
