@@ -59,6 +59,5 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 
 ## Known Gaps
 
-- `change_signature` restores type annotations via a LibCST post-pass; rope still drops parameter *default values* on rename/normalize (tracked by `cand-change-signature-cst`).
 - `list_environments` may return empty results depending on virtualenv layout (known Jedi discovery limitation).
 - Pyright diagnostics on lines with `# type: ignore` may still surface in tool results (LSP filtering limitation).
