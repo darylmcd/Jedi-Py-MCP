@@ -170,6 +170,7 @@ async def test_rename_symbol_apply_writes_file(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_find_constructors_finds_call_sites(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -346,6 +347,7 @@ async def test_prepare_rename_and_followup_refactor(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_navigation_additions_return_locations(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -372,6 +374,7 @@ async def test_navigation_additions_return_locations(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_document_highlights_and_folding_ranges(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -398,6 +401,7 @@ async def test_document_highlights_and_folding_ranges(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_inlay_and_semantic_tokens(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -423,6 +427,7 @@ async def test_inlay_and_semantic_tokens(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_get_signature_help_returns_nullable_payload(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -443,6 +448,7 @@ async def test_get_signature_help_returns_nullable_payload(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_get_documentation_returns_structured_payload(
     mcp_session: ClientSession,
     sample_workspace: Path,
@@ -463,6 +469,7 @@ async def test_get_documentation_returns_structured_payload(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mcp_session", ["analysis"], indirect=True)
 async def test_type_hierarchy_and_selection_range_tools(
     mcp_session: ClientSession,
     sample_workspace: Path,

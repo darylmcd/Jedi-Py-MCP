@@ -1,6 +1,7 @@
 # Tool Reference
 
-100 MCP tools organized by category.
+Complete 100-tool catalog organized by category. A running server advertises
+the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
 

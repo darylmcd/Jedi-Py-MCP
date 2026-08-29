@@ -1,0 +1,1 @@
+- **Added:** Bounded `refactoring` and `analysis` tool profiles with explicit startup selection and complete-catalog coverage checks.

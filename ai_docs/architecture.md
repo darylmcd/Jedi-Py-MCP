@@ -8,7 +8,7 @@ Purpose: compact architecture reference for AI contributors.
 | Domain / Feature | Source path(s) | Key types | Tests |
 |---|---|---|---|
 | Server lifecycle & tool registration | `src/python_refactor_mcp/server.py`, `src/python_refactor_mcp/tool_registry.py` | `TOOL_RECORDS`, `_tool_error_boundary` | `tests/unit/test_server.py`, `tests/contract/` |
-| Config & workspace discovery | `src/python_refactor_mcp/config.py` | `WorkspaceRegistry`, `MultiWorkspaceContext` | `tests/unit/` |
+| Config & workspace discovery | `src/python_refactor_mcp/config.py`, `src/python_refactor_mcp/workspace_registry.py`, `src/python_refactor_mcp/server.py` | `ServerConfig`, `ToolProfile`, `WorkspaceRegistry`, `MultiWorkspaceContext` | `tests/unit/` |
 | Shared response models | `src/python_refactor_mcp/models.py` | `TypeInfo`, `Diagnostic`, `RefactorResult`, `SymbolOutlineItem`, `DiffPreview` | `tests/unit/` |
 | Error types | `src/python_refactor_mcp/errors.py` | `BackendError` subclasses | `tests/unit/` |
 | Pyright LSP backend | `src/python_refactor_mcp/backends/pyright_lsp.py` | `PyrightLSPClient` | `tests/unit/`, `tests/integration/` |
@@ -40,12 +40,13 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 
 ## Runtime Flow
 
-1. Optional CLI `workspace_root` pre-warms one workspace; otherwise the first path-bearing tool call discovers its project root.
-2. `config.py` resolves the interpreter and `pyrightconfig.json` for each discovered workspace.
-3. FastMCP lifespan initializes all three backends and a `MultiWorkspaceContext`.
-4. Incoming tool calls are routed through `tools/` orchestration modules.
-5. Refactoring tools return `TextEdit` lists by default (`apply=False`).
-6. When `apply=True`, edits are written atomically and `diagnostics_after` is returned.
+1. `config.py` selects and validates the bounded tool profile before registration.
+2. Optional CLI `workspace_root` pre-warms one workspace; otherwise the first path-bearing tool call discovers its project root.
+3. `config.py` resolves the interpreter and `pyrightconfig.json` for each discovered workspace.
+4. FastMCP lifespan initializes all three backends and a `MultiWorkspaceContext`.
+5. Incoming tool calls are routed through `tools/` orchestration modules.
+6. Refactoring tools return `TextEdit` lists by default (`apply=False`).
+7. When `apply=True`, edits are written atomically and `diagnostics_after` is returned.
 
 ## Key Model Types
 

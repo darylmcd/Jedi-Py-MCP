@@ -1,11 +1,12 @@
 # Python Refactor Domain Reference
-<!-- purpose: Domain reference — 100 tools, workflows, key models for python-refactor-mcp. -->
+<!-- purpose: Domain reference — 100-tool catalog, bounded profiles, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
 ## Core Files
 
-- `src/python_refactor_mcp/server.py` — MCP app lifecycle, tool registration (100 tools)
+- `src/python_refactor_mcp/server.py` — MCP app lifecycle and complete registration assembly
+- `src/python_refactor_mcp/tool_registry.py` — profile policy, reliability budget, and declarative tool catalog
 - `src/python_refactor_mcp/config.py` — runtime config discovery
 - `src/python_refactor_mcp/models.py` — shared Pydantic response models
 - `src/python_refactor_mcp/backends/pyright_lsp.py` — Pyright LSP backend
@@ -14,9 +15,22 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/` — tool orchestration modules
 - `src/python_refactor_mcp/util/` — LSP client, diff helpers, shared utilities
 
-## Tool Surface (100 tools)
+## Tool Catalog (100 tools)
 
-The canonical tool list is `server.py`. Tools are organized into these categories:
+The server advertises one bounded profile at startup. Set
+`PYTHON_REFACTOR_MCP_TOOL_PROFILE` before launch; unknown values fail closed.
+
+| Profile | Advertised count | Purpose |
+|---|---:|---|
+| `refactoring` (default) | 67 | Every mutating tool plus the inspection, preview, diagnostics, history, and recovery tools needed for safe changes |
+| `analysis` | 56 | Every read-only tool for navigation, diagnostics, search, metrics, security inspection, and status |
+
+Each profile must remain below the reliability budget of 80. Their union is
+contract-tested against the complete catalog, so profile partitioning cannot
+make an existing tool unreachable.
+
+The canonical catalog is assembled from `tool_registry.py::TOOL_RECORDS` and
+`server.py::EXPLICIT_TOOL_RECORDS`. Tools are organized into these categories:
 
 ### Analysis (19 tools)
 `find_references`, `find_type_users`, `get_type_info`, `get_completions`, `get_documentation`, `get_signature_help`, `get_document_highlights`, `get_inlay_hints`, `get_semantic_tokens`, `get_diagnostics`, `get_workspace_diagnostics`, `deep_type_inference`, `get_type_hint_string`, `get_syntax_errors`, `get_context`, `get_all_names`, `create_type_stubs`, `check_type_stub_freshness`, `test_impact_select`

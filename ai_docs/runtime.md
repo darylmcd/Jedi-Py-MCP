@@ -14,6 +14,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Primary language | Python 3.14+ |
 | Build backend | Hatchling (`pyproject.toml`) |
 | Entrypoints | `python -m python_refactor_mcp [workspace_root]`, `python-refactor-mcp [workspace_root]` |
+| Default tool profile | `refactoring` (67 advertised; profile budget is 80) |
 | Host OS | Windows-first |
 | Shell | PowerShell |
 | Virtual environment | `.venv` |
@@ -52,6 +53,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 - Install for development without uv: `python -m pip install -e ".[dev]"`
 - Install with build tooling: `python -m pip install -e ".[build]"`
 - Start the stdio server: `python -m python_refactor_mcp [workspace_root]`
+- Select the read-only analysis surface before startup: `$env:PYTHON_REFACTOR_MCP_TOOL_PROFILE = "analysis"` (PowerShell), then start normally.
 - Check the CLI entrypoint: `python -m python_refactor_mcp --version`
 - Bump `major`, `minor`, `patch`, or to an explicit greater release; refresh `uv.lock`; reinstall the exact locked runtime dependencies and editable package into the client interpreter; run `pip check`; then verify its CLI: `just bump-reinstall patch [target_python]`. The default target is `python` on PATH because that is the command in `manifest.json` and the local Claude MCP configuration. Pre-install failures restore release files; failures after installation starts retain them so source metadata cannot contradict a partially updated interpreter.
 - Repair a failed/removed install or refresh the current locked release without changing version metadata: `just reinstall [target_python]`.
@@ -62,6 +64,8 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 |---|---|---|
 | `workspace_root` | optional CLI arg | Pre-warms that workspace; when omitted, path-bearing tool requests discover project roots dynamically |
 | `PYRIGHT_LANGSERVER` | env var | Overrides the default `pyright-langserver` executable |
+| `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 67) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 100-tool catalog |
+| `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid |
 | `VIRTUAL_ENV` | env var | Interpreter discovery fallback |
 | `pyrightconfig.json` | workspace file | Optional Pyright project config, discovered from the workspace root |
 | `.venv` / `venv` | workspace directories | Preferred interpreter discovery locations |

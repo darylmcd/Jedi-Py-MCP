@@ -5,9 +5,38 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from python_refactor_mcp.errors import ConfigError
 from python_refactor_mcp.util.python_detect import detect_python
+
+ToolProfile = Literal["analysis", "refactoring"]
+
+TOOL_PROFILE_ENV = "PYTHON_REFACTOR_MCP_TOOL_PROFILE"
+TOOL_PROFILES: tuple[ToolProfile, ...] = ("analysis", "refactoring")
+DEFAULT_TOOL_PROFILE: ToolProfile = "refactoring"
+
+
+def discover_tool_profile(value: str | None = None) -> ToolProfile:
+    """Return the configured advertised tool profile or fail closed."""
+    raw = os.environ.get(TOOL_PROFILE_ENV) if value is None else value
+    normalized = raw.strip().lower() if raw is not None else DEFAULT_TOOL_PROFILE
+    if normalized not in TOOL_PROFILES:
+        choices = ", ".join(TOOL_PROFILES)
+        raise ConfigError(f"Invalid {TOOL_PROFILE_ENV} value {raw!r}; expected one of: {choices}")
+    return normalized
+
+
+def discover_max_workspaces(value: str | None = None) -> int:
+    """Return the positive workspace cache limit with a stable config error."""
+    raw = os.environ.get("MAX_WORKSPACES", "3") if value is None else value
+    try:
+        limit = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid MAX_WORKSPACES value {raw!r}; expected a positive integer") from exc
+    if limit <= 0:
+        raise ConfigError(f"Invalid MAX_WORKSPACES value {raw!r}; expected a positive integer")
+    return limit
 
 
 @dataclass(slots=True)

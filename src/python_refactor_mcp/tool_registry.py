@@ -33,6 +33,7 @@ runtime schema generation.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +41,7 @@ from typing import Any
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import ToolAnnotations
 
+from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
 from python_refactor_mcp.models import (
     CallHierarchyResult,
     CodeMetricsResult,
@@ -1393,6 +1395,43 @@ class ToolRecord:
     annotations: ToolAnnotations
 
 
+# Advertising 80 or more tools in one profile leaves too little model
+# selection headroom. New tools must fit this budget or trigger a deliberate
+# profile split instead of raising a single global cap.
+MAX_TOOLS_PER_PROFILE = 80
+
+# The refactoring profile contains every mutating tool plus the read-only tools
+# needed to scope, preview, validate, and recover a change safely. The analysis
+# profile contains every read-only tool. Their union is the complete catalog.
+_REFACTORING_SUPPORT_TOOLS = frozenset(
+    {
+        "autoimport_search",
+        "dead_code_detection",
+        "diff_preview",
+        "find_errors_static",
+        "find_references",
+        "find_unused_imports",
+        "get_diagnostics",
+        "get_module_dependencies",
+        "get_refactoring_history",
+        "get_symbol_outline",
+        "get_syntax_errors",
+        "get_type_info",
+        "get_workspace_diagnostics",
+        "goto_definition",
+        "list_environments",
+        "prepare_rename",
+        "search_symbols",
+        "security_scan",
+        "selection_range",
+        "server_status",
+        "structural_search",
+        "suggest_imports",
+        "test_impact_select",
+    }
+)
+
+
 TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(find_references, _READONLY),
     ToolRecord(find_type_users, _READONLY),
@@ -1486,13 +1525,41 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
 )
 
 
-def register_tools(mcp_instance: MCPServer) -> None:
-    """Register every :data:`TOOL_RECORDS` delegate on *mcp_instance*.
+def _profile_includes(record: ToolRecord, profile: ToolProfile) -> bool:
+    """Return whether *record* belongs to an advertised tool profile."""
+    if profile == "analysis":
+        return record.annotations.read_only_hint is True
+    return record.annotations.read_only_hint is not True or record.func.__name__ in _REFACTORING_SUPPORT_TOOLS
+
+
+def tool_names_for_profile(
+    profile: ToolProfile,
+    *,
+    extra_records: tuple[ToolRecord, ...] = (),
+) -> frozenset[str]:
+    """Return the complete advertised name set for *profile*."""
+    if profile not in TOOL_PROFILES:
+        raise ValueError(f"Unknown tool profile: {profile!r}")
+    records = (*TOOL_RECORDS, *extra_records)
+    name_counts = Counter(record.func.__name__ for record in records)
+    duplicates = sorted(name for name, count in name_counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"Duplicate tool registrations: {', '.join(duplicates)}")
+    return frozenset(record.func.__name__ for record in records if _profile_includes(record, profile))
+
+
+def register_tools(
+    mcp_instance: MCPServer,
+    profile: ToolProfile,
+    *,
+    extra_records: tuple[ToolRecord, ...] = (),
+) -> None:
+    """Register the selected tool profile on *mcp_instance*.
 
     Applies ``_tool_error_boundary`` (which preserves the delegate's name and
     signature via ``@wraps``) and then registers with the per-tool annotation
-    constant, mirroring the original ``@mcp.tool(annotations=...) /
-    @_tool_error_boundary`` decorator stacking exactly.
+    constant. ``extra_records`` carries the non-delegating wrappers owned by
+    ``server.py`` so one policy controls the complete advertised surface.
 
     ``_tool_error_boundary`` is imported lazily here (rather than at module
     scope) so this call is safe even when ``server`` imports ``tool_registry``
@@ -1504,7 +1571,16 @@ def register_tools(mcp_instance: MCPServer) -> None:
         _tool_error_boundary,  # pyright: ignore[reportPrivateUsage]
     )
 
-    for record in TOOL_RECORDS:
+    selected_names = tool_names_for_profile(profile, extra_records=extra_records)
+    if len(selected_names) >= MAX_TOOLS_PER_PROFILE:
+        raise ValueError(
+            f"Tool profile {profile!r} advertises {len(selected_names)} tools; "
+            f"must stay below the budget of {MAX_TOOLS_PER_PROFILE}"
+        )
+
+    for record in (*TOOL_RECORDS, *extra_records):
+        if record.func.__name__ not in selected_names:
+            continue
         mcp_instance.add_tool(
             _tool_error_boundary(record.func),
             annotations=record.annotations,

@@ -1,6 +1,6 @@
 # cand-fix-circular-imports — Auto-fix circular imports via TYPE_CHECKING hoist
 
-**row:** `cand-fix-circular-imports` · **pri:** `Low` · **size:** `M`
+**row:** `cand-fix-circular-imports` · **pri:** `Low` · **size:** `M` · **deps:** `module-dependency-cycle-accuracy`
 
 ## Anchors
 

@@ -6,18 +6,65 @@ annotations, and schema shapes per the MCP specification.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
+from mcp.server.mcpserver import MCPServer
 
 from python_refactor_mcp import server
+from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
+from python_refactor_mcp.tool_registry import (
+    MAX_TOOLS_PER_PROFILE,
+    TOOL_RECORDS,
+    register_tools,
+    tool_names_for_profile,
+)
+
+
+async def _profile_tools(profile: ToolProfile) -> list[Any]:
+    mcp = MCPServer(f"Python Refactor contract ({profile})")
+    register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
+    return await mcp.list_tools()
 
 
 @pytest.mark.asyncio
-async def test_tool_count_within_limits() -> None:
-    """Tool count should not exceed the 30-40 tool LLM reliability threshold by too much."""
-    tools = await server.mcp.list_tools()
-    # The live surface has reached this cap. A dedicated backlog row owns the
-    # discovery/segmentation strategy required before another tool is added.
-    assert len(tools) <= 100, f"Tool count {len(tools)} exceeds soft limit of 100"
+@pytest.mark.parametrize("profile", TOOL_PROFILES)
+async def test_tool_profile_count_within_budget(profile: ToolProfile) -> None:
+    """Each advertised surface retains headroom under the reliability budget."""
+    tools = await _profile_tools(profile)
+    assert len(tools) < MAX_TOOLS_PER_PROFILE, (
+        f"Tool profile {profile!r} has {len(tools)} tools; budget is {MAX_TOOLS_PER_PROFILE}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_profiles_cover_complete_catalog() -> None:
+    """Every registered tool remains accessible through at least one profile."""
+    all_records = (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
+    catalog = {record.func.__name__ for record in all_records}
+    advertised: set[str] = set()
+    for profile in TOOL_PROFILES:
+        advertised.update(tool.name for tool in await _profile_tools(profile))
+    assert len(catalog) == 100
+    assert advertised == catalog
+
+
+def test_profile_policy_counts_are_explicit() -> None:
+    """Profile composition changes require an intentional contract update."""
+    counts = {
+        profile: len(tool_names_for_profile(profile, extra_records=server.EXPLICIT_TOOL_RECORDS))
+        for profile in TOOL_PROFILES
+    }
+    assert counts == {"analysis": 56, "refactoring": 67}
+
+
+def test_profile_policy_rejects_unknown_profile() -> None:
+    """Programmatic callers cannot bypass fail-closed config validation."""
+    with pytest.raises(ValueError, match="Unknown tool profile"):
+        tool_names_for_profile(
+            cast("ToolProfile", "unknown"),
+            extra_records=server.EXPLICIT_TOOL_RECORDS,
+        )
 
 
 @pytest.mark.asyncio
