@@ -9,7 +9,7 @@ from python_refactor_mcp.models import RefactorResult, SignatureOperation, TextE
 
 from .helpers import post_apply_diagnostics
 from .rename import ensure_renameable
-from .signature_annotations import restore_param_annotations
+from .signature_annotations import restore_signature_metadata
 
 if TYPE_CHECKING:
     from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -41,7 +41,7 @@ async def change_signature(
         if str(Path(edit.file_path).resolve()) == target:
             # Lazily read the original only when there is a definition-file edit.
             original_src = Path(edit.file_path).read_text(encoding="utf-8")
-            fixed_text = restore_param_annotations(original_src, edit.new_text, line, character, operations)
+            fixed_text = restore_signature_metadata(original_src, edit.new_text, line, character, operations)
             corrected.append(edit.model_copy(update={"new_text": fixed_text}) if fixed_text != edit.new_text else edit)
         else:
             corrected.append(edit)

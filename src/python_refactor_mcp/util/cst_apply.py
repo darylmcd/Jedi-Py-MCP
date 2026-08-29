@@ -29,7 +29,7 @@ import libcst as cst
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import Position, Range, TextEdit
-from python_refactor_mcp.util.diff import write_atomic
+from python_refactor_mcp.util.diff import apply_text_edits_atomically, write_atomic
 from python_refactor_mcp.util.shared import end_position_for_content
 
 
@@ -109,13 +109,17 @@ def apply_cst_transformer_batch(
     files_affected: list[str] = []
 
     for fp in file_paths:
+        # Build every edit before writing so a later parse/transform failure
+        # cannot leave earlier files mutated.
         file_edits, file_changed = apply_cst_transformer(
-            fp, transformer_factory(fp), apply=apply,
+            fp, transformer_factory(fp), apply=False,
         )
         edits.extend(file_edits)
         files_affected.extend(file_changed)
 
     files_affected = sorted(set(files_affected))
+    if apply and edits:
+        apply_text_edits_atomically(edits)
     return (edits, files_affected)
 
 

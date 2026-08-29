@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -93,3 +96,37 @@ async def test_test_impact_select_handles_no_callers() -> None:
     assert result.entries[0].pytest_node_ids == []
     assert result.total_affected_tests == 0
     assert result.truncated is False
+
+
+@pytest.mark.asyncio
+async def test_class_method_node_id_is_exactly_collectable(tmp_path: Path) -> None:
+    """Class callers include the class segment and collect to one pytest test."""
+    test_file = tmp_path / "test_sample.py"
+    test_file.write_text(
+        "class TestFeature:\n"
+        "    def test_target(self):\n"
+        "        assert True\n",
+        encoding="utf-8",
+    )
+    root = _item("target", str(tmp_path / "mod.py"), 1)
+    test_caller = _item("test_target", str(test_file), 1)
+    pyright = AsyncMock()
+    pyright.prepare_call_hierarchy.return_value = [root]
+    pyright.get_incoming_calls.side_effect = lambda item: [test_caller] if item.name == "target" else []
+
+    result = await analysis.test_impact_select(
+        pyright, [SymbolAnchor(file_path=str(tmp_path / "mod.py"), line=1, character=0)]
+    )
+
+    node_id = result.entries[0].pytest_node_ids[0]
+    assert node_id == f"{test_file}::TestFeature::test_target"
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", node_id],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert collected.returncode == 0, collected.stderr
+    assert collected.stdout.count("::TestFeature::test_target") == 1

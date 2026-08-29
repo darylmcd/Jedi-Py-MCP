@@ -14,13 +14,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m python_refactor_mcp",
         description="Start the python-refactor-mcp stdio server. "
-        "Workspace roots are discovered automatically from MCP clients or file paths.",
+        "Workspace roots are discovered automatically from tool request file paths.",
     )
     parser.add_argument(
         "workspace_root",
         nargs="?",
         help="Optional workspace root to pre-warm at startup. "
-        "If omitted, workspaces are discovered dynamically.",
+        "If omitted, workspaces are discovered from tool request file paths.",
     )
     parser.add_argument("--version", action="version", version=f"python-refactor-mcp {__version__}")
     return parser

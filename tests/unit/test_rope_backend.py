@@ -9,7 +9,7 @@ import pytest
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import SignatureOperation
-from python_refactor_mcp.tools.refactoring.signature_annotations import restore_param_annotations
+from python_refactor_mcp.tools.refactoring.signature_annotations import restore_signature_metadata
 
 
 def _config(tmp_path: Path) -> ServerConfig:
@@ -38,7 +38,7 @@ async def test_change_signature_annotation_restore_end_to_end(tmp_path: Path) ->
     # Document the defect: rope drops the annotations rename touches.
     assert "count: int" not in edit.new_text
     # The post-pass restores: renamed param by original position, others by name.
-    fixed = restore_param_annotations(module.read_text(encoding="utf-8"), edit.new_text, 0, 4, ops)
+    fixed = restore_signature_metadata(module.read_text(encoding="utf-8"), edit.new_text, 0, 4, ops)
     assert "name: str" in fixed
     assert "n: int" in fixed
     assert "-> str:" in fixed

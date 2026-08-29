@@ -7,10 +7,46 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.models import Diagnostic, InlayHint, Position, Range, RefactorResult, SignatureOperation
+from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.models import (
+    Diagnostic,
+    InlayHint,
+    Position,
+    Range,
+    RefactorResult,
+    SignatureOperation,
+    TextEdit,
+)
 from python_refactor_mcp.tools import refactoring
+from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
 from tests.helpers import make_diag as _diag
 from tests.helpers import make_edit as _edit
+
+
+def test_result_from_text_edits_preflights_multi_file_batch(tmp_path: Path) -> None:
+    """A later invalid rope/LSP edit leaves every target unchanged."""
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first.write_text("a = 1\n", encoding="utf-8")
+    second.write_text("b = 2\n", encoding="utf-8")
+    edits = [
+        TextEdit(
+            file_path=str(first),
+            range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+            new_text="renamed",
+        ),
+        TextEdit(
+            file_path=str(second),
+            range=Range(start=Position(line=99, character=0), end=Position(line=99, character=1)),
+            new_text="invalid",
+        ),
+    ]
+
+    with pytest.raises(RopeError, match="Line out of range"):
+        result_from_text_edits(edits, "multi-file", apply=True)
+
+    assert first.read_text(encoding="utf-8") == "a = 1\n"
+    assert second.read_text(encoding="utf-8") == "b = 2\n"
 
 
 @pytest.mark.asyncio

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from python_refactor_mcp.models import SignatureOperation
-from python_refactor_mcp.tools.refactoring.signature_annotations import restore_param_annotations
+from python_refactor_mcp.tools.refactoring.signature_annotations import restore_signature_metadata
 
 # Original annotated definition; the function name `greet` is at line 0, col 4.
 ORIGINAL = "def greet(name: str, count: int = 3, verbose: bool = False) -> str:\n    return name\n"
 
 
 def _restore(new_src: str, ops: list[SignatureOperation]) -> str:
-    return restore_param_annotations(ORIGINAL, new_src, 0, 4, ops)
+    return restore_signature_metadata(ORIGINAL, new_src, 0, 4, ops)
 
 
 def test_reorder_restores_all_annotations() -> None:
@@ -47,7 +47,7 @@ def test_name_swap_rename_uses_original_position_not_alias() -> None:
         SignatureOperation(op="rename", index=1, new_name="q"),
         SignatureOperation(op="rename", index=0, new_name="b"),
     ]
-    out = restore_param_annotations(original, stripped, 0, 4, ops)
+    out = restore_signature_metadata(original, stripped, 0, 4, ops)
     assert "b: int" in out  # original position 0
     assert "q: str" in out  # original position 1
     assert "c: bool" in out
@@ -69,26 +69,44 @@ def test_add_leaves_new_param_unannotated() -> None:
     assert "extra:" not in out
 
 
-def test_mixed_reorder_and_rename_skips_index_restore() -> None:
-    # B2: with a position-shuffling op present, a renamed param is NOT guessed
-    # by index (which would attach a wrong type). `verbose` renamed -> `v`.
-    stripped = "def greet(name, v=False, count=3) -> str:\n    return name\n"
+def test_mixed_reorder_and_rename_restores_by_tracked_provenance() -> None:
+    # Reorder first: [name, verbose, count], then rename current index 1 -> v.
+    stripped = "def greet(name, v, count) -> str:\n    return name\n"
     out = _restore(
         stripped,
         [
             SignatureOperation(op="reorder", new_order=[0, 2, 1]),
-            SignatureOperation(op="rename", index=2, new_name="v"),
+            SignatureOperation(op="rename", index=1, new_name="v"),
         ],
     )
-    # name-preserving params restored; renamed `v` left unannotated (no wrong type).
     assert "count: int" in out and "name: str" in out
-    assert "v: " not in out
+    assert "v: bool = False" in out
+
+
+def test_rename_restores_dropped_default() -> None:
+    stripped = "def greet(name, n, verbose=False) -> str:\n    return name\n"
+    out = _restore(stripped, [SignatureOperation(op="rename", index=1, new_name="n")])
+    assert "n: int = 3" in out
+
+
+def test_normalize_restores_dropped_defaults() -> None:
+    stripped = "def greet(name, count, verbose) -> str:\n    return name\n"
+    out = _restore(stripped, [SignatureOperation(op="normalize")])
+    assert "count: int = 3" in out
+    assert "verbose: bool = False" in out
+
+
+def test_inline_default_does_not_restore_removed_default() -> None:
+    stripped = "def greet(name, count, verbose=False) -> str:\n    return name\n"
+    out = _restore(stripped, [SignatureOperation(op="inline_default", index=1)])
+    assert "count: int" in out
+    assert "count: int = 3" not in out
 
 
 def test_no_annotations_is_noop() -> None:
     original = "def f(a, b):\n    return a\n"
     new = "def f(b, a):\n    return a\n"
-    assert restore_param_annotations(original, new, 0, 4, [SignatureOperation(op="reorder", new_order=[1, 0])]) == new
+    assert restore_signature_metadata(original, new, 0, 4, [SignatureOperation(op="reorder", new_order=[1, 0])]) == new
 
 
 def test_already_annotated_is_idempotent() -> None:
@@ -113,5 +131,5 @@ def test_unparseable_new_src_passes_through() -> None:
 def test_star_and_kwargs_annotations_restored_by_name() -> None:
     original = "def f(a: int, *args: str, **kw: bool) -> None:\n    return None\n"
     stripped = "def f(a, *args, **kw) -> None:\n    return None\n"
-    out = restore_param_annotations(original, stripped, 0, 4, [SignatureOperation(op="normalize")])
+    out = restore_signature_metadata(original, stripped, 0, 4, [SignatureOperation(op="normalize")])
     assert "a: int" in out and "*args: str" in out and "**kw: bool" in out

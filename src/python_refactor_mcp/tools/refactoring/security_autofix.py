@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING
 
 import libcst as cst
 
-from python_refactor_mcp.models import RefactorResult, TextEdit
+from python_refactor_mcp.models import RefactorResult
 from python_refactor_mcp.tools.refactoring.helpers import post_apply_diagnostics
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer
+from python_refactor_mcp.util.cst_apply import apply_cst_transformer_batch
 
 if TYPE_CHECKING:
     from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -88,19 +88,16 @@ async def security_autofix(
             edits=[], files_affected=[], description="No files provided to scan", applied=False
         )
 
-    edits: list[TextEdit] = []
-    files_affected: list[str] = []
-    rewrites = 0
-    skips = 0
-    for fp in targets:
-        transformer = _YamlLoadSafener()
-        file_edits, file_changed = apply_cst_transformer(fp, transformer, apply=apply)
-        edits.extend(file_edits)
-        files_affected.extend(file_changed)
-        rewrites += transformer.rewrites
-        skips += transformer.skips
+    transformers: list[_YamlLoadSafener] = []
 
-    files_affected = sorted(set(files_affected))
+    def _factory(_file_path: str) -> cst.CSTTransformer:
+        transformer = _YamlLoadSafener()
+        transformers.append(transformer)
+        return transformer
+
+    edits, files_affected = apply_cst_transformer_batch(targets, _factory, apply=apply)
+    rewrites = sum(transformer.rewrites for transformer in transformers)
+    skips = sum(transformer.skips for transformer in transformers)
 
     if not edits:
         if skips:

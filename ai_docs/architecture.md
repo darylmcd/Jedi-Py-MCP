@@ -23,7 +23,7 @@ Purpose: compact architecture reference for AI contributors.
 
 | Entry point | Starts |
 |---|---|
-| `src/python_refactor_mcp/__main__.py` | CLI entry — parses the `workspace_root` argument, calls `server.run_server()` |
+| `src/python_refactor_mcp/__main__.py` | CLI entry — parses the optional `workspace_root` argument, calls `server.run_server()` |
 | `python-refactor-mcp` console script (`pyproject.toml`) | Installed-package equivalent of `__main__.py` |
 
 ## Backend Roles
@@ -40,11 +40,12 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 
 ## Runtime Flow
 
-1. CLI arg provides `workspace_root`; `config.py` resolves interpreter and `pyrightconfig.json`.
-2. FastMCP lifespan initializes all three backends and a `MultiWorkspaceContext`.
-3. Incoming tool calls are routed through `tools/` orchestration modules.
-4. Refactoring tools return `TextEdit` lists by default (`apply=False`).
-5. When `apply=True`, edits are written atomically and `diagnostics_after` is returned.
+1. Optional CLI `workspace_root` pre-warms one workspace; otherwise the first path-bearing tool call discovers its project root.
+2. `config.py` resolves the interpreter and `pyrightconfig.json` for each discovered workspace.
+3. FastMCP lifespan initializes all three backends and a `MultiWorkspaceContext`.
+4. Incoming tool calls are routed through `tools/` orchestration modules.
+5. Refactoring tools return `TextEdit` lists by default (`apply=False`).
+6. When `apply=True`, edits are written atomically and `diagnostics_after` is returned.
 
 ## Key Model Types
 

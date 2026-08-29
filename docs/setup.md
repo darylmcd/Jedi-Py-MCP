@@ -77,7 +77,9 @@ Direct commands:
 
 ## Configuration
 
-Workspace discovery is automatic and happens from the workspace root argument.
+The workspace-root argument is optional. When supplied, that workspace is
+pre-warmed during server startup. When omitted, the server starts cold and
+discovers a project root from the first path-bearing tool request.
 
 Python interpreter discovery order:
 

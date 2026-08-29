@@ -150,6 +150,8 @@ class RopeBackend:
             with AutoImport(self._project) as ai:  # pyright: ignore[reportGeneralTypeIssues]
                 ai.generate_cache()
         except Exception:
+            # AutoImport is an optional third-party accelerator. Rope exposes no
+            # stable exception family here, so preserve initialization and log it.
             _LOGGER.debug("AutoImport cache pre-warm failed", exc_info=True)
 
     def close(self) -> None:
@@ -504,12 +506,11 @@ class RopeBackend:
         .. note::
 
             Rope's ``ArgumentNormalizer`` / ``ArgumentAdder`` re-emit the
-            parameter list without Python 3 type annotations *or default
-            values* (affects ``normalize`` / ``rename`` / ``reorder`` /
-            ``add`` / ``remove``). The tool layer
-            (``tools/refactoring/signature.py``) runs a LibCST post-pass that
-            restores the **annotations**; default-value loss is still a known
-            residual (backlog ``cand-change-signature-cst``).
+            parameter list without Python 3 type annotations and can drop
+            default values (affects ``normalize`` / ``rename`` / ``reorder`` /
+            ``add`` / ``remove``). The tool layer runs a LibCST post-pass that
+            restores both while respecting explicit add/rename defaults and
+            ``inline_default`` removal.
         """
 
         def _work() -> RefactorResult:
@@ -867,6 +868,8 @@ class RopeBackend:
                 try:
                     ai.generate_cache()
                 except Exception:
+                    # Search can use an existing cache after any AutoImport
+                    # generation failure; Rope exposes no stable exception family.
                     _LOGGER.warning("AutoImport cache generation failed; searching existing cache")
                 return cast(list[tuple[str, str]], ai.search(name))
 

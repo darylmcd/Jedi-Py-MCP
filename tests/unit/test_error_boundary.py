@@ -3,7 +3,7 @@
 These pin the observable behavior of the error boundary so the
 ``_resolve_backends`` / ``_validate_params`` decomposition stays a pure
 refactor: backend resolution, the per-call ContextVar, path + identifier
-validation, timing instrumentation, and ``BackendError`` -> ``ValueError``
+validation, timing instrumentation, and ``BackendError`` -> ``ToolError``
 translation.
 """
 
@@ -15,8 +15,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import (
+    BackendError,
+    ConfigError,
+    JediError,
+    PyrightError,
+    RopeError,
+    WorkspaceResolutionError,
+)
 from python_refactor_mcp.server import (
     MultiWorkspaceContext,
     _get_current_backends,
@@ -233,8 +241,23 @@ def test_validate_params_accepts_valid_identifier(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_wrapper_translates_backend_error(tmp_path: Path) -> None:
-    """BackendError raised by the wrapped fn surfaces as ValueError."""
+@pytest.mark.parametrize(
+    ("error_type", "code"),
+    [
+        (BackendError, "BACKEND"),
+        (PyrightError, "PYRIGHT_BACKEND"),
+        (JediError, "JEDI_BACKEND"),
+        (RopeError, "ROPE_BACKEND"),
+        (ConfigError, "CONFIG"),
+        (WorkspaceResolutionError, "WORKSPACE_RESOLUTION"),
+    ],
+)
+async def test_wrapper_translates_backend_error(
+    tmp_path: Path,
+    error_type: type[BackendError],
+    code: str,
+) -> None:
+    """Each backend error becomes an anticipated, provenance-coded tool error."""
     root = tmp_path / "ws"
     backends = _backends(root)
     registry = MagicMock()
@@ -244,9 +267,9 @@ async def test_wrapper_translates_backend_error(tmp_path: Path) -> None:
 
     @_tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
-        raise BackendError("backend boom")
+        raise error_type("backend boom")
 
-    with pytest.raises(ValueError, match="backend boom"):
+    with pytest.raises(ToolError, match=rf"^\[{code}\] backend boom$"):
         await tool(ctx, file_path=str(root / "mod.py"))
 
 

@@ -174,6 +174,7 @@ class PyrightLSPClient:
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
         self._content_hashes: dict[str, str] = {}
+        self._file_contents: dict[str, str] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._diagnostics_events: dict[str, asyncio.Event] = {}
         self._startup_command: list[str] | None = None
@@ -233,6 +234,8 @@ class PyrightLSPClient:
             # Clear stale state.
             self._open_files.clear()
             self._file_versions.clear()
+            self._content_hashes.clear()
+            self._file_contents.clear()
             self._diagnostics.clear()
             self._diagnostics_events.clear()
             # Create fresh client and re-run startup.
@@ -420,6 +423,7 @@ class PyrightLSPClient:
         self._open_files.add(absolute_path)
         self._file_versions[absolute_path] = version
         self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
+        self._file_contents[absolute_path] = text
 
     async def _refresh_if_changed(self, absolute_path: str) -> None:
         """Re-read a file from disk and send didChange if its content has changed."""
@@ -445,6 +449,8 @@ class PyrightLSPClient:
             "contentChanges": [{"text": text}],
         }
         await self._client.send_notification("textDocument/didChange", params)
+        self._content_hashes[absolute_path] = new_hash
+        self._file_contents[absolute_path] = text
         # Clear stale diagnostics so they get refreshed.
         self._diagnostics.pop(absolute_path, None)
 
@@ -471,6 +477,7 @@ class PyrightLSPClient:
         }
         await self._client.send_notification("textDocument/didChange", params)
         self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
+        self._file_contents[absolute_path] = text
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
@@ -536,7 +543,11 @@ class PyrightLSPClient:
         before the LSP round-trip, so a bad coordinate is distinguishable from a
         genuine zero-result (Pyright silently returns ``null`` for both).
         """
+        was_open = absolute_path in self._open_files
         await self.ensure_file_open(absolute_path)
+        if was_open:
+            # One disk read refreshes both Pyright and the validation cache.
+            await self._refresh_if_changed(absolute_path)
         self._validate_position(absolute_path, line, char)
 
         params: dict[str, JSONValue] = {
@@ -570,12 +581,9 @@ class PyrightLSPClient:
                 f"position out of range: line {line} / character {char} must be non-negative"
             )
 
-        try:
-            text = Path(absolute_path).read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
-            raise PyrightError(f"File not found: {absolute_path}") from exc
-        except (UnicodeDecodeError, OSError) as exc:
-            raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
+        text = self._file_contents.get(absolute_path)
+        if text is None:
+            raise PyrightError(f"File content cache is missing for open file: {absolute_path}")
 
         lines = text.splitlines() or [""]
         if line >= len(lines):
@@ -1204,7 +1212,9 @@ class PyrightLSPClient:
                     placeholder = line_text[start_char:end_char].strip() or Path(absolute_path).stem
                 else:
                     placeholder = Path(absolute_path).stem
-            except Exception:
+            except (OSError, UnicodeError):
+                # Placeholder extraction is optional; the module stem remains a
+                # deterministic fallback when the source cannot be decoded/read.
                 placeholder = Path(absolute_path).stem
 
         return PrepareRenameResult(range=model_range(range_value), placeholder=placeholder)
@@ -1411,6 +1421,7 @@ class PyrightLSPClient:
         self._diagnostics.clear()
         self._file_versions.clear()
         self._content_hashes.clear()
+        self._file_contents.clear()
         self._open_files.clear()
         self._diagnostics_events.clear()
         if "error" in response:

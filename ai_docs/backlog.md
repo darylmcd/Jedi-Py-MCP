@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-28T19:15:50Z
+**updated_at:** 2026-08-29T13:18:07Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -57,30 +57,21 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `changelog-fragment-release-workflow` | Medium | — | Migrate the populated Unreleased changelog to validated per-change fragments and make bump-reinstall consume them atomically. | M | items/changelog-fragment-release-workflow.md |
 
 ## Low
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| known-rope-annotations | Low | — | **`change_signature` strips defaults** — type annotations are now restored via the CST post-pass (`signature_annotations.py`, shipped); rope still drops default values on rename/normalize. Residual tracked by `cand-change-signature-cst`. [type: known-limitation] [source: inline-callsite-doc] | M | items/known-rope-annotations.md |
-| cand-change-signature-cst | Low | — | **`change_signature` defaults + combined-op edge** — annotation restore shipped (CST post-pass); remaining: preserve default values rope drops, and restore the renamed-param annotation under combined reorder+rename. [type: defect] [source: brainstorm-BRAIN-015] | M | items/cand-change-signature-cst.md |
 | `cand-convert-to-dataclass` | Low | — | **New tool `convert_to_dataclass`** — modernize a plain class to `@dataclass`, field types from Pyright inference, on the CST apply foundation. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | L | items/cand-convert-to-dataclass.md |
 | cand-extract-class | Low | — | **New tool `extract_class`** — move a cohesive subset of fields/methods into a new collaborator class via the CST foundation (rope 1.14 has no ExtractClass). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-extract-class.md |
 | cand-convert-function-method | Low | — | **Symmetric tools `convert_function_to_method` / `convert_method_to_function`** — CST transform + caller rewrites via `find_references`. Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-convert-function-method.md |
 | cand-split-module | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
 | `cand-docstring-sync` | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | L | items/cand-docstring-sync.md |
-| jedi-hierarchy-swallowed-exceptions | Low | — | **Document/narrow 8 best-effort exception swallows** — `jedi_backend.py` (6) + `hierarchy.py` (2): narrow the caught type and/or add boundary-marker comments; no behaviour change. [type: refactor] [source: doc-audit-20260528] | M | items/jedi-hierarchy-swallowed-exceptions.md |
-| `backend-fallback-swallowed-exceptions` | Low | — | **Narrow/comment 6 fallback exception catches** — cover Pyright rename, MCP roots, rope AutoImport, and reference-context fallbacks; preserve behavior and document each boundary. [type: refactor] [source: doc-audit-20260708] | M | items/backend-fallback-swallowed-exceptions.md |
-| codemod-multifile-atomicity | Low | — | **Multi-file codemod apply is non-atomic (CST + rope/LSP)** — route both write loops (CST + `result_from_text_edits`) through one shared atomic/partial-result helper. [type: defect] [source: structural-replace-impl-review-20260619] | M | items/codemod-multifile-atomicity.md |
 | cand-rename-cst-alias | Low | — | **LibCST alias-aware `rename_symbol` variant** — rewrite `import X as Y` / `from m import X as Y` rebindings rope/Jedi miss; abort on alias collision; dry-run. [type: enhancement] [source: brainstorm-BRAIN-001] | M | items/cand-rename-cst-alias.md |
 | cand-fix-circular-imports | Low | — | **New tool: auto-fix circular imports** — detect cycles via `get_module_dependencies`, hoist type-only edge imports into `if TYPE_CHECKING:` + stringify annotations; conservative, dry-run mandatory. [type: enhancement] [source: brainstorm-BRAIN-004] | M | items/cand-fix-circular-imports.md |
 | cand-cross-project-rename-topo | Low | — | **Order `multi_project_rename` by reverse-topo** — build cross-project import graph; apply downstream-before-upstream; abort on inter-project cycle. Correctness fix (today: arbitrary order). [type: defect] [source: brainstorm-BRAIN-009] | M | items/cand-cross-project-rename-topo.md |
 | cand-type-stub-freshness | Low | — | **New tool: type-stub freshness audit** — diff `.pyi` stub signatures vs `.py` impl, surface drift; handle `@overload`/`Protocol` without churn; optional `create_type_stubs` regen. [type: enhancement] [source: brainstorm-BRAIN-008] | M | items/cand-type-stub-freshness.md |
 | cand-convert-typeddict-pydantic | Low | — | **New tools: convert to TypedDict / Pydantic v2** — dict-shaped returns→TypedDict; typed classes→Pydantic v2; field types from Pyright; preview-default. Remaining BRAIN-003 scope beyond the dataclass slice. [type: enhancement] [source: brainstorm-BRAIN-003] | M | items/cand-convert-typeddict-pydantic.md |
-| cand-structured-error-envelope | Low | — | **Structured error envelope at the MCP boundary** — map each `BackendError` subclass to a stable code in `_tool_error_boundary` instead of bare `ValueError`; message text unchanged. [type: enhancement] [source: BRAIN-018 · audit-reports/application-brainstorm.md] | M | items/cand-structured-error-envelope.md |
-| cand-test-impact-nodeid-precision | Low | — | **Precise pytest node-IDs for test_impact_select** — emit `file::Class::method` for class-based test callers (reuse hierarchy.py class derivation); parametrized cases stay slice 2. [type: enhancement] [source: BRAIN-021 · audit-reports/application-brainstorm.md] | S | items/cand-test-impact-nodeid-precision.md |
-| pyright-validate-position-redundant-read | Low | — | **`_validate_position` redundant full-file read** — reuse `ensure_file_open`'s content instead of a second `read_text` per call on the ~12-tool position hot path; negligible vs LSP cost (hygiene). [type: refactor] [source: pr71-cq-review-20260620] | S | items/pyright-validate-position-redundant-read.md |
 
 ## Defer
 

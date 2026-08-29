@@ -66,7 +66,7 @@ def _add_context_lines(locations: list[Location]) -> list[Location]:
         if file_path not in cache:
             try:
                 cache[file_path] = Path(file_path).read_text(encoding="utf-8").splitlines()
-            except Exception:
+            except (OSError, UnicodeError):
                 _LOGGER.debug("failed to read file for context lines: %s", file_path, exc_info=True)
                 cache[file_path] = []
         lines = cache[file_path]
@@ -108,6 +108,8 @@ async def find_references(
         try:
             jedi_references = await jedi.get_references(file_path, line, character)
         except Exception:
+            # Jedi is an optional fallback with no stable plugin exception family;
+            # an empty Pyright result remains valid when the fallback fails.
             _LOGGER.debug("jedi reference fallback failed for %s:%d:%d", file_path, line, character, exc_info=True)
             return ReferenceResult(
                 symbol=f"{file_path}:{line}:{character}",

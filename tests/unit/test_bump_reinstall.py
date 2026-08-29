@@ -32,14 +32,17 @@ def _release_files(tmp_path: Path, version: str = "1.2.3") -> ReleaseFiles:
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n"
         "## [Unreleased]\n\n"
-        "### Fixed\n\n"
-        "- **Fixed:** Corrected a regression.\n\n"
         f"## [{version}] - 2026-01-01\n\n"
         "### Added\n\n"
         "- **Added:** Initial release.\n\n"
         f"[Unreleased]: https://github.com/darylmcd/Jedi-Py-MCP/compare/v{version}...HEAD\n"
         f"[{version}]: https://github.com/darylmcd/Jedi-Py-MCP/releases/tag/v{version}\n",
         encoding="utf-8",
+    )
+    fragment_dir = tmp_path / "changelog.d"
+    fragment_dir.mkdir()
+    (fragment_dir / "fixed-regression.md").write_text(
+        "- **Fixed:** Corrected a regression.\n", encoding="utf-8"
     )
     (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     return ReleaseFiles.from_root(tmp_path)
@@ -73,7 +76,13 @@ def test_update_surfaces_and_assemble_changelog(tmp_path: Path) -> None:
     target = ReleaseVersion.parse("1.2.4")
 
     update_version_surfaces(files, current, target)
-    assemble_changelog(files.changelog, current, target, date(2026, 8, 28))
+    assemble_changelog(
+        files.changelog,
+        files.changelog_fragments,
+        current,
+        target,
+        date(2026, 8, 28),
+    )
 
     assert read_release_version(files) == target
     changelog = files.changelog.read_text(encoding="utf-8")
@@ -81,20 +90,84 @@ def test_update_surfaces_and_assemble_changelog(tmp_path: Path) -> None:
     assert "### Fixed\n\n- **Fixed:** Corrected a regression." in changelog
     assert "compare/v1.2.4...HEAD" in changelog
     assert "[1.2.4]: https://github.com/darylmcd/Jedi-Py-MCP/releases/tag/v1.2.4" in changelog
+    assert list(files.changelog_fragments.glob("*.md")) == []
 
 
-def test_assemble_changelog_refuses_empty_unreleased_section(tmp_path: Path) -> None:
+def test_assemble_changelog_refuses_populated_unreleased_section(tmp_path: Path) -> None:
     files = _release_files(tmp_path)
     files.changelog.write_text(
         "# Changelog\n\n"
         "## [Unreleased]\n\n"
+        "### Fixed\n\n- **Fixed:** Competing direct note.\n\n"
         "## [1.2.3] - 2026-01-01\n\n"
         "[Unreleased]: https://github.com/darylmcd/Jedi-Py-MCP/compare/v1.2.3...HEAD\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="empty Unreleased"):
-        assemble_changelog(files.changelog, ReleaseVersion.parse("1.2.3"), ReleaseVersion.parse("1.2.4"), date.today())
+    with pytest.raises(ValueError, match="Unreleased must stay empty"):
+        assemble_changelog(
+            files.changelog,
+            files.changelog_fragments,
+            ReleaseVersion.parse("1.2.3"),
+            ReleaseVersion.parse("1.2.4"),
+            date.today(),
+        )
+
+
+def test_assemble_changelog_orders_categories_and_filenames(tmp_path: Path) -> None:
+    files = _release_files(tmp_path)
+    (files.changelog_fragments / "added-feature.md").write_text(
+        "- **Added:** Added a feature.\n", encoding="utf-8"
+    )
+    (files.changelog_fragments / "fixed-another.md").write_text(
+        "- **Fixed:** Corrected another regression.\n", encoding="utf-8"
+    )
+
+    assemble_changelog(
+        files.changelog,
+        files.changelog_fragments,
+        ReleaseVersion.parse("1.2.3"),
+        ReleaseVersion.parse("1.2.4"),
+        date.today(),
+    )
+
+    changelog = files.changelog.read_text(encoding="utf-8")
+    assert changelog.index("Corrected another") < changelog.index("Corrected a regression")
+    assert changelog.index("### Fixed") < changelog.index("### Added")
+
+
+def test_assemble_changelog_restores_fragments_when_consumption_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = _release_files(tmp_path)
+    second = files.changelog_fragments / "maintenance-release.md"
+    second.write_text("- **Maintenance:** Updated release tooling.\n", encoding="utf-8")
+    original_changelog = files.changelog.read_bytes()
+    original_fragments = {path: path.read_bytes() for path in files.changelog_fragments.glob("*.md")}
+    deleted = 0
+    real_delete = bump_reinstall._delete_fragment
+
+    def _fail_second_delete(path: Path) -> None:
+        nonlocal deleted
+        deleted += 1
+        if deleted == 2:
+            raise OSError("delete failed")
+        real_delete(path)
+
+    monkeypatch.setattr(bump_reinstall, "_delete_fragment", _fail_second_delete)
+
+    with pytest.raises(OSError, match="delete failed"):
+        assemble_changelog(
+            files.changelog,
+            files.changelog_fragments,
+            ReleaseVersion.parse("1.2.3"),
+            ReleaseVersion.parse("1.2.4"),
+            date.today(),
+        )
+
+    assert files.changelog.read_bytes() == original_changelog
+    assert {path: path.read_bytes() for path in files.changelog_fragments.glob("*.md")} == original_fragments
 
 
 def test_bump_and_reinstall_orchestrates_locked_install_and_verification(
@@ -120,6 +193,7 @@ def test_bump_and_reinstall_orchestrates_locked_install_and_verification(
     assert any("--no-emit-project" in command for command in calls)
     assert any("--force-reinstall" in command and "--no-deps" in command for command in calls)
     assert any(command[-3:] == ["-m", "pip", "check"] for command in calls)
+    assert list(files.changelog_fragments.glob("*.md")) == []
 
 
 def test_bump_and_reinstall_restores_release_files_when_a_command_fails(
@@ -127,6 +201,7 @@ def test_bump_and_reinstall_restores_release_files_when_a_command_fails(
 ) -> None:
     files = _release_files(tmp_path)
     originals = {path: path.read_bytes() for path in files.all()}
+    original_fragments = {path: path.read_bytes() for path in files.changelog_fragments.glob("*.md")}
 
     monkeypatch.setattr(bump_reinstall, "_resolve_executable", lambda raw: raw)
 
@@ -139,6 +214,7 @@ def test_bump_and_reinstall_restores_release_files_when_a_command_fails(
         bump_reinstall.bump_and_reinstall(tmp_path, "patch", "python")
 
     assert {path: path.read_bytes() for path in files.all()} == originals
+    assert {path: path.read_bytes() for path in files.changelog_fragments.glob("*.md")} == original_fragments
 
 
 def test_bump_and_reinstall_retains_release_files_after_installation_starts(

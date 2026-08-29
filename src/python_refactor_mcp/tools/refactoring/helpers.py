@@ -18,7 +18,7 @@ from python_refactor_mcp.models import (
     RefactorResult,
     TextEdit,
 )
-from python_refactor_mcp.util.diff import apply_text_edits, write_atomic
+from python_refactor_mcp.util.diff import apply_text_edits_atomically
 from python_refactor_mcp.util.paths import uri_to_path
 from python_refactor_mcp.util.shared import attach_post_apply_diagnostics
 
@@ -118,12 +118,7 @@ def result_from_text_edits(edits: list[TextEdit], description: str, apply: bool)
     if not apply:
         return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=False)
 
-    edits_by_file: dict[str, list[TextEdit]] = {}
-    for edit in edits:
-        edits_by_file.setdefault(edit.file_path, []).append(edit)
-    for file_path, file_edits in edits_by_file.items():
-        updated = apply_text_edits(file_path, file_edits)
-        write_atomic(file_path, updated)
+    apply_text_edits_atomically(edits)
 
     return RefactorResult(edits=edits, files_affected=files_affected, description=description, applied=True)
 

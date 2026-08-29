@@ -45,6 +45,10 @@ test-all: test test-integration
 lint:
     {{ python }} -m ruff check .
 
+# Validate pending changelog fragments (CI sets CHANGELOG_BASE_REF on PRs)
+changelog-check:
+    {{ python }} scripts/changelog_fragments.py
+
 # Run ruff with auto-fix
 lint-fix:
     {{ python }} -m ruff check . --fix
@@ -74,13 +78,13 @@ reinstall target_python="python":
 # --- Aggregates ---
 
 # Fast local sanity check before pushing
-validate: lint typecheck test
+validate: changelog-check lint typecheck test
 
 # Local equivalent of CI pipeline (mirrors .github/workflows/ci.yml)
-ci: lint typecheck typecheck-mypy test test-integration
+ci: changelog-check lint typecheck typecheck-mypy test test-integration
 
 # Everything including all test suites
-full: lint typecheck typecheck-mypy test test-integration
+full: changelog-check lint typecheck typecheck-mypy test test-integration
 
 # --- Clean ---
 

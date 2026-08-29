@@ -161,3 +161,21 @@ def test_apply_cst_transformer_propagates_parse_errors(tmp_path: Path) -> None:
 
     with pytest.raises(BackendError, match=r"Failed to parse .*broken\.py"):
         apply_cst_transformer(str(target), _NoopTransformer(), apply=False)
+
+
+def test_apply_cst_transformer_batch_preflights_every_file(tmp_path: Path) -> None:
+    """A later parse failure leaves an earlier transform target unchanged."""
+    first = tmp_path / "first.py"
+    broken = tmp_path / "broken.py"
+    original = "x = 1\n"
+    first.write_text(original, encoding="utf-8")
+    broken.write_text("def oops(:\n", encoding="utf-8")
+
+    with pytest.raises(BackendError, match=r"Failed to parse .*broken\.py"):
+        apply_cst_transformer_batch(
+            [str(first), str(broken)],
+            lambda _path: _RenameNameTransformer(old="x", new="renamed"),
+            apply=True,
+        )
+
+    assert first.read_text(encoding="utf-8") == original
