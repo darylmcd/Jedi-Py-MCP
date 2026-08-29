@@ -10,7 +10,7 @@ Why this does NOT use the CST foundation: Pyright already returns precise
 insertion positions with the annotation text pre-formatted (including
 ``padding_left``/``padding_right`` flags). Walking the CST to re-derive these
 positions would add complexity without correctness benefit. CST-based tools
-like ``convert_to_dataclass`` / ``extract_class`` legitimately need
+like ``convert_to_dataclass`` and ``extract_superclass`` legitimately need
 ``util/cst_apply.py``; this one does not.
 """
 

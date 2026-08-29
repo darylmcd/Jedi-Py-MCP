@@ -1,0 +1,1 @@
+- **Added:** Preview-first `convert_to_dataclass` refactoring for behavior-free constructors, with Pyright-backed inference for missing field annotations and fail-closed shape validation.

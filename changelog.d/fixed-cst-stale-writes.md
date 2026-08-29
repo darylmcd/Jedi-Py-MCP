@@ -1,0 +1,1 @@
+- **Fixed:** Whole-file LibCST refactorings now reject stale source and preserve concurrent edits instead of applying outdated replacement ranges.

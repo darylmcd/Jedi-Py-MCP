@@ -1,6 +1,6 @@
 # Tool Reference
 
-99 MCP tools organized by category.
+100 MCP tools organized by category.
 
 ## Analysis (19)
 
@@ -41,7 +41,7 @@
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (33)
+## Refactoring (34)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -49,6 +49,7 @@
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `extract_method` | Extract a selected block into a method. | `RefactorResult` |
 | `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
+| `convert_to_dataclass` | Convert a behavior-free constructor into preview-first standard-library dataclass fields, using Pyright for missing annotations. | `RefactorResult` |
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
 | `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |
 | `inline_method` | Inline a method at all call sites. | `RefactorResult` |

@@ -22,7 +22,7 @@ from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import RefactorResult
 from python_refactor_mcp.util.cst_apply import apply_cst_transformer
 
-from .helpers import post_apply_diagnostics, result_from_text_edits
+from .helpers import post_apply_diagnostics
 
 _REJECTED_DECORATORS = frozenset({"classmethod", "staticmethod", "property"})
 
@@ -142,7 +142,7 @@ async def extract_superclass(
         raise BackendError("extract_superclass requires at least one member to hoist")
 
     transformer = ExtractSuperclassTransformer(class_name, base_class_name, members)
-    edits, _ = apply_cst_transformer(file_path, transformer, apply=False)
+    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
 
     if not transformer.class_found:
         raise BackendError(f"Class {class_name!r} not found in {file_path}")
@@ -151,7 +151,12 @@ async def extract_superclass(
         f"Extracted superclass {base_class_name} from {class_name} "
         f"with {len(members)} member(s)"
     )
-    result = result_from_text_edits(edits, description, apply)
+    result = RefactorResult(
+        edits=edits,
+        files_affected=files_affected,
+        description=description,
+        applied=bool(apply and edits),
+    )
     if apply and edits:
         return await post_apply_diagnostics(pyright, result)
     return result

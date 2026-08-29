@@ -15,7 +15,8 @@ from python_refactor_mcp import server
 async def test_tool_count_within_limits() -> None:
     """Tool count should not exceed the 30-40 tool LLM reliability threshold by too much."""
     tools = await server.mcp.list_tools()
-    # 88 tools after format_code; soft cap tracks actual surface + small headroom.
+    # The live surface has reached this cap. A dedicated backlog row owns the
+    # discovery/segmentation strategy required before another tool is added.
     assert len(tools) <= 100, f"Tool count {len(tools)} exceeds soft limit of 100"
 
 

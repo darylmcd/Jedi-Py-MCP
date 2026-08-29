@@ -17,7 +17,8 @@ POSITION_CONVENTION_PHRASE = "Positions are 0-based (line and character offsets,
 async def test_server_registers_expected_tool_surface() -> None:
     """Ensure the current MCP tool surface is registered on the MCP instance."""
     tools = await server.mcp.list_tools()
-    assert len(tools) == 99
+    assert len(tools) == 100
+    assert "convert_to_dataclass" in {tool.name for tool in tools}
     assert "check_type_stub_freshness" in {tool.name for tool in tools}
     assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in tools)
 
