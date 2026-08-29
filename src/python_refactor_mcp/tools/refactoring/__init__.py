@@ -1,6 +1,7 @@
 """Refactoring tools orchestrating rope edits with Pyright validation."""
 
 from .code_actions import apply_code_action, organize_imports
+from .dataclass_conversion import convert_to_dataclass
 from .extract import extract_method, extract_variable, inline_method, inline_parameter, inline_variable
 from .format import format_code
 from .imports import (
@@ -35,6 +36,7 @@ __all__ = [
     "apply_type_annotations",
     "autoimport_search",
     "change_signature",
+    "convert_to_dataclass",
     "encapsulate_field",
     "expand_star_imports",
     "extract_method",

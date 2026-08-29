@@ -3,7 +3,7 @@
 The foundation is tool-agnostic: every test below builds a tiny in-test
 ``cst.CSTTransformer`` and exercises the ``apply_cst_transformer`` /
 ``apply_cst_transformer_batch`` orchestrators. Real consumers
-(``apply_type_annotations``, ``convert_to_dataclass``, etc.) layer on top.
+(``extract_superclass``, ``convert_to_dataclass``, etc.) layer on top.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import libcst as cst
 import pytest
 
 from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.models import TextEdit
+from python_refactor_mcp.util import cst_apply as cst_apply_module
 from python_refactor_mcp.util.cst_apply import (
     apply_cst_transformer,
     apply_cst_transformer_batch,
@@ -101,6 +103,31 @@ def test_apply_cst_transformer_apply_writes_atomically(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "renamed = 1\n"
 
 
+def test_apply_cst_transformer_rejects_source_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A concurrent edit after transformation survives instead of being overwritten."""
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    real_write = cst_apply_module.write_atomic_if_unchanged
+
+    def inject_drift(file_path: str, content: str, expected_content: bytes) -> None:
+        target.write_text("external = 2\n", encoding="utf-8")
+        real_write(file_path, content, expected_content)
+
+    monkeypatch.setattr(cst_apply_module, "write_atomic_if_unchanged", inject_drift)
+
+    with pytest.raises(BackendError, match="Stale edit source changed"):
+        apply_cst_transformer(
+            str(target),
+            _RenameNameTransformer(old="x", new="renamed"),
+            apply=True,
+        )
+
+    assert target.read_text(encoding="utf-8") == "external = 2\n"
+
+
 def test_apply_cst_transformer_missing_file_raises(tmp_path: Path) -> None:
     """A missing file surfaces as a ``BackendError`` with read-error context."""
     missing = tmp_path / "nope.py"
@@ -179,3 +206,37 @@ def test_apply_cst_transformer_batch_preflights_every_file(tmp_path: Path) -> No
         )
 
     assert first.read_text(encoding="utf-8") == original
+
+
+def test_apply_cst_transformer_batch_rejects_drift_before_first_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batch source fingerprints reject drift before any transformed file is written."""
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first_original = "x = 1\n"
+    second_original = "x = 2\n"
+    first.write_text(first_original, encoding="utf-8")
+    second.write_text(second_original, encoding="utf-8")
+    real_apply = cst_apply_module.apply_text_edits_atomically
+
+    def inject_drift(
+        edits: list[TextEdit],
+        *,
+        expected_contents: dict[str, bytes] | None = None,
+    ) -> list[str]:
+        second.write_text("external = 3\n", encoding="utf-8")
+        return real_apply(edits, expected_contents=expected_contents)
+
+    monkeypatch.setattr(cst_apply_module, "apply_text_edits_atomically", inject_drift)
+
+    with pytest.raises(BackendError, match="Stale edit source changed"):
+        apply_cst_transformer_batch(
+            [str(first), str(second)],
+            lambda _path: _RenameNameTransformer(old="x", new="renamed"),
+            apply=True,
+        )
+
+    assert first.read_text(encoding="utf-8") == first_original
+    assert second.read_text(encoding="utf-8") == "external = 3\n"

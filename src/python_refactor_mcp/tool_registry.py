@@ -652,6 +652,24 @@ async def apply_type_annotations(
     return result
 
 
+async def convert_to_dataclass(
+    ctx: Context,
+    file_path: str,
+    class_name: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Convert a behavior-free class constructor into standard-library `@dataclass` fields. Supports ordered direct `self.field = field` assignments, preserves parameter defaults and existing methods, and asks Pyright to infer missing field annotations. Unsupported behavioral constructors fail closed. Defaults to preview mode (`apply=false`). Related: apply_type_annotations, get_type_info, extract_superclass."""
+    app = _get_current_backends()
+    result = await refactoring.convert_to_dataclass(app.pyright, file_path, class_name, apply)
+    _LOGGER.debug(
+        "convert_to_dataclass edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def extract_superclass(
     ctx: Context,
     file_path: str,
@@ -1403,6 +1421,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(get_folding_ranges, _READONLY),
     ToolRecord(rename_symbol, _DESTRUCTIVE),
     ToolRecord(extract_method, _DESTRUCTIVE),
+    ToolRecord(convert_to_dataclass, _DESTRUCTIVE),
     ToolRecord(extract_superclass, _DESTRUCTIVE),
     ToolRecord(extract_variable, _DESTRUCTIVE),
     ToolRecord(inline_variable, _DESTRUCTIVE),

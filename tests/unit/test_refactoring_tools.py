@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import BackendError, RopeError
 from python_refactor_mcp.models import (
     Diagnostic,
     InlayHint,
@@ -16,6 +16,7 @@ from python_refactor_mcp.models import (
     RefactorResult,
     SignatureOperation,
     TextEdit,
+    TypeInfo,
 )
 from python_refactor_mcp.tools import refactoring
 from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
@@ -975,6 +976,140 @@ async def test_apply_type_annotations_missing_file_raises(tmp_path: Path) -> Non
 
     with pytest.raises(BackendError, match="Cannot read file for type annotation"):
         await refactoring.apply_type_annotations(pyright, str(missing), apply=False)
+
+
+# ── convert_to_dataclass (conservative LibCST conversion) ──
+
+
+@pytest.mark.asyncio
+async def test_convert_to_dataclass_typed_preview_preserves_source(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    source = (
+        "class User:\n"
+        "    def __init__(self, name: str, enabled: bool = True):\n"
+        "        self.name = name\n"
+        "        self.enabled = enabled\n"
+        "\n"
+        "    def label(self) -> str:\n"
+        "        return self.name\n"
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.convert_to_dataclass(pyright, str(target), "User")
+
+    assert result.applied is False
+    assert target.read_text(encoding="utf-8") == source
+    assert len(result.edits) == 1
+    converted = result.edits[0].new_text
+    assert "from dataclasses import dataclass" in converted
+    assert "@dataclass\nclass User:" in converted
+    assert "    name: str\n" in converted
+    assert "    enabled: bool = True\n" in converted
+    assert "def __init__" not in converted
+    assert "    def label(self) -> str:" in converted
+    pyright.get_hover.assert_not_awaited()
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_convert_to_dataclass_uses_pyright_for_untyped_field(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(
+        "class User:\n"
+        "    def __init__(self, name):\n"
+        "        self.name = name\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_hover.return_value = TypeInfo(
+        expression=f"{target}:1:23",
+        type_string="(parameter) name: builtins.str",
+        source="pyright",
+    )
+
+    result = await refactoring.convert_to_dataclass(pyright, str(target), "User")
+
+    assert "    name: str\n" in result.edits[0].new_text
+    pyright.get_hover.assert_awaited_once_with(str(target), 1, 23)
+
+
+@pytest.mark.asyncio
+async def test_convert_to_dataclass_apply_writes_and_refreshes(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(
+        "class User:\n"
+        "    def __init__(self, name: str):\n"
+        "        self.name = name\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.convert_to_dataclass(pyright, str(target), "User", apply=True)
+
+    assert result.applied is True
+    assert "@dataclass" in target.read_text(encoding="utf-8")
+    pyright.notify_file_changed.assert_awaited_once_with(str(target))
+    pyright.get_diagnostics.assert_awaited_once_with(str(target))
+
+
+@pytest.mark.asyncio
+async def test_convert_to_dataclass_ignores_same_named_nested_class(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(
+        "class Container:\n"
+        "    class User:\n"
+        "        def __init__(self, nested: str):\n"
+        "            self.nested = nested\n"
+        "\n"
+        "class User:\n"
+        "    def __init__(self, name: str):\n"
+        "        self.name = name\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+
+    result = await refactoring.convert_to_dataclass(pyright, str(target), "User")
+
+    converted = result.edits[0].new_text
+    assert converted.count("@dataclass") == 1
+    assert converted.count("def __init__") == 1
+    assert "            self.nested = nested" in converted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source,error",
+    [
+        (
+            "class User:\n"
+            "    def __init__(self, name: str):\n"
+            "        self.name = name.strip()\n",
+            "only supports ordered direct",
+        ),
+        (
+            "class User:\n"
+            "    def __init__(self, names: list[str] = []):\n"
+            "        self.names = names\n",
+            "Mutable default",
+        ),
+    ],
+)
+async def test_convert_to_dataclass_rejects_unsafe_constructor_shapes(
+    tmp_path: Path,
+    source: str,
+    error: str,
+) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match=error):
+        await refactoring.convert_to_dataclass(pyright, str(target), "User")
+
+    assert target.read_text(encoding="utf-8") == source
+    pyright.get_hover.assert_not_awaited()
 
 
 _SUPERCLASS_SOURCE = (

@@ -74,12 +74,18 @@ def apply_text_edits(file_path: str, edits: list[TextEdit], content: str | None 
     return content
 
 
-def apply_text_edits_atomically(edits: list[TextEdit]) -> list[str]:
+def apply_text_edits_atomically(
+    edits: list[TextEdit],
+    *,
+    expected_contents: dict[str, bytes] | None = None,
+) -> list[str]:
     """Apply a multi-file edit set as one rollback-capable batch.
 
     Every source file is read and every updated payload is computed before the
     first write. If a later atomic write fails, already-written files are
-    restored byte-for-byte. Returns the sorted affected paths.
+    restored byte-for-byte. When *expected_contents* is supplied, every target
+    must match the bytes used to generate its edits; stale input aborts before
+    the first write. Returns the sorted affected paths.
     """
     edits_by_file: dict[str, list[TextEdit]] = {}
     for edit in edits:
@@ -87,6 +93,11 @@ def apply_text_edits_atomically(edits: list[TextEdit]) -> list[str]:
 
     originals: dict[str, bytes] = {}
     updated: dict[str, str] = {}
+    expected_by_path = (
+        {str(Path(file_path).resolve()): content for file_path, content in expected_contents.items()}
+        if expected_contents is not None
+        else None
+    )
     for file_path, file_edits in edits_by_file.items():
         path = Path(file_path).resolve()
         try:
@@ -95,19 +106,31 @@ def apply_text_edits_atomically(edits: list[TextEdit]) -> list[str]:
         except (OSError, UnicodeError) as exc:
             raise RopeError(f"Cannot prepare atomic edit batch for {path}: {exc}") from exc
         resolved_path = str(path)
+        if expected_by_path is not None:
+            expected = expected_by_path.get(resolved_path)
+            if expected is None:
+                raise RopeError(f"Missing expected source for atomic edit target: {path}")
+            if original_bytes != expected:
+                raise RopeError(f"Stale edit source changed before atomic batch commit: {path}")
         originals[resolved_path] = original_bytes
         updated[resolved_path] = apply_text_edits(resolved_path, file_edits, content=original_text)
 
     written: list[str] = []
+    written_payloads: dict[str, bytes] = {}
     try:
         for file_path in sorted(updated):
-            write_atomic(file_path, updated[file_path])
+            write_atomic_if_unchanged(file_path, updated[file_path], originals[file_path])
             written.append(file_path)
+            written_payloads[file_path] = updated[file_path].encode("utf-8")
     except Exception as exc:
         rollback_failures: list[str] = []
         for file_path in reversed(written):
             try:
-                write_bytes_atomic(file_path, originals[file_path])
+                write_bytes_atomic_if_unchanged(
+                    file_path,
+                    originals[file_path],
+                    written_payloads[file_path],
+                )
             except Exception:
                 rollback_failures.append(file_path)
         if rollback_failures:
@@ -132,7 +155,12 @@ def build_unified_diff(file_path: str, edits: list[TextEdit]) -> str:
     return "".join(diff_lines)
 
 
-def _replace_atomic(file_path: str, writer: Callable[[int], None], error_message: str) -> None:
+def _replace_atomic(
+    file_path: str,
+    writer: Callable[[int], None],
+    error_message: str,
+    expected_content: bytes | None = None,
+) -> None:
     """Create a sibling temp file, populate it through *writer*, then replace."""
     path = Path(file_path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +168,18 @@ def _replace_atomic(file_path: str, writer: Callable[[int], None], error_message
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
         writer(fd)
+        if expected_content is not None:
+            try:
+                current_content = path.read_bytes()
+            except OSError as exc:
+                raise RopeError(f"Cannot verify atomic-write source for {path}: {exc}") from exc
+            if current_content != expected_content:
+                raise RopeError(f"Stale edit source changed before atomic replace: {path}")
         os.replace(tmp_name, str(path))
+    except RopeError:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
     except Exception as exc:
         with suppress(OSError):
             os.unlink(tmp_name)
@@ -157,6 +196,21 @@ def write_atomic(file_path: str, content: str) -> None:
     _replace_atomic(file_path, _write, "Atomic write failed")
 
 
+def write_atomic_if_unchanged(file_path: str, content: str, expected_content: bytes) -> None:
+    """Atomically write text only when the target still matches *expected_content*."""
+
+    def _write(fd: int) -> None:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp_file:
+            tmp_file.write(content)
+
+    _replace_atomic(
+        file_path,
+        _write,
+        "Guarded atomic write failed",
+        expected_content,
+    )
+
+
 def write_bytes_atomic(file_path: str, content: bytes) -> None:
     """Write exact file bytes atomically without newline or encoding conversion."""
 
@@ -165,3 +219,22 @@ def write_bytes_atomic(file_path: str, content: bytes) -> None:
             tmp_file.write(content)
 
     _replace_atomic(file_path, _write, "Atomic byte write failed")
+
+
+def write_bytes_atomic_if_unchanged(
+    file_path: str,
+    content: bytes,
+    expected_content: bytes,
+) -> None:
+    """Atomically write bytes only when the target still matches *expected_content*."""
+
+    def _write(fd: int) -> None:
+        with os.fdopen(fd, "wb") as tmp_file:
+            tmp_file.write(content)
+
+    _replace_atomic(
+        file_path,
+        _write,
+        "Guarded atomic byte write failed",
+        expected_content,
+    )
