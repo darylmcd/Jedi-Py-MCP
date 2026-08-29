@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-29T15:31:44Z
+**updated_at:** 2026-08-29T15:39:23Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -78,7 +78,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | cand-find-cyclic-imports | Defer | — | **Dedicated cycle report — parked as redundant** — `get_module_dependencies` already returns cycles; unblock only if per-edge provenance (file:line:col per import) is added as a real delta. [type: enhancement] [source: candidate-proposal] | — | items/cand-find-cyclic-imports.md |
-| `rope-autoimport-utcnow-deprecation` | Defer | — | **Rope AutoImport UTC warning — parked upstream** — Rope 1.14.0 is latest and emits `datetime.utcnow()` deprecation on Python 3.14; unblock on an upstream release or API-removal deadline. [type: reliability] [source: session-20260829] | M | items/rope-autoimport-utcnow-deprecation.md |
+| `rope-python314-deprecations` | Defer | — | **Rope Python 3.14 deprecations — parked upstream** — latest 1.14.0 emits project, AutoImport UTC, and libutils warnings; unblock on an upstream release or API-removal deadline. [type: reliability] [source: session-20260829] | M | items/rope-python314-deprecations.md |
 
 ## Refs
 
