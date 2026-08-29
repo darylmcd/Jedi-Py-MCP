@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-29T13:18:07Z
+**updated_at:** 2026-08-29T13:35:19Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -80,7 +80,6 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | cand-find-cyclic-imports | Defer | — | **Dedicated cycle report — parked as redundant** — `get_module_dependencies` already returns cycles; unblock only if per-edge provenance (file:line:col per import) is added as a real delta. [type: enhancement] [source: candidate-proposal] | — | items/cand-find-cyclic-imports.md |
-| search-symbol-iter-dedup | Defer | — | **Extract shared search helpers — trigger fired, parked pending operator unblock** — `unused_symbols.py` duplicates 4 `dead_code.py` helpers; extraction spans ~5 prod files (split-candidate). [type: refactor] [source: handoff-prep-20260528] | — | items/search-symbol-iter-dedup.md |
 
 ## Refs
 

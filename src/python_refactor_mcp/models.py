@@ -51,6 +51,23 @@ class SymbolInfo(BaseModel):
     container: str | None = None
 
 
+class BackendFailure(BaseModel):
+    """Payload-safe signal that one optional backend operation failed."""
+
+    backend: str
+    operation: str
+    error_type: str
+
+
+class SymbolSearchResult(BaseModel):
+    """Merged symbol results plus explicit partial-backend failures."""
+
+    items: list[SymbolInfo]
+    total_count: int
+    truncated: bool = False
+    backend_failures: list[BackendFailure] = Field(default_factory=list)
+
+
 class SymbolOutlineItem(BaseModel):
     """Hierarchical symbol outline item for a document or workspace."""
 

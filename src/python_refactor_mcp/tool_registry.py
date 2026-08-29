@@ -77,6 +77,7 @@ from python_refactor_mcp.models import (
     StructuralSearchResult,
     SymbolAnchor,
     SymbolInfo,
+    SymbolSearchResult,
     SyntaxErrorItem,
     TestImpactResult,
     TextEdit,
@@ -955,11 +956,16 @@ async def find_constructors(
     return result
 
 
-async def search_symbols(ctx: Context, query: str, limit: int | None = None) -> list[SymbolInfo]:
-    """Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi for comprehensive results. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
+async def search_symbols(ctx: Context, query: str, limit: int | None = None) -> SymbolSearchResult:
+    """Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi and reports partial-backend failures explicitly. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
     app = _get_current_backends()
     result = await search.search_symbols(app.pyright, app.jedi, query, limit)
-    _LOGGER.debug("search_symbols query=%s count=%s", query, len(result))
+    log = _LOGGER.warning if result.backend_failures else _LOGGER.debug
+    log(
+        "search_symbols count=%s backend_failures=%s",
+        len(result.items),
+        [f"{failure.backend}:{failure.error_type}" for failure in result.backend_failures],
+    )
     return result
 
 
@@ -1012,7 +1018,13 @@ async def dead_code_detection(
         offset,
         limit,
     )
-    _LOGGER.debug("dead_code_detection count=%s total=%s", len(result.items), result.total_count)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "dead_code_detection count=%s total=%s scan_failures=%s",
+        len(result.items),
+        result.total_count,
+        len(result.scan_failures),
+    )
     return result
 
 
@@ -1039,7 +1051,13 @@ async def unused_symbol_sweep(
         offset,
         limit,
     )
-    _LOGGER.debug("unused_symbol_sweep count=%s total=%s", len(result.items), result.total_count)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "unused_symbol_sweep count=%s total=%s scan_failures=%s",
+        len(result.items),
+        result.total_count,
+        len(result.scan_failures),
+    )
     return result
 
 

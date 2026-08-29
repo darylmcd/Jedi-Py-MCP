@@ -147,7 +147,7 @@ class RopeBackend:
         )
         # Pre-warm the AutoImport cache so autoimport_search returns results immediately.
         try:
-            with AutoImport(self._project) as ai:  # pyright: ignore[reportGeneralTypeIssues]
+            with AutoImport(self._project, memory=True) as ai:  # pyright: ignore[reportGeneralTypeIssues]
                 ai.generate_cache()
         except Exception:
             # AutoImport is an optional third-party accelerator. Rope exposes no
@@ -864,7 +864,7 @@ class RopeBackend:
 
         def _work() -> list[tuple[str, str]]:
             project = self._require_project()
-            with AutoImport(project) as ai:  # pyright: ignore[reportGeneralTypeIssues]
+            with AutoImport(project, memory=True) as ai:  # pyright: ignore[reportGeneralTypeIssues]
                 try:
                     ai.generate_cache()
                 except Exception:

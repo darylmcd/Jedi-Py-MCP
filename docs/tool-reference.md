@@ -83,7 +83,7 @@
 | Tool | Purpose | Returns |
 |---|---|---|
 | `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |
-| `search_symbols` | Search workspace symbols by name across semantic backends. | `list[SymbolInfo]` |
+| `search_symbols` | Search workspace symbols by name across semantic backends and report partial backend failures. | `SymbolSearchResult` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
 | `structural_replace` | Rewrite LibCST matcher matches using `$name` capture templates. | `RefactorResult` |
 | `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |

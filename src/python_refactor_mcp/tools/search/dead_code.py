@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import re
 from pathlib import Path
@@ -12,7 +11,6 @@ from python_refactor_mcp.models import (
     DeadCodeItem,
     Diagnostic,
     PaginatedDeadCode,
-    Position,
     Range,
     ScanFailure,
 )
@@ -20,120 +18,10 @@ from python_refactor_mcp.models import (
 from ._helpers import (
     DIAGNOSTIC_TAG_UNNECESSARY,
     PyrightSearchBackend,
-    name_position,
-    python_files,
+    iter_module_level_symbols,
+    resolve_target_files,
+    score_dead_code_confidence,
 )
-
-
-def _score_confidence(name: str, reason: str) -> str:
-    """Score confidence of a dead code candidate using heuristics."""
-    if reason == "unused diagnostic":
-        return "high"
-    lower = name.lower()
-    if lower in {"logger", "_logger", "log", "_log"}:
-        return "low"
-    if name.startswith("test_") or name.startswith("Test"):
-        return "low"
-    if name.startswith("__") and name.endswith("__"):
-        return "low"
-    if name == "__all__":
-        return "low"
-    return "medium"
-
-
-def _is_test_file(path: Path) -> bool:
-    """Return True if the file looks like a test file."""
-    name = path.name
-    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
-
-
-def _iter_module_level_symbols(file_path: Path) -> list[tuple[str, str, Range]]:
-    """Collect module-level symbol declarations for dead code scans."""
-    source = file_path.read_text(encoding="utf-8")
-    lines = source.splitlines()
-    try:
-        module = ast.parse(source)
-    except SyntaxError:
-        return []
-
-    symbols: list[tuple[str, str, Range]] = []
-    for node in module.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            # Skip decorated symbols — decorators often register functions
-            # externally (e.g., @app.route, @mcp.tool, @pytest.fixture).
-            if node.decorator_list:
-                continue
-            line_index = node.lineno - 1
-            if line_index < 0 or line_index >= len(lines):
-                continue
-            char_index = name_position(lines[line_index], node.col_offset, node.name)
-            kind = "class" if isinstance(node, ast.ClassDef) else "function"
-            symbols.append(
-                (
-                    node.name,
-                    kind,
-                    Range(
-                        start=Position(line=line_index, character=char_index),
-                        end=Position(line=line_index, character=char_index + len(node.name)),
-                    ),
-                )
-            )
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if not isinstance(target, ast.Name):
-                    continue
-                # Skip __all__ — it controls the module's public interface.
-                if target.id == "__all__":
-                    continue
-                symbols.append(
-                    (
-                        target.id,
-                        "variable",
-                        Range(
-                            start=Position(line=target.lineno - 1, character=target.col_offset),
-                            end=Position(
-                                line=target.lineno - 1,
-                                character=target.col_offset + len(target.id),
-                            ),
-                        ),
-                    )
-                )
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            target = node.target
-            symbols.append(
-                (
-                    target.id,
-                    "variable",
-                    Range(
-                        start=Position(line=target.lineno - 1, character=target.col_offset),
-                        end=Position(line=target.lineno - 1, character=target.col_offset + len(target.id)),
-                    ),
-                )
-            )
-    return symbols
-
-
-def _resolve_target_files(
-    file_path: str | None,
-    file_paths: list[str] | None,
-    root_path: str | None,
-    config: ServerConfig,
-    exclude_test_files: bool,
-) -> tuple[list[Path], set[str]]:
-    """Determine which files to scan for dead code."""
-    if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
-    if file_paths is not None:
-        target_files = [Path(p).resolve() for p in file_paths]
-    elif file_path is not None:
-        target_files = [Path(file_path).resolve()]
-    else:
-        target_files = python_files(effective_root)
-    if exclude_test_files:
-        target_files = [p for p in target_files if not _is_test_file(p)]
-    target_paths = {str(p.resolve()) for p in target_files}
-    return target_files, target_paths
 
 
 def _is_dead_code_diagnostic(diagnostic: Diagnostic) -> bool:
@@ -155,7 +43,7 @@ def _dead_item_from_diagnostic(diagnostic: Diagnostic) -> DeadCodeItem:
         file_path=diagnostic.file_path,
         range=diagnostic.range,
         reason=reason,
-        confidence=_score_confidence(name, reason),
+        confidence=score_dead_code_confidence(name, reason),
     )
 
 
@@ -196,7 +84,7 @@ async def _check_symbol(
         file_path=resolved_path,
         range=symbol_range,
         reason=reason,
-        confidence=_score_confidence(name, reason),
+        confidence=score_dead_code_confidence(name, reason),
     )
 
 
@@ -212,7 +100,8 @@ async def dead_code_detection(
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Detect dead code candidates using diagnostics and reference counts."""
-    target_files, target_paths = _resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    target_files = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    target_paths = {str(path.resolve()) for path in target_files}
 
     dead_items: dict[tuple[str, str, int, int], DeadCodeItem] = {}
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
@@ -252,9 +141,20 @@ async def dead_code_detection(
     # Phase 2: Collect symbols and check references with bounded concurrency.
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
     for path in target_files:
-        if not path.exists():
+        try:
+            symbols = iter_module_level_symbols(path, skip_decorated=True)
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path.resolve()),
+                    phase="symbol_scan",
+                    error_type=type(exc).__name__,
+                )
+            )
             continue
-        for name, kind, symbol_range in _iter_module_level_symbols(path):
+        for name, kind, symbol_range in symbols:
+            if name == "__all__":
+                continue
             if any(pattern.search(name) for pattern in compiled_excludes):
                 continue
             symbols_to_check.append((path, name, kind, symbol_range))
