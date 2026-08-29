@@ -1,0 +1,1 @@
+- **Maintenance:** Replaced direct Unreleased changelog editing with validated per-change fragments that CI requires for material pull requests and the release helper consumes atomically in canonical category order.

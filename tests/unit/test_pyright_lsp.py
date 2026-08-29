@@ -849,3 +849,45 @@ async def test_position_request_allows_in_range_zero_result(tmp_path: Path) -> N
     assert references == []
     requested = [method for method, _ in fake_client.requests]
     assert "textDocument/references" in requested
+
+
+@pytest.mark.asyncio
+async def test_warm_position_request_reads_source_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Warm validation reuses refresh content instead of reading the file twice."""
+    backend, _fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+    await backend.ensure_file_open(str(sample))
+    original_read_text = Path.read_text
+    reads: list[Path] = []
+
+    def _tracked_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        reads.append(path)
+        return original_read_text(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", _tracked_read_text)
+
+    await backend.get_definition(str(sample), 0, 0)
+
+    assert reads == [sample.resolve()]
+
+
+@pytest.mark.asyncio
+async def test_warm_position_request_refreshes_cached_source(tmp_path: Path) -> None:
+    """External source changes update both Pyright and position validation."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+    await backend.ensure_file_open(str(sample))
+    sample.write_text(sample.read_text(encoding="utf-8") + "new_line = 1\n", encoding="utf-8")
+
+    await backend.get_definition(str(sample), 4, 0)
+
+    methods = [method for method, _ in fake_client.requests]
+    assert "textDocument/definition" in methods
+    assert any("didChange" in notification[0] for notification in fake_client.notifications)

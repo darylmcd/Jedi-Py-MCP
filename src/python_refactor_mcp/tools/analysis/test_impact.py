@@ -2,9 +2,9 @@
 
 For each anchor (file, line, character) this traverses the call-hierarchy
 *callers* graph and keeps the callers that live in test files, emitting
-best-effort pytest node IDs. Node-ID derivation is heuristic: ``<file_path>::``
-plus the caller's bare symbol name. Parametrized and nested-class tests are not
-resolved to pytest's exact collected IDs (documented on
+best-effort pytest node IDs. Class-based callers include their enclosing class
+segment. Parametrized cases are not resolved to pytest's exact collected IDs
+(documented on
 :class:`TestImpactResult`).
 """
 
@@ -19,7 +19,7 @@ from python_refactor_mcp.models import (
     TestImpactEntry,
     TestImpactResult,
 )
-from python_refactor_mcp.tools.navigation.hierarchy import call_hierarchy
+from python_refactor_mcp.tools.navigation.hierarchy import call_hierarchy, enclosing_class_name
 
 
 def _is_test_path(file_path: str) -> bool:
@@ -29,7 +29,9 @@ def _is_test_path(file_path: str) -> bool:
 
 def _node_id(item: CallHierarchyItem) -> str:
     """Build a best-effort pytest node ID from a caller item."""
-    return f"{item.file_path}::{item.name}"
+    class_name = enclosing_class_name(item.file_path, item.range.start.line)
+    class_segment = f"::{class_name}" if class_name is not None else ""
+    return f"{item.file_path}{class_segment}::{item.name}"
 
 
 async def test_impact_select(

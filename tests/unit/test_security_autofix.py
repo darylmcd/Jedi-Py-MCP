@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.tools.refactoring.security_autofix import security_autofix
 
 
@@ -155,3 +156,22 @@ async def test_multiple_files_aggregate(tmp_path: Path) -> None:
     assert len(result.files_affected) == 1
     assert "Rewrote 1" in result.description
     assert "skipped 1" in result.description
+
+
+@pytest.mark.asyncio
+async def test_multi_file_apply_is_atomic_on_later_parse_failure(tmp_path: Path) -> None:
+    """A malformed later target cannot leave an earlier security fix applied."""
+    first = tmp_path / "first.py"
+    broken = tmp_path / "broken.py"
+    original = "import yaml\nx = yaml.load(s)\n"
+    first.write_text(original, encoding="utf-8")
+    broken.write_text("def oops(:\n", encoding="utf-8")
+
+    with pytest.raises(BackendError, match=r"Failed to parse .*broken\.py"):
+        await security_autofix(
+            AsyncMock(),
+            file_paths=[str(first), str(broken)],
+            apply=True,
+        )
+
+    assert first.read_text(encoding="utf-8") == original

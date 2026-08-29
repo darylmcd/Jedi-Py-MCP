@@ -400,7 +400,9 @@ class JediBackend:
                             if isinstance(signature_name, str) and signature_name:
                                 signatures.append(f"{signature_name}({', '.join(param_names)})")
                     except Exception:
-                        pass
+                        # Jedi plugin objects can raise arbitrary exceptions while
+                        # rendering optional signatures; keep the documentation item.
+                        _LOGGER.debug("Jedi help signature rendering failed", exc_info=True)
 
                 entry_name = getattr(name, "name", "")
                 entries.append(
@@ -480,7 +482,9 @@ class JediBackend:
                         raw_hint = get_type_hint_fn()
                         hint = raw_hint if isinstance(raw_hint, str) and raw_hint else None
                     except Exception:
-                        pass
+                        # Type hints are optional metadata exposed by third-party
+                        # Jedi objects with no stable exception contract.
+                        _LOGGER.debug("Jedi type-hint extraction failed", exc_info=True)
                 results.append(TypeHintResult(
                     name=entry_name,
                     type_hint=hint,
@@ -625,7 +629,9 @@ class JediBackend:
                     raw_doc = c.docstring()
                     doc = raw_doc if isinstance(raw_doc, str) and raw_doc else None
                 except Exception:
-                    pass
+                    # Completion docs are optional metadata from third-party Jedi
+                    # objects with no stable exception contract.
+                    _LOGGER.debug("Jedi completion docstring extraction failed", exc_info=True)
                 items.append(
                     CompletionItem(
                         label=name,
@@ -722,7 +728,9 @@ class JediBackend:
                     raw_doc = name.docstring(raw=True)
                     doc = raw_doc if isinstance(raw_doc, str) and raw_doc else None
                 except Exception:
-                    pass
+                    # Inferred docs are optional metadata from third-party Jedi
+                    # objects with no stable exception contract.
+                    _LOGGER.debug("Jedi inferred docstring extraction failed", exc_info=True)
                 expression = str(Path(file_path).resolve()) + f":{line}:{character}"
                 results.append(TypeInfo(
                     expression=expression,
@@ -765,14 +773,18 @@ class JediBackend:
                         if len(parts) >= 2:
                             version = parts[1]
                     except Exception:
-                        pass
+                        # Interpreter version probing is best-effort and must not
+                        # discard an otherwise usable environment entry.
+                        _LOGGER.debug("Python environment version probe failed for %s", exec_str, exc_info=True)
                     envs.append(EnvironmentInfo(
                         path=exec_str,
                         python_version=version,
                         is_virtualenv=venv_path is not None,
                     ))
             except Exception:
-                pass
+                # A malformed optional sys.prefix candidate must not prevent Jedi's
+                # own virtual-environment enumeration from running.
+                _LOGGER.debug("Python sys.prefix environment probe failed", exc_info=True)
 
             for env in jedi.find_virtualenvs():
                 env_path = str(getattr(env, "executable", getattr(env, "path", "")))

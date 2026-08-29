@@ -152,6 +152,27 @@ async def test_multi_file_aggregate(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_multi_file_apply_is_atomic_on_later_parse_failure(tmp_path: Path) -> None:
+    """A malformed later target cannot leave an earlier rewrite applied."""
+    first = tmp_path / "first.py"
+    broken = tmp_path / "broken.py"
+    original = "logger.warn(x)\n"
+    first.write_text(original, encoding="utf-8")
+    broken.write_text("def oops(:\n", encoding="utf-8")
+
+    with pytest.raises(BackendError, match=r"Failed to parse .*broken\.py"):
+        await structural_replace(
+            AsyncMock(),
+            _WARN,
+            "logger.warning($a)",
+            file_paths=[str(first), str(broken)],
+            apply=True,
+        )
+
+    assert first.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.asyncio
 async def test_nested_matches_terminate(tmp_path: Path) -> None:
     """Nested matches are each rewritten once; the output never re-matches (no loop)."""
     target = tmp_path / "m.py"

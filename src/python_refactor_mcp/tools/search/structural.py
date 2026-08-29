@@ -21,10 +21,9 @@ from python_refactor_mcp.models import (
     RefactorResult,
     ScanFailure,
     StructuralMatch,
-    TextEdit,
 )
 from python_refactor_mcp.tools.refactoring.helpers import post_apply_diagnostics
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer
+from python_refactor_mcp.util.cst_apply import apply_cst_transformer_batch
 
 from ._helpers import (
     apply_limit_items,
@@ -323,17 +322,15 @@ async def structural_replace(
             edits=[], files_affected=[], description="No files provided to scan", applied=False
         )
 
-    edits: list[TextEdit] = []
-    files_affected: list[str] = []
-    rewrites = 0
-    for fp in targets:
-        transformer = _StructuralReplacer(matcher, replacement)
-        file_edits, file_changed = apply_cst_transformer(fp, transformer, apply=apply)
-        edits.extend(file_edits)
-        files_affected.extend(file_changed)
-        rewrites += transformer.count
+    transformers: list[_StructuralReplacer] = []
 
-    files_affected = sorted(set(files_affected))
+    def _factory(_file_path: str) -> cst.CSTTransformer:
+        transformer = _StructuralReplacer(matcher, replacement)
+        transformers.append(transformer)
+        return transformer
+
+    edits, files_affected = apply_cst_transformer_batch(targets, _factory, apply=apply)
+    rewrites = sum(transformer.count for transformer in transformers)
     if not edits:
         return RefactorResult(
             edits=[], files_affected=[], description="No matches for the pattern", applied=False

@@ -1,12 +1,10 @@
-"""Re-attach parameter type annotations that rope's ``change_signature`` drops.
+"""Re-attach signature metadata that rope's ``change_signature`` drops.
 
 rope's ``ArgumentNormalizer`` / ``ArgumentAdder`` (used by the ``normalize`` /
 ``rename`` / ``reorder`` / ``add`` / ``remove`` operations) re-emit the
-parameter list without PEP 484/585 annotations. This module runs a LibCST
-post-pass on the *definition* file: it reads the annotations off the original
-function and fills any annotation rope dropped, matching by parameter name
-(robust for every name-preserving op) and, for an all-``rename`` operation set,
-by original position.
+parameter list without PEP 484/585 annotations or, in some operations, default
+values. This module runs a LibCST post-pass on the *definition* file and tracks
+parameter provenance through ordered add/remove/reorder/rename operations.
 
 It never overwrites an annotation rope kept (idempotent), and on any parse
 failure it returns the rope output unchanged — so it can only improve, never
@@ -60,70 +58,116 @@ def _positional_params(func: cst.FunctionDef) -> list[cst.Param]:
     return [*func.params.posonly_params, *func.params.params]
 
 
-def _annotations_by_name(func: cst.FunctionDef) -> dict[str, cst.Annotation]:
-    """Map every parameter name to its annotation node (where present)."""
-    out: dict[str, cst.Annotation] = {}
+def _params_by_name(func: cst.FunctionDef) -> dict[str, cst.Param]:
+    """Map every original parameter name to its CST node."""
+    out: dict[str, cst.Param] = {}
     p = func.params
     candidates: list[cst.Param] = [*p.posonly_params, *p.params, *p.kwonly_params]
     for star in (p.star_arg, p.star_kwarg):
         if isinstance(star, cst.Param):
             candidates.append(star)
     for param in candidates:
-        if param.annotation is not None:
-            out[param.name.value] = param.annotation
+        out[param.name.value] = param
     return out
+
+
+def _positional_provenance(
+    func: cst.FunctionDef,
+    operations: list[SignatureOperation],
+) -> tuple[dict[str, cst.Param], dict[str, cst.BaseExpression]]:
+    """Resolve final positional names to original params and requested defaults."""
+    original = _positional_params(func)
+    # (original index, current name, explicit default, default intentionally removed)
+    state: list[tuple[int | None, str, str | None, bool]] = [
+        (index, param.name.value, None, False) for index, param in enumerate(original)
+    ]
+
+    for operation in operations:
+        if operation.op == "reorder" and operation.new_order is not None:
+            if len(operation.new_order) == len(state) and all(
+                0 <= index < len(state) for index in operation.new_order
+            ):
+                state = [state[index] for index in operation.new_order]
+        elif operation.op == "rename" and operation.index is not None and operation.new_name:
+            if 0 <= operation.index < len(state):
+                origin, _name, _explicit, blocked = state[operation.index]
+                state[operation.index] = (origin, operation.new_name, operation.default, blocked)
+        elif operation.op == "add" and operation.index is not None and operation.name:
+            if 0 <= operation.index <= len(state):
+                state.insert(operation.index, (None, operation.name, operation.default, False))
+        elif operation.op == "remove" and operation.index is not None:
+            if 0 <= operation.index < len(state):
+                state.pop(operation.index)
+        elif (
+            operation.op == "inline_default"
+            and operation.index is not None
+            and 0 <= operation.index < len(state)
+        ):
+            origin, name, explicit, _blocked = state[operation.index]
+            state[operation.index] = (origin, name, explicit, True)
+
+    sources: dict[str, cst.Param] = {}
+    defaults: dict[str, cst.BaseExpression] = {}
+    for origin, name, explicit_default, default_blocked in state:
+        source = original[origin] if origin is not None and 0 <= origin < len(original) else None
+        if source is not None:
+            sources[name] = source
+        if default_blocked:
+            continue
+        if explicit_default is not None:
+            try:
+                defaults[name] = cst.parse_expression(explicit_default)
+            except cst.ParserSyntaxError:
+                continue
+        elif source is not None and source.default is not None:
+            defaults[name] = source.default
+    return sources, defaults
 
 
 def _fill(
     params: list[cst.Param],
-    by_name: dict[str, cst.Annotation],
-    by_pos: list[cst.Annotation | None],
-    rename_index: dict[str, int],
+    sources: dict[str, cst.Param],
+    defaults: dict[str, cst.BaseExpression],
 ) -> tuple[list[cst.Param], bool]:
-    """Return params with missing annotations filled, plus a changed flag."""
+    """Return params with missing annotations/defaults filled, plus a flag."""
     changed = False
     out: list[cst.Param] = []
     for param in params:
-        if param.annotation is None:
-            # A renamed parameter must take its annotation from the ORIGINAL
-            # position — never a by-name match, whose name may now alias a
-            # different original parameter after a name swap (e.g. b->q, a->b).
-            restored: cst.Annotation | None = None
-            if param.name.value in rename_index:
-                idx = rename_index[param.name.value]
-                if 0 <= idx < len(by_pos):
-                    restored = by_pos[idx]
-            if restored is None:
-                restored = by_name.get(param.name.value)
-            if restored is not None:
-                if param.default is not None:
-                    # PEP 8: an annotated parameter with a default uses ' = '.
-                    param = param.with_changes(
-                        annotation=restored,
-                        equal=cst.AssignEqual(
-                            whitespace_before=cst.SimpleWhitespace(" "),
-                            whitespace_after=cst.SimpleWhitespace(" "),
-                        ),
-                    )
-                else:
-                    param = param.with_changes(annotation=restored)
-                changed = True
+        name = param.name.value
+        source = sources.get(name)
+        annotation = param.annotation
+        default = param.default
+        if annotation is None and source is not None and source.annotation is not None:
+            annotation = source.annotation
+            changed = True
+        if default is None and name in defaults:
+            default = defaults[name]
+            changed = True
+        if annotation is not param.annotation or default is not param.default:
+            changes: dict[str, object] = {"annotation": annotation, "default": default}
+            if annotation is not None and default is not None:
+                # PEP 8: an annotated parameter with a default uses ' = '.
+                changes["equal"] = cst.AssignEqual(
+                    whitespace_before=cst.SimpleWhitespace(" "),
+                    whitespace_after=cst.SimpleWhitespace(" "),
+                )
+            param = param.with_changes(**changes)
         out.append(param)
     return out, changed
 
 
-def restore_param_annotations(
+def restore_signature_metadata(
     original_src: str,
     new_src: str,
     line: int,
     character: int,
     operations: list[SignatureOperation],
 ) -> str:
-    """Re-attach annotations rope dropped from the target function definition.
+    """Re-attach annotations/defaults rope dropped from the target definition.
 
     *line* / *character* are the rope (0-based) position of the function name.
     Returns the corrected source, or *new_src* unchanged when nothing could be
-    restored (no target def, no dropped annotations, or unparseable input).
+    restored (no target def, no dropped metadata, or unparseable input).
     """
     try:
         orig_module = cst.parse_module(original_src)
@@ -136,32 +180,25 @@ def restore_param_annotations(
     if orig_func is None or new_func is None or orig_func.name.value != new_func.name.value:
         return new_src
 
-    by_name = _annotations_by_name(orig_func)
-    by_pos = [p.annotation for p in _positional_params(orig_func)]
-
-    # Index-based restore for the renamed parameter is only safe when every
-    # operation is a rename (positions are preserved); a reorder/add/remove
-    # would shift indices and make the original-position annotation wrong.
-    rename_index: dict[str, int] = {}
-    if operations and all(op.op == "rename" for op in operations):
-        rename_index = {
-            op.new_name: op.index
-            for op in operations
-            if op.new_name is not None and op.index is not None
-        }
+    by_name = _params_by_name(orig_func)
+    positional_sources, positional_defaults = _positional_provenance(orig_func, operations)
+    defaults_by_name = {
+        name: param.default for name, param in by_name.items() if param.default is not None
+    }
+    defaults_by_name.update(positional_defaults)
 
     params = new_func.params
-    posonly, c1 = _fill(list(params.posonly_params), by_name, by_pos, rename_index)
-    normal, c2 = _fill(list(params.params), by_name, by_pos, rename_index)
-    kwonly, c3 = _fill(list(params.kwonly_params), by_name, by_pos, rename_index)
+    posonly, c1 = _fill(list(params.posonly_params), positional_sources, positional_defaults)
+    normal, c2 = _fill(list(params.params), positional_sources, positional_defaults)
+    kwonly, c3 = _fill(list(params.kwonly_params), by_name, defaults_by_name)
     star_changes: list[bool] = []
     star_arg = params.star_arg
     if isinstance(star_arg, cst.Param):
-        (star_arg,), sc = _fill([star_arg], by_name, by_pos, rename_index)
+        (star_arg,), sc = _fill([star_arg], by_name, defaults_by_name)
         star_changes.append(sc)
     star_kwarg = params.star_kwarg
     if isinstance(star_kwarg, cst.Param):
-        (star_kwarg,), sc = _fill([star_kwarg], by_name, by_pos, rename_index)
+        (star_kwarg,), sc = _fill([star_kwarg], by_name, defaults_by_name)
         star_changes.append(sc)
 
     returns = new_func.returns

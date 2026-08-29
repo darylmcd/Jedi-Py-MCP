@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -18,6 +19,7 @@ from python_refactor_mcp.models import (
 from ._protocols import PyrightNavigationBackend
 
 _VALID_DIRECTIONS = {"callers", "callees", "both"}
+_LOGGER = logging.getLogger(__name__)
 
 # Type hierarchy uses its own direction vocabulary with backward-compat aliases.
 _VALID_TYPE_DIRECTIONS = {"supertypes", "subtypes", "both"}
@@ -104,6 +106,24 @@ def _resolve_class_position(
     return None
 
 
+def enclosing_class_name(file_path: str, line: int) -> str | None:
+    """Return the innermost class containing a 0-based source line."""
+    try:
+        tree = ast.parse(Path(file_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SyntaxError):
+        return None
+
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and node.lineno - 1 <= line <= (node.end_lineno or node.lineno) - 1
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda node: node.lineno).name
+
+
 async def call_hierarchy(
     pyright: PyrightNavigationBackend,
     file_path: str,
@@ -154,7 +174,8 @@ async def call_hierarchy(
                                 roots = new_roots
                             break
         except (OSError, SyntaxError):
-            pass  # Keep original roots on any failure.
+            # AST retry is optional enrichment; retain the original backend roots.
+            _LOGGER.debug("class call-hierarchy retry failed for %s", file_path, exc_info=True)
 
     # If no roots found or the root has an empty name (common for class methods),
     # try locating the method/function name via AST and retrying.
@@ -181,7 +202,8 @@ async def call_hierarchy(
                         roots = retry_roots
                         break
         except (OSError, SyntaxError):
-            pass
+            # AST retry is optional enrichment; retain the original backend roots.
+            _LOGGER.debug("call-hierarchy symbol retry failed for %s", file_path, exc_info=True)
 
     if not roots:
         placeholder = CallHierarchyItem.model_validate(
@@ -254,7 +276,8 @@ async def type_hierarchy(
                         fallback_name = node.name
                         break
             except (OSError, SyntaxError):
-                pass
+                # The placeholder remains valid without optional AST class naming.
+                _LOGGER.debug("type-hierarchy placeholder derivation failed for %s", file_path, exc_info=True)
         placeholder = TypeHierarchyItem.model_validate(
             {
                 "name": fallback_name,

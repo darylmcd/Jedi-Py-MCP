@@ -1,0 +1,1 @@
+- **Fixed:** Hardened backend error provenance and fallback diagnostics, made multi-file codemods rollback-safe, preserved signature defaults through ordered changes, emitted exact class-based pytest node IDs, and eliminated redundant/stale Pyright position reads.

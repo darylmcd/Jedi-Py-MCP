@@ -74,6 +74,50 @@ def apply_text_edits(file_path: str, edits: list[TextEdit], content: str | None 
     return content
 
 
+def apply_text_edits_atomically(edits: list[TextEdit]) -> list[str]:
+    """Apply a multi-file edit set as one rollback-capable batch.
+
+    Every source file is read and every updated payload is computed before the
+    first write. If a later atomic write fails, already-written files are
+    restored byte-for-byte. Returns the sorted affected paths.
+    """
+    edits_by_file: dict[str, list[TextEdit]] = {}
+    for edit in edits:
+        edits_by_file.setdefault(edit.file_path, []).append(edit)
+
+    originals: dict[str, bytes] = {}
+    updated: dict[str, str] = {}
+    for file_path, file_edits in edits_by_file.items():
+        path = Path(file_path).resolve()
+        try:
+            original_bytes = path.read_bytes()
+            original_text = original_bytes.decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise RopeError(f"Cannot prepare atomic edit batch for {path}: {exc}") from exc
+        resolved_path = str(path)
+        originals[resolved_path] = original_bytes
+        updated[resolved_path] = apply_text_edits(resolved_path, file_edits, content=original_text)
+
+    written: list[str] = []
+    try:
+        for file_path in sorted(updated):
+            write_atomic(file_path, updated[file_path])
+            written.append(file_path)
+    except Exception as exc:
+        rollback_failures: list[str] = []
+        for file_path in reversed(written):
+            try:
+                write_bytes_atomic(file_path, originals[file_path])
+            except Exception:
+                rollback_failures.append(file_path)
+        if rollback_failures:
+            failed = ", ".join(sorted(rollback_failures))
+            raise RopeError(f"Atomic edit batch failed and rollback failed for: {failed}") from exc
+        raise RopeError("Atomic edit batch failed; all written files were restored") from exc
+
+    return sorted(updated)
+
+
 def build_unified_diff(file_path: str, edits: list[TextEdit]) -> str:
     """Build a unified diff preview for the provided edits against current disk content."""
     path = Path(file_path).resolve()

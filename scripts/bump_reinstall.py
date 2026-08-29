@@ -16,6 +16,11 @@ from datetime import date
 from pathlib import Path
 from typing import Final
 
+if not __package__:  # Direct ``python scripts/bump_reinstall.py`` execution.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.changelog_fragments import load_fragments, render_release_body
+
 _PACKAGE_NAME: Final = "python-refactor-mcp"
 _VERSION_PATTERN: Final = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 _BUMP_KINDS: Final = frozenset({"major", "minor", "patch"})
@@ -59,6 +64,7 @@ class ReleaseFiles:
     package_init: Path
     manifest: Path
     changelog: Path
+    changelog_fragments: Path
     lock: Path
 
     @classmethod
@@ -68,6 +74,7 @@ class ReleaseFiles:
             package_init=repo_root / "src" / "python_refactor_mcp" / "__init__.py",
             manifest=repo_root / "manifest.json",
             changelog=repo_root / "CHANGELOG.md",
+            changelog_fragments=repo_root / "changelog.d",
             lock=repo_root / "uv.lock",
         )
 
@@ -124,18 +131,34 @@ def update_version_surfaces(files: ReleaseFiles, current: ReleaseVersion, target
         _atomic_write_text(path, _replace_exactly_once(original, pattern, replacement, label))
 
 
-def assemble_changelog(changelog: Path, current: ReleaseVersion, target: ReleaseVersion, released_on: date) -> None:
-    """Move the populated Unreleased body into a dated release section."""
-    original = changelog.read_text(encoding="utf-8")
+def _delete_fragment(path: Path) -> None:
+    """Delete one consumed fragment (seam for atomicity regression tests)."""
+    path.unlink()
+
+
+def assemble_changelog(
+    changelog: Path,
+    fragment_dir: Path,
+    current: ReleaseVersion,
+    target: ReleaseVersion,
+    released_on: date,
+) -> None:
+    """Assemble and atomically consume validated changelog fragments."""
+    fragments = load_fragments(fragment_dir)
+    if not fragments:
+        raise ValueError("Refusing to cut a release without changelog fragments")
+    original_bytes = changelog.read_bytes()
+    original = original_bytes.decode("utf-8")
     normalized = original.replace("\r\n", "\n")
     section_match = re.search(r"(?ms)^## \[Unreleased\]\s*\n(?P<body>.*?)(?=^## \[)", normalized)
     if section_match is None:
         raise ValueError("CHANGELOG.md must contain an Unreleased section followed by a released section")
     body = section_match.group("body").strip()
-    if not body:
-        raise ValueError("Refusing to cut a release from an empty Unreleased section")
+    if body:
+        raise ValueError("CHANGELOG.md Unreleased must stay empty; add notes under changelog.d")
 
-    release_section = f"## [Unreleased]\n\n## [{target}] - {released_on.isoformat()}\n\n{body}\n\n"
+    release_body = render_release_body(fragments)
+    release_section = f"## [Unreleased]\n\n## [{target}] - {released_on.isoformat()}\n\n{release_body}\n\n"
     updated = normalized[: section_match.start()] + release_section + normalized[section_match.end() :]
     updated = _replace_exactly_once(
         updated,
@@ -151,7 +174,16 @@ def assemble_changelog(changelog: Path, current: ReleaseVersion, target: Release
         "Unreleased link anchor",
     )
     newline = "\r\n" if "\r\n" in original else "\n"
-    _atomic_write_text(changelog, updated.replace("\n", newline), newline="")
+    fragment_snapshots = {fragment.path: fragment.path.read_bytes() for fragment in fragments}
+    try:
+        _atomic_write_text(changelog, updated.replace("\n", newline), newline="")
+        for fragment in fragments:
+            _delete_fragment(fragment.path)
+    except BaseException:
+        _atomic_write_text(changelog, original, newline="")
+        for path, content in fragment_snapshots.items():
+            path.write_bytes(content)
+        raise
 
 
 def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
@@ -249,6 +281,8 @@ def bump_and_reinstall(repo_root: Path, requested: str, target_python: str) -> R
     """Execute the guarded bump, lock refresh, locked reinstall, and CLI verification."""
     files = ReleaseFiles.from_root(repo_root)
     missing = [str(path) for path in files.all() if not path.is_file()]
+    if not files.changelog_fragments.is_dir():
+        missing.append(str(files.changelog_fragments))
     if missing:
         raise FileNotFoundError(f"Missing release-managed files: {', '.join(missing)}")
 
@@ -256,17 +290,27 @@ def bump_and_reinstall(repo_root: Path, requested: str, target_python: str) -> R
     target = resolve_target(current, requested)
     python_executable = _resolve_executable(target_python)
     uv_executable = _resolve_executable("uv")
+    fragments = load_fragments(files.changelog_fragments)
     snapshots = {path: path.read_bytes() for path in files.all()}
+    fragment_snapshots = {fragment.path: fragment.path.read_bytes() for fragment in fragments}
 
     with tempfile.TemporaryDirectory(prefix="python-refactor-mcp-release-") as temp_dir:
         requirements = Path(temp_dir) / "runtime-requirements.txt"
         try:
             update_version_surfaces(files, current, target)
-            assemble_changelog(files.changelog, current, target, date.today())
+            assemble_changelog(
+                files.changelog,
+                files.changelog_fragments,
+                current,
+                target,
+                date.today(),
+            )
             _run([uv_executable, "lock"], repo_root)
             _export_locked_runtime(uv_executable, repo_root, requirements)
         except BaseException:
             for path, content in snapshots.items():
+                path.write_bytes(content)
+            for path, content in fragment_snapshots.items():
                 path.write_bytes(content)
             raise
 

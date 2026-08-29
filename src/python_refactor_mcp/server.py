@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.errors import BackendError
@@ -138,11 +139,11 @@ def _get_multi_context(ctx: Context) -> MultiWorkspaceContext:
 async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
     """Resolve the WorkspaceBackends for a tool call from its context and kwargs.
 
-    Performs the multi-workspace context lookup, the lazy MCP roots fetch,
-    primary-path extraction from path parameters, and the registry lookup
-    (with the most-recent / CLI ``__fallback__`` paths for tools that take no
-    file path). Returns ``None`` when no workspace can be resolved (e.g. no
-    context, or no MultiWorkspaceContext lifespan payload).
+    Performs the multi-workspace context lookup, primary-path extraction from
+    path parameters, and the registry lookup (with the most-recent / CLI
+    ``__fallback__`` paths for tools that take no file path). Returns ``None``
+    when no workspace can be resolved (e.g. no context, or no
+    MultiWorkspaceContext lifespan payload).
     """
     multi_ctx: MultiWorkspaceContext | None = None
     if ctx is not None:
@@ -248,7 +249,10 @@ def _tool_error_boundary(  # noqa: UP047
             try:
                 return await func(*args, **kwargs)
             except BackendError as exc:
-                raise ValueError(str(exc)) from exc
+                # Backend failures are anticipated tool failures. ToolError keeps
+                # the MCP SDK from classifying them as crashes, while the stable
+                # prefix preserves backend provenance in the text-only error result.
+                raise ToolError(f"[{exc.code}] {exc}") from exc
             finally:
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
@@ -598,8 +602,8 @@ def run_server(workspace_root: str | None = None) -> None:
 
     If *workspace_root* is provided, backends for that workspace are
     eagerly initialized at startup.  If omitted, the server starts cold
-    and discovers workspaces dynamically from MCP roots or file_path
-    parameters on the first tool call.
+    and discovers workspaces dynamically from path parameters on the first
+    path-bearing tool call.
     """
     global _workspace_root  # noqa: PLW0603
     _workspace_root = Path(workspace_root).resolve() if workspace_root else None
