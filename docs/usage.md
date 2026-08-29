@@ -8,6 +8,11 @@ Start the stdio server against a workspace:
 python -m python_refactor_mcp C:\path\to\python\project
 ```
 
+The default `refactoring` profile combines every mutating tool with the
+inspection and recovery tools needed for safe edits. To advertise only the
+read-only analysis surface, set
+`PYTHON_REFACTOR_MCP_TOOL_PROFILE=analysis` before starting the process.
+
 Check the CLI version:
 
 ```powershell

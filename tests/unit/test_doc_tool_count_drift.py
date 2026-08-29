@@ -20,8 +20,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AI_DOCS = REPO_ROOT / "ai_docs"
 ALLOWED_SOURCES = {
@@ -93,18 +91,16 @@ def _policed_doc_files() -> list[Path]:
     return files
 
 
-@pytest.mark.asyncio
-async def test_server_wide_counts_agree_with_live_surface() -> None:
-    """Every server-wide tool-count claim in current-state docs equals len(tools).
+def test_server_wide_counts_agree_with_complete_catalog() -> None:
+    """Every server-wide tool-count claim equals the complete catalog size.
 
-    This is the cross-file agreement gate: the live MCP surface is the single
-    source of truth, and any doc that states the total (README, reference.md,
-    docs/tool-reference.md, .ai-doc-audit.md, ...) must match it. Catches the
-    drift class where a tool is added but a reference point is left stale.
+    Profiles advertise bounded subsets, so the declarative registration catalog
+    is the source of truth for docs that state the complete total.
     """
     from python_refactor_mcp import server  # noqa: PLC0415
+    from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
 
-    live = len(await server.mcp.list_tools())
+    catalog_count = len(TOOL_RECORDS) + len(server.EXPLICIT_TOOL_RECORDS)
 
     offenders: list[tuple[str, int, int, str]] = []
     for path in _policed_doc_files():
@@ -112,21 +108,22 @@ async def test_server_wide_counts_agree_with_live_surface() -> None:
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for match in _LIVE_COUNT_RE.finditer(line):
                 value = int(match.group(1))
-                if value >= SERVER_WIDE_THRESHOLD and value != live:
+                if value >= SERVER_WIDE_THRESHOLD and value != catalog_count:
                     offenders.append((rel, lineno, value, line.strip()))
 
     assert offenders == [], (
-        f"Server-wide tool counts disagree with the live surface ({live} tools). "
-        f"Update each to {live} (or move point-in-time counts under plans/ reports/ "
+        f"Server-wide tool counts disagree with the catalog ({catalog_count} tools). "
+        f"Update each to {catalog_count} (or move point-in-time counts under plans/ reports/ "
         f"or CHANGELOG):\n  "
         + "\n  ".join(f"{rel}:{lineno}: found {value} — {line}" for rel, lineno, value, line in offenders)
     )
 
 
-async def _live_tool_count() -> int:
+def _catalog_tool_count() -> int:
     from python_refactor_mcp import server  # noqa: PLC0415
+    from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
 
-    return len(await server.mcp.list_tools())
+    return len(TOOL_RECORDS) + len(server.EXPLICIT_TOOL_RECORDS)
 
 
 def _assert_categories_consistent(
@@ -144,17 +141,15 @@ def _assert_categories_consistent(
     assert total == live, f"{source}: stated total {total} != live MCP surface {live}"
 
 
-@pytest.mark.asyncio
-async def test_reference_md_category_counts_consistent() -> None:
-    """ai_docs reference.md: `### Cat (N tools)` == names listed, summing to the
-    `## Tool Surface (N tools)` total, which equals the live surface."""
-    live = await _live_tool_count()
+def test_reference_md_category_counts_consistent() -> None:
+    """Reference category counts sum to the complete catalog."""
+    catalog_count = _catalog_tool_count()
     lines = (AI_DOCS / "domains" / "python-refactor" / "reference.md").read_text(encoding="utf-8").splitlines()
 
     total: int | None = None
     categories: list[tuple[str, int, int]] = []
     for idx, line in enumerate(lines):
-        total_match = re.match(r"## Tool Surface \((\d+) tools\)", line)
+        total_match = re.match(r"## Tool (?:Surface|Catalog) \((\d+) tools\)", line)
         if total_match:
             total = int(total_match.group(1))
             continue
@@ -170,19 +165,18 @@ async def test_reference_md_category_counts_consistent() -> None:
             j += 1
         categories.append((name, declared, listed))
 
-    assert total is not None, "reference.md is missing its '## Tool Surface (N tools)' header"
-    _assert_categories_consistent(source="reference.md", total=total, live=live, categories=categories)
+    assert total is not None, "reference.md is missing its '## Tool Catalog (N tools)' header"
+    _assert_categories_consistent(source="reference.md", total=total, live=catalog_count, categories=categories)
 
 
-@pytest.mark.asyncio
-async def test_docs_tool_reference_category_counts_consistent() -> None:
+def test_docs_tool_reference_category_counts_consistent() -> None:
     """docs/tool-reference.md: `## Cat (N)` == table rows under it, summing to the
-    'N MCP tools' header total, which equals the live surface."""
-    live = await _live_tool_count()
+    'N MCP tools' header total, which equals the complete catalog."""
+    catalog_count = _catalog_tool_count()
     lines = (REPO_ROOT / "docs" / "tool-reference.md").read_text(encoding="utf-8").splitlines()
 
-    header_match = re.search(r"(\d+) MCP tools", "\n".join(lines))
-    assert header_match is not None, "docs/tool-reference.md is missing its 'N MCP tools' header"
+    header_match = re.search(r"(\d+)(?: MCP tools|-tool catalog)", "\n".join(lines))
+    assert header_match is not None, "docs/tool-reference.md is missing its complete-catalog count"
     total = int(header_match.group(1))
 
     categories: list[tuple[str, int, int]] = []
@@ -200,4 +194,9 @@ async def test_docs_tool_reference_category_counts_consistent() -> None:
             j += 1
         categories.append((name, declared, rows))
 
-    _assert_categories_consistent(source="docs/tool-reference.md", total=total, live=live, categories=categories)
+    _assert_categories_consistent(
+        source="docs/tool-reference.md",
+        total=total,
+        live=catalog_count,
+        categories=categories,
+    )

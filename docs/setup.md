@@ -94,7 +94,19 @@ Other runtime discovery:
 
 - `pyrightconfig.json` is detected from the workspace root.
 - `PYRIGHT_LANGSERVER` can override the default `pyright-langserver` executable.
+- `PYTHON_REFACTOR_MCP_TOOL_PROFILE` selects `refactoring` (default) or the read-only `analysis` surface. Unknown values fail startup.
+- `MAX_WORKSPACES` sets the positive-integer workspace cache limit (default `3`). Invalid values fail startup with a configuration error.
 - Rope preferences are initialized from server defaults in `config.py`.
+
+For an analysis-only PowerShell session:
+
+```powershell
+$env:PYTHON_REFACTOR_MCP_TOOL_PROFILE = "analysis"
+python -m python_refactor_mcp C:\path\to\python\project
+```
+
+MCP clients that support per-server environment values can set the same key in
+their server configuration instead of changing the parent shell environment.
 
 ## MCP Client Configuration
 

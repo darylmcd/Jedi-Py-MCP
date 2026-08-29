@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import contextvars
 import logging
-import os
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -18,6 +16,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp import __version__
+from python_refactor_mcp.config import TOOL_PROFILE_ENV, discover_max_workspaces, discover_tool_profile
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import (
     BackendLiveness,
@@ -143,17 +142,14 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
     path parameters, and the registry lookup (with the most-recent / CLI
     ``__fallback__`` paths for tools that take no file path). Returns ``None``
     when no workspace can be resolved (e.g. no context, or no
-    MultiWorkspaceContext lifespan payload).
+    MultiWorkspaceContext lifespan payload). A malformed supplied context is
+    rejected immediately so the protocol/lifecycle fault is not misreported as
+    a missing backend later in the tool body.
     """
-    multi_ctx: MultiWorkspaceContext | None = None
-    if ctx is not None:
-        with contextlib.suppress(RuntimeError):
-            multi_ctx = _get_multi_context(ctx)
-
-    if multi_ctx is None:
+    if ctx is None:
         return None
 
-    assert ctx is not None
+    multi_ctx = _get_multi_context(ctx)
     registry = multi_ctx.registry
 
     # Find the primary file path from kwargs.
@@ -217,7 +213,7 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
             validate_identifier(value, param_name)
 
 
-def _tool_error_boundary(  # noqa: UP047
+def _tool_error_boundary(  # noqa: UP047  # pyright: ignore[reportUnusedFunction]
     func: Callable[..., Awaitable[Any]],
 ) -> Callable[..., Awaitable[Any]]:
     """Convert backend errors into user-correctable tool errors.
@@ -270,7 +266,7 @@ def _tool_error_boundary(  # noqa: UP047
 async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContext]:
     """Create workspace registry and optionally pre-warm the CLI workspace."""
     _ = server
-    max_ws = int(os.environ.get("MAX_WORKSPACES", "3"))
+    max_ws = discover_max_workspaces()
     registry = WorkspaceRegistry(max_workspaces=max_ws)
 
     # Pre-warm CLI workspace if provided.
@@ -288,8 +284,13 @@ async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContex
         await registry.shutdown_all()
 
 
-_SERVER_INSTRUCTIONS = """\
+_ACTIVE_TOOL_PROFILE = discover_tool_profile()
+
+_SERVER_INSTRUCTIONS = f"""\
 Python Refactor MCP provides semantic code analysis and automated refactoring for Python projects.
+
+Active tool profile: {_ACTIVE_TOOL_PROFILE}. Configure {TOOL_PROFILE_ENV} as
+"analysis" or "refactoring" before startup to select the advertised surface.
 
 Tool categories:
 - **Analysis** (find_references, get_type_info, get_diagnostics, ...): Inspect code without modifying it.
@@ -313,27 +314,23 @@ mcp = MCPServer(
     version=__version__,
 )
 
-# Register the 86 pure-delegation tools and pull in the shared annotation
-# constants used by the eleven explicit wrappers below. Placed here (not at the
-# top) so it runs after this module's ``_get_current_backends`` /
-# ``_tool_error_boundary`` are defined: ``tool_registry`` imports those names
-# back from this module — a deliberate, well-ordered import cycle.
+# Pull in the declarative registration types and shared annotation constants
+# used by the eleven explicit wrappers below. Registration is deferred until
+# every wrapper is defined so a single profile policy owns the advertised
+# surface. Placed here (not at the top) because ``tool_registry`` imports
+# ``_get_current_backends`` back from this module.
 from python_refactor_mcp.tool_registry import (  # noqa: E402
     _DESTRUCTIVE,  # pyright: ignore[reportPrivateUsage]
     _READONLY,  # pyright: ignore[reportPrivateUsage]
+    ToolRecord,
     register_tools,
 )
-
-register_tools(mcp)
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Analysis tools
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def get_completions(
     ctx: Context,
     file_path: str,
@@ -353,8 +350,6 @@ async def get_completions(
     return result
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def get_inlay_hints(
     ctx: Context,
     file_path: str,
@@ -388,8 +383,6 @@ async def get_inlay_hints(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def get_symbol_outline(
     ctx: Context,
     file_path: str | None = None,
@@ -427,8 +420,6 @@ async def get_symbol_outline(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
-@_tool_error_boundary
 async def argument_normalizer(
     ctx: Context,
     file_path: str,
@@ -444,8 +435,6 @@ async def argument_normalizer(
     return result
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
-@_tool_error_boundary
 async def argument_default_inliner(
     ctx: Context,
     file_path: str,
@@ -467,8 +456,6 @@ async def argument_default_inliner(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def find_unused_imports(
     ctx: Context,
     file_path: str | None = None,
@@ -489,8 +476,6 @@ async def find_unused_imports(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def get_test_coverage_map(
     ctx: Context,
     file_path: str | None = None,
@@ -503,8 +488,6 @@ async def get_test_coverage_map(
     return result
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def security_scan(
     ctx: Context,
     file_path: str | None = None,
@@ -517,8 +500,6 @@ async def security_scan(
     return result
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
-@_tool_error_boundary
 async def security_autofix(
     ctx: Context,
     file_path: str | None = None,
@@ -532,8 +513,6 @@ async def security_autofix(
     return result
 
 
-@mcp.tool(annotations=_DESTRUCTIVE)
-@_tool_error_boundary
 async def structural_replace(
     ctx: Context,
     pattern: str,
@@ -583,13 +562,32 @@ def _build_server_status(multi_ctx: MultiWorkspaceContext) -> ServerStatus:
     )
 
 
-@mcp.tool(annotations=_READONLY)
-@_tool_error_boundary
 async def server_status(ctx: Context) -> ServerStatus:
     """Report read-only server health: version, known workspace roots, and per-workspace backend liveness (Pyright subprocess up, Jedi/rope ready). Use to tell whether results came from a healthy Pyright or a degraded Jedi fallback. Works even when no workspace is loaded. Probes are cheap and non-blocking. Related: list_environments, restart_server."""
     status = _build_server_status(_get_multi_context(ctx))
     _LOGGER.debug("server_status workspaces=%s degraded=%s", len(status.active_workspaces), status.degraded)
     return status
+
+
+EXPLICIT_TOOL_RECORDS: tuple[ToolRecord, ...] = (
+    ToolRecord(get_completions, _READONLY),
+    ToolRecord(get_inlay_hints, _READONLY),
+    ToolRecord(get_symbol_outline, _READONLY),
+    ToolRecord(argument_normalizer, _DESTRUCTIVE),
+    ToolRecord(argument_default_inliner, _DESTRUCTIVE),
+    ToolRecord(find_unused_imports, _READONLY),
+    ToolRecord(get_test_coverage_map, _READONLY),
+    ToolRecord(security_scan, _READONLY),
+    ToolRecord(security_autofix, _DESTRUCTIVE),
+    ToolRecord(structural_replace, _DESTRUCTIVE),
+    ToolRecord(server_status, _READONLY),
+)
+
+register_tools(
+    mcp,
+    _ACTIVE_TOOL_PROFILE,
+    extra_records=EXPLICIT_TOOL_RECORDS,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

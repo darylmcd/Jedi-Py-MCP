@@ -24,8 +24,11 @@ def sample_workspace(tmp_path: Path) -> Path:
 
 
 @pytest_asyncio.fixture
-async def mcp_session(sample_workspace: Path) -> AsyncIterator[ClientSession]:
-    """Start the MCP server over stdio and yield an initialized client session."""
+async def mcp_session(
+    request: pytest.FixtureRequest,
+    sample_workspace: Path,
+) -> AsyncIterator[ClientSession]:
+    """Start the requested MCP profile over stdio and yield a client session."""
     if os.environ.get("RUN_MCP_INTEGRATION") != "1":
         pytest.skip(
             "Run ./scripts/test-integration.ps1 or set RUN_MCP_INTEGRATION=1 "
@@ -47,9 +50,14 @@ async def mcp_session(sample_workspace: Path) -> AsyncIterator[ClientSession]:
     else:
         pytest.skip("pyright-langserver is unavailable for integration tests.")
 
+    tool_profile = getattr(request, "param", "refactoring")
+    if tool_profile not in {"analysis", "refactoring"}:
+        raise ValueError(f"Unknown integration-test tool profile: {tool_profile!r}")
+
     server_env = {
         **os.environ,
         "PYTHONPATH": str(repo_root / "src"),
+        "PYTHON_REFACTOR_MCP_TOOL_PROFILE": tool_profile,
         "PYRIGHT_LANGSERVER": pyright_path,
         "PATH": str(scripts_dir) + os.pathsep + os.environ.get("PATH", ""),
     }

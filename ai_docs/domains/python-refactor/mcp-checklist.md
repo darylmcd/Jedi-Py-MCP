@@ -64,7 +64,7 @@ Use this for each existing or proposed tool.
 Current tool surface is enumerated in `reference.md` (sibling file). Coverage should be reviewed against sections A and B whenever tools are added or modified.
 
 Minimum per-release checks for current tools:
-- [ ] Tool table in `README.md` matches actual server registration.
+- [ ] Tool reference matches the complete catalog and profile contract tests cover every registration.
 - [ ] Domain reference in `ai_docs/domains/python-refactor/reference.md` is current.
 - [ ] Integration lane (`./scripts/test-integration.ps1`) remains green.
 - [ ] CI workflow includes lint, type checks, unit tests, integration tests.

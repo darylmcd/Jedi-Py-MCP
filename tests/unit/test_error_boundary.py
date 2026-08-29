@@ -145,13 +145,12 @@ async def test_resolve_backends_cli_fallback_when_no_recent(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_resolve_backends_none_when_no_multi_ctx() -> None:
-    """A ctx without a MultiWorkspaceContext lifespan payload resolves to None."""
+async def test_resolve_backends_rejects_invalid_multi_ctx() -> None:
+    """A malformed supplied lifespan context preserves its specific diagnosis."""
     ctx = SimpleNamespace(request_context=SimpleNamespace(lifespan_context=object(), session=MagicMock()))
 
-    resolved = await _resolve_backends(ctx, {"file_path": "/somewhere/mod.py"})
-
-    assert resolved is None
+    with pytest.raises(RuntimeError, match="valid MultiWorkspaceContext lifespan payload"):
+        await _resolve_backends(ctx, {"file_path": "/somewhere/mod.py"})
 
 
 @pytest.mark.asyncio

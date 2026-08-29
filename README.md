@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml)
 
-Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactoring. It combines three backends behind one MCP tool surface:
+Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactoring. It combines three backends behind bounded MCP tool profiles:
 
 - Pyright for semantic analysis, references, diagnostics, definitions, and call hierarchy.
 - Jedi for fallback analysis in dynamic or weakly typed code.
 - rope for edit generation and refactoring-safe file mutations.
 
-**100 MCP tools** spanning analysis, navigation, refactoring, search, metrics, history management, and utilities.
+**100-tool catalog** spanning analysis, navigation, refactoring, search, metrics, history management, and utilities. The default `refactoring` profile advertises a curated 67; the read-only `analysis` profile advertises 56.
 
 ## Documentation
 

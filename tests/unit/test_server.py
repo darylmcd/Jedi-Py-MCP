@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from python_refactor_mcp import server
+from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
+from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE
 
 # Shared 0-based position convention sentence. Every position-based tool
 # description must embed this verbatim; this constant is the single source of
@@ -17,9 +19,13 @@ POSITION_CONVENTION_PHRASE = "Positions are 0-based (line and character offsets,
 async def test_server_registers_expected_tool_surface() -> None:
     """Ensure the current MCP tool surface is registered on the MCP instance."""
     tools = await server.mcp.list_tools()
-    assert len(tools) == 100
-    assert "convert_to_dataclass" in {tool.name for tool in tools}
-    assert "check_type_stub_freshness" in {tool.name for tool in tools}
+    names = {tool.name for tool in tools}
+    assert DEFAULT_TOOL_PROFILE == "refactoring"
+    assert len(tools) == 67
+    assert len(tools) < MAX_TOOLS_PER_PROFILE
+    assert {"convert_to_dataclass", "prepare_rename", "get_diagnostics", "server_status"} <= names
+    assert "check_type_stub_freshness" not in names
+    assert "Active tool profile: refactoring" in (server.mcp.instructions or "")
     assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in tools)
 
 
