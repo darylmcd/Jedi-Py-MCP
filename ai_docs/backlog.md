@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-29T17:17:50Z
+**updated_at:** 2026-08-29T22:53:43Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -57,7 +57,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `module-dependency-cycle-accuracy` | Medium | — | **Make dependency cycles complete and package-aware** — fix shared-node cycle suppression and resolve relative-import edges before building autofix on this graph. [type: reliability] [source: session-20260829] | S | items/module-dependency-cycle-accuracy.md |
+| `server-tool-registry-import-cycle` | Medium | — | **Break the server/tool-registry import cycle** — move backend access and error-boundary wiring behind an acyclic registration seam; remove delayed private imports. [type: architecture] [source: session-20260829] | M | items/server-tool-registry-import-cycle.md |
 
 ## Low
 

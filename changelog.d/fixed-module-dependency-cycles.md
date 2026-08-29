@@ -1,0 +1,1 @@
+- **Fixed:** Made module dependency cycles complete and deterministic, resolved package-relative imports in source layouts, preserved internal edge evidence, and excluded virtual-environment sources from scans.
