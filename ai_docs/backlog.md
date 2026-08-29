@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-29T13:35:19Z
+**updated_at:** 2026-08-29T15:31:44Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -69,8 +69,6 @@
 | `cand-docstring-sync` | Low | — | **New tool `docstring_sync`** — diff signatures vs docstring params and auto-update Google/NumPy/Sphinx styles. Weaker evidence — proposed candidate (BRAIN-007). [type: enhancement] [source: application-brainstorm] | L | items/cand-docstring-sync.md |
 | cand-rename-cst-alias | Low | — | **LibCST alias-aware `rename_symbol` variant** — rewrite `import X as Y` / `from m import X as Y` rebindings rope/Jedi miss; abort on alias collision; dry-run. [type: enhancement] [source: brainstorm-BRAIN-001] | M | items/cand-rename-cst-alias.md |
 | cand-fix-circular-imports | Low | — | **New tool: auto-fix circular imports** — detect cycles via `get_module_dependencies`, hoist type-only edge imports into `if TYPE_CHECKING:` + stringify annotations; conservative, dry-run mandatory. [type: enhancement] [source: brainstorm-BRAIN-004] | M | items/cand-fix-circular-imports.md |
-| cand-cross-project-rename-topo | Low | — | **Order `multi_project_rename` by reverse-topo** — build cross-project import graph; apply downstream-before-upstream; abort on inter-project cycle. Correctness fix (today: arbitrary order). [type: defect] [source: brainstorm-BRAIN-009] | M | items/cand-cross-project-rename-topo.md |
-| cand-type-stub-freshness | Low | — | **New tool: type-stub freshness audit** — diff `.pyi` stub signatures vs `.py` impl, surface drift; handle `@overload`/`Protocol` without churn; optional `create_type_stubs` regen. [type: enhancement] [source: brainstorm-BRAIN-008] | M | items/cand-type-stub-freshness.md |
 | cand-convert-typeddict-pydantic | Low | — | **New tools: convert to TypedDict / Pydantic v2** — dict-shaped returns→TypedDict; typed classes→Pydantic v2; field types from Pyright; preview-default. Remaining BRAIN-003 scope beyond the dataclass slice. [type: enhancement] [source: brainstorm-BRAIN-003] | M | items/cand-convert-typeddict-pydantic.md |
 
 ## Defer
@@ -80,6 +78,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | cand-find-cyclic-imports | Defer | — | **Dedicated cycle report — parked as redundant** — `get_module_dependencies` already returns cycles; unblock only if per-edge provenance (file:line:col per import) is added as a real delta. [type: enhancement] [source: candidate-proposal] | — | items/cand-find-cyclic-imports.md |
+| `rope-autoimport-utcnow-deprecation` | Defer | — | **Rope AutoImport UTC warning — parked upstream** — Rope 1.14.0 is latest and emits `datetime.utcnow()` deprecation on Python 3.14; unblock on an upstream release or API-removal deadline. [type: reliability] [source: session-20260829] | M | items/rope-autoimport-utcnow-deprecation.md |
 
 ## Refs
 

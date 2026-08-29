@@ -27,11 +27,12 @@ from python_refactor_mcp.tools.analysis.type_info import (
     get_documentation,
     get_type_info,
 )
-from python_refactor_mcp.tools.analysis.type_stubs import create_type_stubs
+from python_refactor_mcp.tools.analysis.type_stubs import check_type_stub_freshness, create_type_stubs
 from python_refactor_mcp.tools.analysis.type_users import find_type_users
 
 __all__ = [
     "create_type_stubs",
+    "check_type_stub_freshness",
     "deep_type_inference",
     "find_errors_static",
     "find_references",

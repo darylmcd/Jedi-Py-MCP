@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from typing import TYPE_CHECKING
 
 from python_refactor_mcp.models import ImportSuggestion, RefactorResult
@@ -63,11 +64,19 @@ async def autoimport_search(
 ) -> list[ImportSuggestion]:
     """Search for importable names using rope's AutoImport SQLite cache."""
     results = await rope.autoimport_search(name)
-    return [
-        ImportSuggestion(
-            symbol=entry_name,
-            module=module,
-            import_statement=f"from {module} import {entry_name}",
+    suggestions: list[ImportSuggestion] = []
+    for statement, imported_name in results:
+        parsed = ast.parse(statement).body
+        if len(parsed) != 1:
+            raise ValueError(f"Rope returned an invalid AutoImport statement: {statement!r}")
+        node = parsed[0]
+        if isinstance(node, ast.ImportFrom):
+            module = f"{'.' * node.level}{node.module or ''}"
+        elif isinstance(node, ast.Import) and len(node.names) == 1:
+            module = node.names[0].name
+        else:
+            raise ValueError(f"Rope returned an unsupported AutoImport statement: {statement!r}")
+        suggestions.append(
+            ImportSuggestion(symbol=imported_name, module=module, import_statement=statement)
         )
-        for entry_name, module in results
-    ]
+    return suggestions

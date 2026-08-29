@@ -5,9 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rope.base.fscommands import FileSystemCommands  # type: ignore[import-untyped]
+from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-untyped]
 
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import SignatureOperation
 from python_refactor_mcp.tools.refactoring.signature_annotations import restore_signature_metadata
 
@@ -161,3 +164,99 @@ async def test_encapsulate_field_returns_edits(tmp_path: Path) -> None:
 
     assert result.edits
     assert result.applied is False
+
+
+def _multi_project_fixture(tmp_path: Path) -> tuple[RopeBackend, Path, Path, Path]:
+    provider_root = tmp_path / "provider"
+    consumer_root = tmp_path / "consumer"
+    provider_root.mkdir()
+    consumer_root.mkdir()
+    provider = provider_root / "library.py"
+    consumer = consumer_root / "app.py"
+    provider.write_text("class Widget:\n    pass\n", encoding="utf-8")
+    consumer.write_text("from library import Widget\n\nitem = Widget()\n", encoding="utf-8")
+    backend = RopeBackend(_config(provider_root))
+    backend.initialize()
+    return backend, provider, consumer, consumer_root
+
+
+@pytest.mark.asyncio
+async def test_multi_project_rename_is_one_undoable_change(tmp_path: Path) -> None:
+    backend, provider, consumer, consumer_root = _multi_project_fixture(tmp_path)
+
+    result = await backend.multi_project_rename(
+        [str(consumer_root)],
+        str(provider),
+        line=0,
+        character=7,
+        new_name="Gadget",
+        apply=True,
+    )
+
+    assert result.applied is True
+    assert "class Gadget" in provider.read_text(encoding="utf-8")
+    assert "import Gadget" in consumer.read_text(encoding="utf-8")
+
+    await backend.undo()
+
+    assert provider.read_text(encoding="utf-8") == "class Widget:\n    pass\n"
+    assert consumer.read_text(encoding="utf-8") == "from library import Widget\n\nitem = Widget()\n"
+
+
+@pytest.mark.asyncio
+async def test_multi_project_rename_rolls_back_when_later_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend, provider, consumer, consumer_root = _multi_project_fixture(tmp_path)
+    original_write = FileSystemCommands.write
+    failed = False
+
+    def fail_consumer_once(self: FileSystemCommands, path: str, data: bytes) -> None:
+        nonlocal failed
+        if Path(path).resolve() == consumer.resolve() and not failed:
+            failed = True
+            raise OSError("simulated consumer write failure")
+        original_write(self, path, data)
+
+    monkeypatch.setattr(FileSystemCommands, "write", fail_consumer_once)
+
+    with pytest.raises(RopeError, match="simulated consumer write failure"):
+        await backend.multi_project_rename(
+            [str(consumer_root)],
+            str(provider),
+            line=0,
+            character=7,
+            new_name="Gadget",
+            apply=True,
+        )
+
+    assert provider.read_text(encoding="utf-8") == "class Widget:\n    pass\n"
+    assert consumer.read_text(encoding="utf-8") == "from library import Widget\n\nitem = Widget()\n"
+
+
+@pytest.mark.asyncio
+async def test_autoimport_search_surfaces_backend_failure(
+    rope_backend: tuple[RopeBackend, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend, _module = rope_backend
+
+    def fail_search(self: AutoImport, name: str, exact_match: bool = False) -> list[tuple[str, str]]:
+        raise RuntimeError("simulated AutoImport search failure")
+
+    monkeypatch.setattr(AutoImport, "search", fail_search)
+
+    with pytest.raises(RopeError, match="simulated AutoImport search failure"):
+        await backend.autoimport_search("Widget")
+
+
+@pytest.mark.asyncio
+async def test_autoimport_search_returns_rope_statement_contract(
+    rope_backend: tuple[RopeBackend, Path],
+) -> None:
+    backend, _module = rope_backend
+
+    results = await backend.autoimport_search("add")
+
+    assert ("from calc import add", "add") in results

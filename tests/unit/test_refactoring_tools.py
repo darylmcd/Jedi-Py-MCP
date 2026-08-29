@@ -404,7 +404,10 @@ async def test_import_tools_delegate_to_rope() -> None:
 async def test_autoimport_search_returns_suggestions() -> None:
     """Ensure autoimport_search converts rope results to ImportSuggestion models."""
     rope = AsyncMock()
-    rope.autoimport_search.return_value = [("Path", "pathlib"), ("PurePath", "pathlib")]
+    rope.autoimport_search.return_value = [
+        ("from pathlib import Path", "Path"),
+        ("from pathlib import PurePath", "PurePath"),
+    ]
 
     result = await refactoring.autoimport_search(rope, "Path")
 

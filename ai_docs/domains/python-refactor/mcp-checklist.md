@@ -111,7 +111,7 @@ Add a short prompt bank for every tool you expose.
 
 ### Tool Prompt Bank
 
-Every tool on the current 98-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
+Every tool on the current 99-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
 
 #### Navigation & lookups
 
@@ -526,6 +526,10 @@ Every tool on the current 98-tool server has a Goal / Validation / Chaining prom
   - Goal: "Run `create_type_stubs` for a third-party package and return the generated `.pyi` path."
   - Validation: "Run `create_type_stubs` on a package already shipping stubs and confirm no-op."
   - Chaining: "Generate with `create_type_stubs`, then `get_type_coverage` to confirm improvement."
+- `check_type_stub_freshness`:
+  - Goal: "Compare a `.py` module with its adjacent `.pyi` stub and return callable signature drift."
+  - Validation: "Confirm overload sets and Protocol classes appear as explicit conservative skips, not false-positive mismatches."
+  - Chaining: "Run `check_type_stub_freshness`, then regenerate stale third-party stubs with `create_type_stubs` when applicable."
 
 ## F. Prioritization Rubric
 

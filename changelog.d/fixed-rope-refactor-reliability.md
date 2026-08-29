@@ -1,0 +1,1 @@
+- **Fixed:** Make multi-project rename atomic and fully undoable, and restore AutoImport search lifecycle, result mapping, and failure visibility for Rope 1.14.
