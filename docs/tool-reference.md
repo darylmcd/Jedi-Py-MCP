@@ -17,12 +17,12 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `get_inlay_hints` | Return inlay hints (type/parameter hints) for a file range. | `list[InlayHint]` |
 | `get_semantic_tokens` | Return semantic token classifications for a file. | `list[SemanticToken]` |
 | `get_diagnostics` | Return Pyright diagnostics for a file. | `list[Diagnostic]` |
-| `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `list[DiagnosticSummary]` |
-| `deep_type_inference` | Run deep type inference on an expression or block. | `TypeInfo` |
-| `get_type_hint_string` | Return a type hint string for a symbol position. | `str` |
+| `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `Paginated[DiagnosticSummary]` |
+| `deep_type_inference` | Run deep type inference on an expression or block. | `list[InferredType]` |
+| `get_type_hint_string` | Return type hint candidates for a symbol position. | `list[TypeHintResult]` |
 | `get_syntax_errors` | Return parse-level syntax errors for a file. | `list[SyntaxErrorItem]` |
-| `get_context` | Return surrounding code context for a position. | `ContextResult` |
-| `get_all_names` | Return all names defined or imported in a file. | `list[NameInfo]` |
+| `get_context` | Return surrounding scope context for a position when available. | `ScopeContext \| None` |
+| `get_all_names` | Return all names defined or imported in a file. | `list[NameEntry]` |
 | `create_type_stubs` | Generate type stubs for a package. | `bool` |
 | `check_type_stub_freshness` | Compare a module's callable API shape with its `.pyi` stub. | `TypeStubFreshnessResult` |
 | `test_impact_select` | Select pytest tests that transitively exercise changed symbol anchors via call-hierarchy. | `TestImpactResult` |
@@ -89,10 +89,10 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 |---|---|---|
 | `find_constructors` | Locate constructor call sites and report partial file/reference failures. | `ConstructorSearchResult` |
 | `search_symbols` | Search workspace symbols by name across semantic backends and report partial backend failures. | `SymbolSearchResult` |
-| `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
+| `structural_search` | Search Python code using LibCST matcher expressions. | `StructuralSearchResult` |
 | `structural_replace` | Rewrite LibCST matcher matches using `$name` capture templates. | `RefactorResult` |
-| `dead_code_detection` | Identify likely dead symbols and unused code. | `list[DeadCodeItem]` |
-| `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `list[DeadCodeItem]` |
+| `dead_code_detection` | Identify likely dead symbols and unused code. | `PaginatedDeadCode` |
+| `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `PaginatedDeadCode` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
 | `autoimport_search` | Search autoimport database for a symbol name. | `list[ImportSuggestion]` |
 | `find_unused_imports` | Find unused imports and report partial file/backend failures. | `UnusedImportScanResult` |
@@ -107,8 +107,8 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `get_type_coverage` | Return type annotation coverage plus partial-scan failures. | `TypeCoverageReport` |
 | `get_coupling_metrics` | Return coupling metrics plus dependency-scan failures. | `CouplingMetricsResult` |
 | `check_layer_violations` | Detect layer violations and report partial file failures. | `LayerViolationResult` |
-| `interface_conformance` | Check class conformance to an interface or protocol. | `ConformanceResult` |
-| `extract_protocol` | Extract a Protocol interface from class usage patterns. | `RefactorResult` |
+| `interface_conformance` | Check class conformance to an interface or protocol. | `InterfaceComparison` |
+| `extract_protocol` | Extract a Protocol interface from class usage patterns. | `ProtocolSource` |
 | `find_duplicated_code` | Identify duplicated code blocks and report partial file failures. | `DuplicateCodeResult` |
 | `find_errors_static` | Rope-based static analysis for bad name/attribute accesses. | `list[StaticError]` |
 | `get_test_coverage_map` | Map source symbols to test references and report partial lookup failures. | `TestCoverageMap` |
@@ -130,9 +130,9 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 |---|---|---|
 | `diff_preview` | Build unified diffs for pending text edits. | `list[DiffPreview]` |
 | `refactor_transaction` | Apply an ordered `(tool, args)` list atomically under one change stack; commit on success, roll back all on any failure or overlap. | `TransactionResult` |
-| `get_keyword_help` | Return help for a Python keyword or operator. | `KeywordHelp` |
-| `get_sub_definitions` | Return names defined within a symbol via Jedi. | `list[NameInfo]` |
-| `simulate_execution` | Simulate execution of a name to infer results via Jedi. | `list[NameInfo]` |
+| `get_keyword_help` | Return help for a Python keyword or operator. | `DocumentationResult` |
+| `get_sub_definitions` | Return names defined within a symbol via Jedi. | `list[NameEntry]` |
+| `simulate_execution` | Simulate execution of a name to infer results via Jedi. | `list[TypeInfo]` |
 | `list_environments` | Discover available Python environments and virtualenvs. | `list[EnvironmentInfo]` |
 | `restart_server` | Restart the Pyright language server. | `str` |
 | `multi_project_rename` | Rename a symbol across multiple Rope projects simultaneously. | `RefactorResult` |

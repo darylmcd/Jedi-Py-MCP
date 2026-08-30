@@ -1,0 +1,1 @@
+- **Fixed:** Corrected the documented return contracts for 13 MCP tools and added a regression check that keeps the full reference table aligned with registered callable annotations.
