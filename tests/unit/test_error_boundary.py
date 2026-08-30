@@ -241,20 +241,25 @@ def test_validate_params_accepts_valid_identifier(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("error_type", "code"),
+    ("error_type", "code", "caller_summary"),
     [
-        (BackendError, "BACKEND"),
-        (PyrightError, "PYRIGHT_BACKEND"),
-        (JediError, "JEDI_BACKEND"),
-        (RopeError, "ROPE_BACKEND"),
-        (ConfigError, "CONFIG"),
-        (WorkspaceResolutionError, "WORKSPACE_RESOLUTION"),
+        (BackendError, "BACKEND", BackendError.caller_summary),
+        (PyrightError, "PYRIGHT_BACKEND", PyrightError.caller_summary),
+        (JediError, "JEDI_BACKEND", JediError.caller_summary),
+        (RopeError, "ROPE_BACKEND", RopeError.caller_summary),
+        (ConfigError, "CONFIG", ConfigError.caller_summary),
+        (
+            WorkspaceResolutionError,
+            "WORKSPACE_RESOLUTION",
+            WorkspaceResolutionError.caller_summary,
+        ),
     ],
 )
 async def test_wrapper_translates_backend_error(
     tmp_path: Path,
     error_type: type[BackendError],
     code: str,
+    caller_summary: str,
 ) -> None:
     """Each backend error becomes an anticipated, provenance-coded tool error."""
     root = tmp_path / "ws"
@@ -268,8 +273,79 @@ async def test_wrapper_translates_backend_error(
     async def tool(ctx: object, file_path: str) -> str:
         raise error_type("backend boom")
 
-    with pytest.raises(ToolError, match=rf"^\[{code}\] backend boom$"):
+    with pytest.raises(
+        ToolError,
+        match=rf"^\[{code}\] {caller_summary} Failure ID: [0-9a-f]{{12}}\.$",
+    ):
         await tool(ctx, file_path=str(root / "mod.py"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "internal_message",
+    [
+        r"C:\\Users\\private\\workspace\\module.py: provider exploded",
+        "/home/private/workspace/module.py: provider exploded",
+        "provider line one\nprovider line two\nprovider line three",
+        "api_key=sk-secret-value password=hunter2 bearer=private-token",
+    ],
+)
+async def test_wrapper_redacts_backend_payloads_from_caller_and_logs(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    internal_message: str,
+) -> None:
+    """Backend payloads never cross the caller or operational logging boundary."""
+    root = tmp_path / "ws"
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(return_value=backends)
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        try:
+            raise OSError(internal_message)
+        except OSError as cause:
+            raise PyrightError(internal_message) from cause
+
+    with (
+        caplog.at_level(logging.ERROR, logger="python_refactor_mcp.server"),
+        pytest.raises(ToolError) as raised,
+    ):
+        await tool(ctx, file_path=str(root / "mod.py"))
+
+    assert internal_message not in str(raised.value)
+    assert internal_message not in caplog.text
+    assert str(raised.value).startswith(f"[PYRIGHT_BACKEND] {PyrightError.caller_summary}")
+    record = next(record for record in caplog.records if record.event == "tool_backend_failure")
+    assert record.error_code == "PYRIGHT_BACKEND"
+    assert record.tool_name == "tool"
+    assert record.exception_types == (
+        "python_refactor_mcp.errors.PyrightError",
+        "builtins.OSError",
+    )
+    assert all("\\" not in location and "/" not in location for location in record.traceback_locations)
+
+
+@pytest.mark.asyncio
+async def test_wrapper_translates_backend_error_during_resolution(tmp_path: Path) -> None:
+    """Workspace/backend initialization failures cannot bypass the MCP boundary."""
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(
+        side_effect=ConfigError(r"invalid provider config at C:\\private\\pyrightconfig.json")
+    )
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        return "unreachable"
+
+    with pytest.raises(ToolError) as raised:
+        await tool(ctx, file_path=str(tmp_path / "mod.py"))
+
+    assert str(raised.value).startswith(f"[CONFIG] {ConfigError.caller_summary}")
+    assert "private" not in str(raised.value)
 
 
 @pytest.mark.asyncio

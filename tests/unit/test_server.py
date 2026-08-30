@@ -9,6 +9,7 @@ import pytest
 
 from python_refactor_mcp import server
 from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
+from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE
 
 # Shared 0-based position convention sentence. Every position-based tool
@@ -16,6 +17,23 @@ from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE
 # truth the gate below asserts against. Keep it in sync with the wording in
 # ``python_refactor_mcp.models.Position`` ("0-based line and character offset").
 POSITION_CONVENTION_PHRASE = "Positions are 0-based (line and character offsets, LSP convention)."
+
+
+@pytest.mark.asyncio
+async def test_get_inlay_hints_read_failure_is_backend_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line-count filesystem details remain internal to the MCP boundary."""
+    monkeypatch.setattr(server, "get_current_backends", lambda: object())
+
+    with pytest.raises(BackendError, match="Cannot read file for line count"):
+        await server.get_inlay_hints(
+            object(),  # type: ignore[arg-type]
+            str(tmp_path / "private" / "missing.py"),
+            0,
+            0,
+        )
 
 
 def _production_import_graph() -> dict[str, set[str]]:

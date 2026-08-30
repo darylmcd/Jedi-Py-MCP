@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextvars
 import logging
 import time
+import traceback
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import wraps
@@ -164,6 +166,49 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
             validate_identifier(value, param_name)
 
 
+def _safe_failure_diagnostics(exc: BackendError) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return exception types and path-free traceback locations for structured logs."""
+    exception_types: list[str] = []
+    traceback_locations: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+
+    while current is not None and id(current) not in seen and len(exception_types) < 16:
+        seen.add(id(current))
+        current_type = type(current)
+        exception_types.append(f"{current_type.__module__}.{current_type.__qualname__}")
+        traceback_locations.extend(
+            f"{frame.name}:{frame.lineno}"
+            for frame in traceback.extract_tb(current.__traceback__)[-16:]
+        )
+        current = current.__cause__ or (
+            None if current.__suppress_context__ else current.__context__
+        )
+
+    return tuple(exception_types), tuple(traceback_locations[-32:])
+
+
+def _translate_backend_error(exc: BackendError, tool_name: str) -> ToolError:
+    """Record redacted diagnostics and build the stable caller-facing error."""
+    failure_id = uuid.uuid4().hex[:12]
+    exception_types, traceback_locations = _safe_failure_diagnostics(exc)
+    _LOGGER.error(
+        "Backend failure id=%s tool=%s code=%s",
+        failure_id,
+        tool_name,
+        exc.code,
+        extra={
+            "event": "tool_backend_failure",
+            "failure_id": failure_id,
+            "tool_name": tool_name,
+            "error_code": exc.code,
+            "exception_types": exception_types,
+            "traceback_locations": traceback_locations,
+        },
+    )
+    return ToolError(f"[{exc.code}] {exc.caller_summary} Failure ID: {failure_id}.")
+
+
 def tool_error_boundary(
     func: Callable[..., Awaitable[Any]],
 ) -> Callable[..., Awaitable[Any]]:
@@ -171,11 +216,13 @@ def tool_error_boundary(
 
     @wraps(func)
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        ctx = args[0] if args else kwargs.get("ctx")
-        backends = await _resolve_backends(ctx, kwargs)
-
-        token = _current_backends.set(backends) if backends is not None else None
+        start = time.perf_counter()
+        token: contextvars.Token[WorkspaceBackends] | None = None
         try:
+            ctx = args[0] if args else kwargs.get("ctx")
+            backends = await _resolve_backends(ctx, kwargs)
+            token = _current_backends.set(backends) if backends is not None else None
+
             if backends is not None:
                 _validate_params(kwargs, backends.config.workspace_root)
             else:
@@ -184,16 +231,13 @@ def tool_error_boundary(
                     if isinstance(value, str):
                         validate_identifier(value, param_name)
 
-            start = time.perf_counter()
-            try:
-                return await func(*args, **kwargs)
-            except BackendError as exc:
-                raise ToolError(f"[{exc.code}] {exc}") from exc
-            finally:
-                elapsed_ms = (time.perf_counter() - start) * 1000
-                _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
+            return await func(*args, **kwargs)
+        except BackendError as exc:
+            raise _translate_backend_error(exc, func.__name__) from None
         finally:
             if token is not None:
                 _current_backends.reset(token)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
 
     return _wrapped
