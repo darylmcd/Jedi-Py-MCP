@@ -12,7 +12,7 @@ mirroring the SEC022 scanner in ``tools/metrics/security.py``. Alias forms
 documented follow-up. The match is syntactic, so a shadowed local named
 ``yaml`` (``yaml = something(); yaml.load(...)``) would also be rewritten —
 the same blind spot the scanner has; preview-by-default and the
-``_DESTRUCTIVE`` annotation are the mitigation.
+the destructive tool annotation are the mitigation.
 """
 
 from __future__ import annotations

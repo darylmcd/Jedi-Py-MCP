@@ -1,4 +1,4 @@
-"""Unit tests for the _tool_error_boundary wrapper and its extracted helpers.
+"""Unit tests for the tool error boundary and its extracted helpers.
 
 These pin the observable behavior of the error boundary so the
 ``_resolve_backends`` / ``_validate_params`` decomposition stays a pure
@@ -25,12 +25,12 @@ from python_refactor_mcp.errors import (
     RopeError,
     WorkspaceResolutionError,
 )
-from python_refactor_mcp.server import (
+from python_refactor_mcp.tool_runtime import (
     MultiWorkspaceContext,
-    _get_current_backends,
     _resolve_backends,
-    _tool_error_boundary,
     _validate_params,
+    get_current_backends,
+    tool_error_boundary,
 )
 from python_refactor_mcp.workspace_registry import WorkspaceBackends
 
@@ -264,7 +264,7 @@ async def test_wrapper_translates_backend_error(
     multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
         raise error_type("backend boom")
 
@@ -284,9 +284,9 @@ async def test_wrapper_sets_contextvar_for_tool(tmp_path: Path) -> None:
 
     seen: dict[str, object] = {}
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
-        seen["backends"] = _get_current_backends()
+        seen["backends"] = get_current_backends()
         return "ok"
 
     result = await tool(ctx, file_path=str(root / "mod.py"))
@@ -305,14 +305,14 @@ async def test_wrapper_resets_contextvar_after_call(tmp_path: Path) -> None:
     multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
         return "ok"
 
     await tool(ctx, file_path=str(root / "mod.py"))
 
     with pytest.raises(RuntimeError, match="No workspace backends available"):
-        _get_current_backends()
+        get_current_backends()
 
 
 @pytest.mark.asyncio
@@ -328,7 +328,7 @@ async def test_wrapper_validates_path_against_resolved_workspace(tmp_path: Path)
 
     called = False
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
         nonlocal called
         called = True
@@ -350,7 +350,7 @@ async def test_wrapper_records_timing_via_server_log(tmp_path: Path, caplog: pyt
     multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
     ctx = _ctx_with(multi_ctx)
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(ctx: object, file_path: str) -> str:
         return "ok"
 
@@ -364,7 +364,7 @@ async def test_wrapper_records_timing_via_server_log(tmp_path: Path, caplog: pyt
 async def test_wrapper_validates_identifier_without_backends() -> None:
     """Identifier validation runs even when no backends resolve (ctx is None)."""
 
-    @_tool_error_boundary
+    @tool_error_boundary
     async def tool(new_name: str) -> str:
         return "ok"
 

@@ -7,8 +7,8 @@ Purpose: compact architecture reference for AI contributors.
 
 | Domain / Feature | Source path(s) | Key types | Tests |
 |---|---|---|---|
-| Server lifecycle & tool registration | `src/python_refactor_mcp/server.py`, `src/python_refactor_mcp/tool_registry.py` | `TOOL_RECORDS`, `_tool_error_boundary` | `tests/unit/test_server.py`, `tests/contract/` |
-| Config & workspace discovery | `src/python_refactor_mcp/config.py`, `src/python_refactor_mcp/workspace_registry.py`, `src/python_refactor_mcp/server.py` | `ServerConfig`, `ToolProfile`, `WorkspaceRegistry`, `MultiWorkspaceContext` | `tests/unit/` |
+| Server lifecycle & tool registration | `src/python_refactor_mcp/server.py`, `src/python_refactor_mcp/tool_registry.py`, `src/python_refactor_mcp/tool_runtime.py` | `TOOL_RECORDS`, `tool_error_boundary` | `tests/unit/test_server.py`, `tests/unit/test_error_boundary.py`, `tests/contract/` |
+| Config & workspace discovery | `src/python_refactor_mcp/config.py`, `src/python_refactor_mcp/workspace_registry.py`, `src/python_refactor_mcp/tool_runtime.py` | `ServerConfig`, `ToolProfile`, `WorkspaceRegistry`, `MultiWorkspaceContext` | `tests/unit/` |
 | Shared response models | `src/python_refactor_mcp/models.py` | `TypeInfo`, `Diagnostic`, `RefactorResult`, `SymbolOutlineItem`, `DiffPreview` | `tests/unit/` |
 | Error types | `src/python_refactor_mcp/errors.py` | `BackendError` subclasses | `tests/unit/` |
 | Pyright LSP backend | `src/python_refactor_mcp/backends/pyright_lsp.py` | `PyrightLSPClient` | `tests/unit/`, `tests/integration/` |
