@@ -4,6 +4,7 @@ from .circular_imports import fix_circular_imports
 from .class_extraction import extract_class
 from .code_actions import apply_code_action, organize_imports
 from .dataclass_conversion import convert_to_dataclass
+from .docstrings import docstring_sync
 from .extract import extract_method, extract_variable, inline_method, inline_parameter, inline_variable
 from .format import format_code
 from .imports import (
@@ -39,6 +40,7 @@ __all__ = [
     "autoimport_search",
     "change_signature",
     "convert_to_dataclass",
+    "docstring_sync",
     "encapsulate_field",
     "expand_star_imports",
     "extract_class",

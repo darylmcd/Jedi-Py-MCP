@@ -1,0 +1,1 @@
+- **Added:** Add preview-first Google, NumPy, and Sphinx parameter-docstring synchronization.
