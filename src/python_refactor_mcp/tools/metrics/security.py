@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import ast
-import logging
-from pathlib import Path
 
-from python_refactor_mcp.models import SecurityFinding, SecurityScanResult
-
-_LOGGER = logging.getLogger(__name__)
+from python_refactor_mcp.models import ScanFailure, SecurityFinding, SecurityScanResult
+from python_refactor_mcp.util.scan import parse_python_file
 
 _DANGEROUS_CALLS: dict[str, tuple[str, str, str]] = {
     "eval": ("SEC001", "high", "Use of eval() can execute arbitrary code"),
@@ -29,18 +26,16 @@ _DANGEROUS_ATTR_CALLS: dict[tuple[str, str], tuple[str, str, str]] = {
 _SUBPROCESS_SHELL_FUNCS = {"call", "run", "Popen", "check_call", "check_output"}
 
 
-def _scan_file(file_path: str) -> list[SecurityFinding]:
+def _scan_file(file_path: str) -> tuple[list[SecurityFinding], ScanFailure | None]:
     """Scan a single Python file for security issues."""
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=file_path)
-    except (OSError, SyntaxError):
-        return []
+    parsed, failure = parse_python_file(file_path)
+    if parsed is None:
+        return [], failure
 
-    source_lines = source.splitlines()
+    source_lines = parsed.source.splitlines()
     findings: list[SecurityFinding] = []
 
-    for node in ast.walk(tree):
+    for node in ast.walk(parsed.tree):
         if not isinstance(node, ast.Call):
             continue
 
@@ -51,7 +46,7 @@ def _scan_file(file_path: str) -> list[SecurityFinding]:
         if isinstance(node.func, ast.Name) and node.func.id in _DANGEROUS_CALLS:
             rule_id, severity, message = _DANGEROUS_CALLS[node.func.id]
             findings.append(SecurityFinding(
-                rule_id=rule_id, severity=severity, file_path=file_path,
+                rule_id=rule_id, severity=severity, file_path=str(parsed.path),
                 line=line, message=message, snippet=snippet,
             ))
 
@@ -63,7 +58,7 @@ def _scan_file(file_path: str) -> list[SecurityFinding]:
                 if key in _DANGEROUS_ATTR_CALLS:
                     rule_id, severity, message = _DANGEROUS_ATTR_CALLS[key]
                     findings.append(SecurityFinding(
-                        rule_id=rule_id, severity=severity, file_path=file_path,
+                        rule_id=rule_id, severity=severity, file_path=str(parsed.path),
                         line=line, message=message, snippet=snippet,
                     ))
 
@@ -73,11 +68,11 @@ def _scan_file(file_path: str) -> list[SecurityFinding]:
                     if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                         msg = f"subprocess.{node.func.attr}() with shell=True is vulnerable to injection"
                         findings.append(SecurityFinding(
-                            rule_id="SEC030", severity="high", file_path=file_path,
+                            rule_id="SEC030", severity="high", file_path=str(parsed.path),
                             line=line, message=msg, snippet=snippet,
                         ))
 
-    return findings
+    return findings, None
 
 
 async def security_scan(
@@ -92,11 +87,16 @@ async def security_scan(
         paths.append(file_path)
 
     all_findings: list[SecurityFinding] = []
+    scan_failures: list[ScanFailure] = []
     for path in paths:
-        all_findings.extend(_scan_file(path))
+        findings, failure = _scan_file(path)
+        all_findings.extend(findings)
+        if failure is not None:
+            scan_failures.append(failure)
 
     return SecurityScanResult(
         findings=all_findings,
-        files_scanned=len(paths),
+        files_scanned=len(paths) - len(scan_failures),
         total_findings=len(all_findings),
+        scan_failures=scan_failures,
     )

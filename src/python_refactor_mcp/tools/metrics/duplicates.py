@@ -5,9 +5,9 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections import defaultdict
-from pathlib import Path
 
-from python_refactor_mcp.models import DuplicateGroup
+from python_refactor_mcp.models import DuplicateCodeResult, DuplicateGroup, ScanFailure
+from python_refactor_mcp.util.scan import parse_python_file
 
 
 class _Normalizer(ast.NodeTransformer):
@@ -26,19 +26,20 @@ async def find_duplicated_code(
     file_path: str,
     file_paths: list[str] | None = None,
     min_lines: int = 3,
-) -> list[DuplicateGroup]:
+) -> DuplicateCodeResult:
     """Find duplicated function bodies by normalizing AST and hashing."""
     paths = [file_path] if file_paths is None else file_paths
     bodies: dict[str, list[dict[str, object]]] = defaultdict(list)
+    scan_failures: list[ScanFailure] = []
 
     for fp in paths:
-        try:
-            content = Path(fp).read_text(encoding="utf-8")
-            tree = ast.parse(content, filename=fp)
-        except (SyntaxError, OSError):
+        parsed, failure = parse_python_file(fp)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
             continue
 
-        for node in ast.walk(tree):
+        for node in ast.walk(parsed.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if not node.body:
                     continue
@@ -51,7 +52,7 @@ async def find_duplicated_code(
                 dump = ast.dump(normalized)
                 h = hashlib.md5(dump.encode(), usedforsecurity=False).hexdigest()
                 bodies[h].append({
-                    "file_path": str(Path(fp).resolve()),
+                    "file_path": str(parsed.path),
                     "function_name": node.name,
                     "line": node.lineno - 1,
                     "end_line": (node.end_lineno or node.lineno) - 1,
@@ -68,4 +69,8 @@ async def find_duplicated_code(
             count=len(occurrences),
         ))
 
-    return sorted(groups, key=lambda g: g.count, reverse=True)
+    return DuplicateCodeResult(
+        items=sorted(groups, key=lambda g: g.count, reverse=True),
+        files_scanned=len(paths) - len(scan_failures),
+        scan_failures=scan_failures,
+    )

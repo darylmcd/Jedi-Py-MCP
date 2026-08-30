@@ -188,8 +188,11 @@ async def test_find_constructors_finds_call_sites(
 
     assert result.is_error is not True
     payload = _unwrap_result_payload(result.structured_content)
-    assert isinstance(payload, list)
-    assert len(payload) >= 1
+    assert isinstance(payload, dict)
+    assert len(payload["items"]) >= 1
+    assert payload["total_count"] >= len(payload["items"])
+    assert payload["files_scanned"] >= 1
+    assert payload["scan_failures"] == []
 
 
 @pytest.mark.asyncio

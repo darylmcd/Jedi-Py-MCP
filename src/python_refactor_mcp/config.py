@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeGuard
 
 from python_refactor_mcp.errors import ConfigError
 from python_refactor_mcp.util.python_detect import detect_python
@@ -17,11 +17,16 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = ("analysis", "refactoring")
 DEFAULT_TOOL_PROFILE: ToolProfile = "refactoring"
 
 
+def _is_tool_profile(value: str) -> TypeGuard[ToolProfile]:
+    """Narrow a normalized string to the supported profile literal."""
+    return value in TOOL_PROFILES
+
+
 def discover_tool_profile(value: str | None = None) -> ToolProfile:
     """Return the configured advertised tool profile or fail closed."""
     raw = os.environ.get(TOOL_PROFILE_ENV) if value is None else value
     normalized = raw.strip().lower() if raw is not None else DEFAULT_TOOL_PROFILE
-    if normalized not in TOOL_PROFILES:
+    if not _is_tool_profile(normalized):
         choices = ", ".join(TOOL_PROFILES)
         raise ConfigError(f"Invalid {TOOL_PROFILE_ENV} value {raw!r}; expected one of: {choices}")
     return normalized

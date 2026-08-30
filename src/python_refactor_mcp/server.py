@@ -22,7 +22,7 @@ from python_refactor_mcp.models import (
     SignatureOperation,
     SymbolOutlineItem,
     TestCoverageMap,
-    UnusedImport,
+    UnusedImportScanResult,
 )
 from python_refactor_mcp.tool_registry import (
     DESTRUCTIVE_ANNOTATIONS,
@@ -232,14 +232,15 @@ async def find_unused_imports(
     ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
-) -> list[UnusedImport]:
-    """Find unused imports using Pyright reportUnusedImport diagnostics with AST fallback. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
+) -> UnusedImportScanResult:
+    """Find unused imports using Pyright diagnostics merged with an AST fallback. Items and partial file/backend scan_failures are returned separately. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
     app = get_current_backends()
     if file_path is None and not file_paths:
         raise ValueError("Either file_path or file_paths must be provided.")
     effective_path = file_path if file_path is not None else file_paths[0]  # type: ignore[index]
     result = await metrics.find_unused_imports(app.pyright, effective_path, file_paths)
-    _LOGGER.debug("find_unused_imports count=%s", len(result))
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log("find_unused_imports count=%s scan_failures=%s", len(result.items), len(result.scan_failures))
     return result
 
 
@@ -253,10 +254,16 @@ async def get_test_coverage_map(
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> TestCoverageMap:
-    """Map source symbols to test references. Shows which functions/classes have test coverage. Related: find_references, dead_code_detection."""
+    """Map source symbols to test references. Shows which functions/classes have test coverage without treating failed reference lookups as uncovered; partial failures are returned in scan_failures. Related: find_references, dead_code_detection."""
     app = get_current_backends()
     result = await _get_test_coverage_map(app.pyright, file_path, file_paths)
-    _LOGGER.debug("get_test_coverage_map total=%s covered=%s", result.total_symbols, result.covered_count)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "get_test_coverage_map total=%s covered=%s scan_failures=%s",
+        result.total_symbols,
+        result.covered_count,
+        len(result.scan_failures),
+    )
     return result
 
 
@@ -265,10 +272,16 @@ async def security_scan(
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> SecurityScanResult:
-    """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Related: get_diagnostics, dead_code_detection."""
+    """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Unreadable or unparseable files are returned in scan_failures rather than treated as clean. Related: get_diagnostics, dead_code_detection."""
     _ = get_current_backends()
     result = await _security_scan(file_path, file_paths)
-    _LOGGER.debug("security_scan files=%s findings=%s", result.files_scanned, result.total_findings)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "security_scan files=%s findings=%s scan_failures=%s",
+        result.files_scanned,
+        result.total_findings,
+        len(result.scan_failures),
+    )
     return result
 
 

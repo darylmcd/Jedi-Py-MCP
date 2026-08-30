@@ -1241,6 +1241,69 @@ async def test_extract_superclass_empty_members_raises(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "base_name", "members", "error"),
+    [
+        (_SUPERCLASS_SOURCE, "Foo", ["bar"], "must differ"),
+        ("Base = object\n\n" + _SUPERCLASS_SOURCE, "Base", ["bar"], "already bound"),
+        (_SUPERCLASS_SOURCE, "Base", ["bar", "bar"], "duplicates"),
+        ("class Foo: shared = 1\n", "Base", ["shared"], "one-line class"),
+        ("class Foo:\n    shared = 1; other = 2\n", "Base", ["shared"], "not found"),
+        (
+            "class Foo:\n    def bar(self):\n        pass\n\n"
+            "class Foo:\n    def bar(self):\n        pass\n",
+            "Base",
+            ["bar"],
+            "Multiple top-level",
+        ),
+    ],
+)
+async def test_extract_superclass_preflight_rejects_ambiguous_requests_without_writing(
+    tmp_path: Path,
+    source: str,
+    base_name: str,
+    members: list[str],
+    error: str,
+) -> None:
+    """Collision and ambiguity failures leave the preview target byte-identical."""
+    target = tmp_path / "m.py"
+    target.write_text(source, encoding="utf-8")
+
+    with pytest.raises(BackendError, match=error):
+        await refactoring.extract_superclass(
+            AsyncMock(), str(target), "Foo", base_name, members, apply=False
+        )
+
+    assert target.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_extract_superclass_ignores_nested_class_with_same_name(tmp_path: Path) -> None:
+    """Only the unique top-level source class is transformed."""
+    source = (
+        "class Container:\n"
+        "    class Foo:\n"
+        "        def bar(self):\n"
+        "            return 'nested'\n\n"
+        "class Foo:\n"
+        "    def bar(self):\n"
+        "        return 'top-level'\n"
+    )
+    target = tmp_path / "m.py"
+    target.write_text(source, encoding="utf-8")
+
+    result = await refactoring.extract_superclass(
+        AsyncMock(), str(target), "Foo", "Base", ["bar"], apply=False
+    )
+
+    new_text = result.edits[0].new_text
+    assert "class Container:\n    class Foo:\n        def bar" in new_text
+    assert "class Foo(Base):\n    pass" in new_text
+    assert new_text.count("class Base:") == 1
+    assert target.read_text(encoding="utf-8") == source
+
+
 _EXTRACT_CLASS_SOURCE = (
     "class Order:\n"
     "    def __init__(self, subtotal: float, tax: float, label: str):\n"

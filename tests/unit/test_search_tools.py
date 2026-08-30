@@ -41,11 +41,27 @@ async def test_find_constructors_filters_for_call_sites(tmp_path: Path) -> None:
         _location(source, 3, 4),
     ]
 
-    results = await search.find_constructors(pyright, _config(tmp_path), "Widget", str(source))
+    result = await search.find_constructors(pyright, _config(tmp_path), "Widget", str(source))
 
-    assert len(results) == 1
-    assert results[0].class_name == "Widget"
-    assert results[0].arguments == ["1", "size=2"]
+    assert len(result.items) == 1
+    assert result.items[0].class_name == "Widget"
+    assert result.items[0].arguments == ["1", "size=2"]
+    assert result.scan_failures == []
+
+
+@pytest.mark.asyncio
+async def test_find_constructors_reports_unparseable_files(tmp_path: Path) -> None:
+    """An invalid candidate is a visible partial scan, not an empty success."""
+    invalid = tmp_path / "invalid.py"
+    invalid.write_text("class Widget(:\n", encoding="utf-8")
+
+    result = await search.find_constructors(AsyncMock(), _config(tmp_path), "Widget")
+
+    assert result.items == []
+    assert result.files_scanned == 0
+    assert len(result.scan_failures) == 1
+    assert result.scan_failures[0].file_path == str(invalid.resolve())
+    assert result.scan_failures[0].error_type == "SyntaxError"
 
 
 @pytest.mark.asyncio

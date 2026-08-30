@@ -21,8 +21,10 @@ uniform enough to drive from data alone. The standard-library debug log the plan
 modelled as ``debug_fmt_fn`` is therefore kept inline in each delegate.
 
 The eleven wrappers with non-trivial bodies (conditionals, multi-branch backend
-selection, or aliased imports) remain explicit ``@mcp.tool`` functions in
-``server.py`` and are intentionally NOT part of this table.
+selection, or aliased imports) remain explicit :class:`ToolRecord` entries in
+``server.py::EXPLICIT_TOOL_RECORDS``. The server passes them to
+:func:`register_tools` through ``extra_records`` so both wrapper families share
+one registration and error-boundary path.
 
 ``eval_str=True`` means every annotation referenced by a delegate must resolve
 in this module's namespace; that is why the model types below are imported here
@@ -45,21 +47,21 @@ from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
 from python_refactor_mcp.models import (
     CallHierarchyResult,
     CodeMetricsResult,
-    ConstructorSite,
-    CouplingMetrics,
+    ConstructorSearchResult,
+    CouplingMetricsResult,
     DependencyGraph,
     Diagnostic,
     DiffPreview,
     DocumentationResult,
     DocumentHighlight,
-    DuplicateGroup,
+    DuplicateCodeResult,
     EnvironmentInfo,
     FoldingRange,
     HistoryEntry,
     ImportSuggestion,
     InferredType,
     InterfaceComparison,
-    LayerViolation,
+    LayerViolationResult,
     Location,
     NameEntry,
     PaginatedDeadCode,
@@ -1031,11 +1033,17 @@ async def find_constructors(
     class_name: str,
     file_path: str | None = None,
     limit: int | None = None,
-) -> list[ConstructorSite]:
-    """Find all places where a class is instantiated (constructor calls). Use before refactoring a class to understand how it's created and with what arguments. Optionally scope to a single file. Related: find_references, type_hierarchy."""
+) -> ConstructorSearchResult:
+    """Find all places where a class is instantiated (constructor calls). Returns explicit scan_failures when files or reference lookups cannot be inspected. Use before refactoring a class to understand how it's created and with what arguments. Optionally scope to a single file. Related: find_references, type_hierarchy."""
     app = get_current_backends()
     result = await search.find_constructors(app.pyright, app.config, class_name, file_path, limit)
-    _LOGGER.debug("find_constructors class=%s count=%s", class_name, len(result))
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "find_constructors count=%s total=%s scan_failures=%s",
+        len(result.items),
+        result.total_count,
+        len(result.scan_failures),
+    )
     return result
 
 
@@ -1157,10 +1165,16 @@ async def code_metrics(
     file_path: str,
     file_paths: list[str] | None = None,
 ) -> CodeMetricsResult:
-    """Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
+    """Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. Reports partial file scans through scan_failures. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
     _ = get_current_backends()
     result = await metrics.code_metrics(file_path, file_paths)
-    _LOGGER.debug("code_metrics functions=%s max_cc=%s", result.total_functions, result.max_cyclomatic)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "code_metrics functions=%s max_cc=%s scan_failures=%s",
+        result.total_functions,
+        result.max_cyclomatic,
+        len(result.scan_failures),
+    )
     return result
 
 
@@ -1169,14 +1183,16 @@ async def get_module_dependencies(
     file_path: str | None = None,
     file_paths: list[str] | None = None,
 ) -> DependencyGraph:
-    """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths and reports each cyclic strongly connected component deterministically. Related: get_coupling_metrics, check_layer_violations."""
+    """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths, reports each cyclic strongly connected component deterministically, and exposes partial file scans through scan_failures. Related: get_coupling_metrics, check_layer_violations."""
     app = get_current_backends()
     result = await metrics.get_module_dependencies(app.config, file_path, file_paths)
-    _LOGGER.debug(
-        "get_module_dependencies modules=%s deps=%s cycles=%s",
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "get_module_dependencies modules=%s deps=%s cycles=%s scan_failures=%s",
         len(result.modules),
         len(result.dependencies),
         len(result.circular_dependencies),
+        len(result.scan_failures),
     )
     return result
 
@@ -1186,11 +1202,12 @@ async def find_duplicated_code(
     file_path: str,
     file_paths: list[str] | None = None,
     min_lines: int = 3,
-) -> list[DuplicateGroup]:
-    """Detect duplicated function bodies by normalizing AST and comparing hashes. Use to find copy-paste code that should be refactored into shared functions. The min_lines parameter filters out trivially small functions. Related: use_function, extract_method."""
+) -> DuplicateCodeResult:
+    """Detect duplicated function bodies by normalizing AST and comparing hashes. Returns groups in items and exposes partial file scans through scan_failures. Use to find copy-paste code that should be refactored into shared functions. The min_lines parameter filters out trivially small functions. Related: use_function, extract_method."""
     _ = get_current_backends()
     result = await metrics.find_duplicated_code(file_path, file_paths, min_lines)
-    _LOGGER.debug("find_duplicated_code groups=%s", len(result))
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log("find_duplicated_code groups=%s scan_failures=%s", len(result.items), len(result.scan_failures))
     return result
 
 
@@ -1199,14 +1216,16 @@ async def get_type_coverage(
     file_path: str,
     file_paths: list[str] | None = None,
 ) -> TypeCoverageReport:
-    """Report type annotation completeness for function parameters and return types. Use to audit type coverage and identify unannotated symbols. Related: get_type_hint_string, deep_type_inference."""
+    """Report type annotation completeness for function parameters and return types, including partial file scans in scan_failures. Use to audit type coverage and identify unannotated symbols. Related: get_type_hint_string, deep_type_inference."""
     _ = get_current_backends()
     result = await metrics.get_type_coverage(file_path, file_paths)
-    _LOGGER.debug(
-        "get_type_coverage functions=%s return_pct=%s param_pct=%s",
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "get_type_coverage functions=%s return_pct=%s param_pct=%s scan_failures=%s",
         result.total_functions,
         result.return_coverage_pct,
         result.param_coverage_pct,
+        len(result.scan_failures),
     )
     return result
 
@@ -1214,11 +1233,12 @@ async def get_type_coverage(
 async def get_coupling_metrics(
     ctx: Context,
     file_paths: list[str] | None = None,
-) -> list[CouplingMetrics]:
-    """Compute afferent/efferent coupling and instability per module. Ca = importers count, Ce = imports count, I = Ce/(Ca+Ce). Use to identify modules that are too coupled or too unstable. Related: get_module_dependencies, check_layer_violations."""
+) -> CouplingMetricsResult:
+    """Compute afferent/efferent coupling and instability per module. Metrics are returned in items; dependency scan_failures remain visible. Ca = importers count, Ce = imports count, I = Ce/(Ca+Ce). Use to identify modules that are too coupled or too unstable. Related: get_module_dependencies, check_layer_violations."""
     app = get_current_backends()
     result = await metrics.get_coupling_metrics(app.config, file_paths=file_paths)
-    _LOGGER.debug("get_coupling_metrics modules=%s", len(result))
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log("get_coupling_metrics modules=%s scan_failures=%s", len(result.items), len(result.scan_failures))
     return result
 
 
@@ -1226,11 +1246,12 @@ async def check_layer_violations(
     ctx: Context,
     layers: list[list[str]],
     file_paths: list[str] | None = None,
-) -> list[LayerViolation]:
-    """Check import directions against declared layering rules. The layers parameter is ordered from highest (e.g., presentation) to lowest (e.g., domain). Flags imports from lower layers to higher layers. Related: get_module_dependencies, get_coupling_metrics."""
+) -> LayerViolationResult:
+    """Check import directions against declared layering rules. Violations are returned in items; partial file scans are returned in scan_failures. The layers parameter is ordered from highest (e.g., presentation) to lowest (e.g., domain). Flags imports from lower layers to higher layers. Related: get_module_dependencies, get_coupling_metrics."""
     app = get_current_backends()
     result = await metrics.check_layer_violations(app.config, layers, file_paths)
-    _LOGGER.debug("check_layer_violations violations=%s", len(result))
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log("check_layer_violations violations=%s scan_failures=%s", len(result.items), len(result.scan_failures))
     return result
 
 
