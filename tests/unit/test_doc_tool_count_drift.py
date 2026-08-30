@@ -18,7 +18,9 @@ prompt phases. The threshold below targets server-wide counts only.
 from __future__ import annotations
 
 import re
+import types
 from pathlib import Path
+from typing import get_args, get_origin, get_type_hints
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AI_DOCS = REPO_ROOT / "ai_docs"
@@ -33,9 +35,8 @@ ALLOWED_SOURCES = {
 # 30-day-stable retention rule moves them out of "plans/"/"reports/".
 EXCLUDED_SUBTREES = ("plans/", "reports/", "archive/plans/", "archive/reports/")
 # Counts at or above this are server-wide totals, not per-category subsets.
-# Today the server has 91 tools and the largest category (Refactoring) has 32;
-# 50 is comfortably between them and well below general LLM "tool sprawl"
-# thresholds (e.g. mcp_best_practices.md's "30-40 tools" guidance).
+# The complete catalog is comfortably above 50 while each category remains
+# below it, so the threshold separates server-wide totals from category counts.
 SERVER_WIDE_THRESHOLD = 50
 PATTERN = re.compile(r"\b(\d+) (?:tools|available)\b")
 
@@ -200,3 +201,47 @@ def test_docs_tool_reference_category_counts_consistent() -> None:
         live=catalog_count,
         categories=categories,
     )
+
+
+def _render_return_annotation(annotation: object) -> str:
+    """Render a live return annotation in the compact docs-table form."""
+    origin = get_origin(annotation)
+    if origin is types.UnionType:
+        return " | ".join(_render_return_annotation(arg) for arg in get_args(annotation))
+    if origin is not None:
+        name = getattr(origin, "__name__", str(origin))
+        args = ", ".join(_render_return_annotation(arg) for arg in get_args(annotation))
+        return f"{name}[{args}]"
+    if annotation is type(None):
+        return "None"
+    return getattr(annotation, "__name__", str(annotation))
+
+
+def test_docs_tool_reference_returns_match_live_annotations() -> None:
+    """Every documented return contract matches its registered callable."""
+    from python_refactor_mcp import server  # noqa: PLC0415
+    from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
+
+    live = {
+        record.func.__name__: _render_return_annotation(get_type_hints(record.func)["return"])
+        for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
+    }
+    row_pattern = re.compile(r"^\| `([^`]+)` \|.*\| `([^`]+)` \|$")
+    documented: dict[str, str] = {}
+    reference = REPO_ROOT / "docs" / "tool-reference.md"
+    for line in reference.read_text(encoding="utf-8").splitlines():
+        match = row_pattern.match(line)
+        if match:
+            documented[match.group(1)] = match.group(2).replace("\\|", "|")
+
+    assert documented.keys() == live.keys(), (
+        f"docs/tool-reference.md tool names differ from the live catalog; "
+        f"missing={sorted(live.keys() - documented.keys())}, "
+        f"extra={sorted(documented.keys() - live.keys())}"
+    )
+    mismatches = {
+        name: {"documented": documented[name], "live": live[name]}
+        for name in live
+        if documented[name] != live[name]
+    }
+    assert mismatches == {}, f"Documented return contracts differ from live annotations: {mismatches}"
