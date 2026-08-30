@@ -11,6 +11,7 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILE_ENV, discover_max_workspaces, discover_tool_profile
+from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import (
     BackendLiveness,
     CompletionItem,
@@ -134,8 +135,8 @@ async def get_inlay_hints(
     if end_line is None:
         try:
             line_count = len(Path(file_path).read_text(encoding="utf-8").splitlines())
-        except (FileNotFoundError, OSError) as exc:
-            raise ValueError(f"Cannot read file for line count: {exc}") from exc
+        except (OSError, UnicodeError) as exc:
+            raise BackendError(f"Cannot read file for line count: {exc}") from exc
         end_line = max(line_count, 0)
     result = await analysis.get_inlay_hints(
         app.pyright,

@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-30T17:45:45Z
+**updated_at:** 2026-08-30T18:00:08Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -52,7 +52,6 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `backend-error-caller-safety` | High | — | **Redact backend failures at the MCP boundary** — return typed, caller-safe messages without raw paths, provider prose, or exception payloads; retain internal structured diagnostics. [type: security] [source: session-20260830] | M | items/backend-error-caller-safety.md |
 
 ## Medium
 

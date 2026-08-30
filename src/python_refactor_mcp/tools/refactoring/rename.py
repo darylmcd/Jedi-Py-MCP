@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import libcst as cst
 from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider, ScopeProvider
 
+from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult, TextEdit
 from python_refactor_mcp.util.cst_apply import parse_module
 from python_refactor_mcp.util.diff import build_unified_diff
@@ -58,18 +59,22 @@ class _ImportAliasCollisionVisitor(cst.CSTVisitor):
             self.collision = (old_name, self._new_name)
 
 
+def _read_source_for_rename(file_path: str) -> str:
+    """Read rename source once and preserve failures as internal backend detail."""
+    try:
+        return Path(file_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise BackendError(f"Rename preflight could not read the source file: {exc}") from exc
+
+
 def _ensure_import_alias_collision_free(
+    source: str,
     file_path: str,
     line: int,
     character: int,
     new_name: str,
 ) -> None:
     """Reject an import-alias rename that would shadow an existing binding."""
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError) as exc:
-        raise ValueError(f"Rename collision preflight could not read the source file: {exc}") from exc
-
     module = parse_module(source, file_path)
     visitor = _ImportAliasCollisionVisitor(line, character, new_name)
     MetadataWrapper(module).visit(visitor)
@@ -88,6 +93,7 @@ async def ensure_renameable(
     file_path: str,
     line: int,
     character: int,
+    source: str | None = None,
 ) -> None:
     """Validate renameability before invoking rope operations."""
     preflight = await pyright.prepare_rename(file_path, line, character)
@@ -96,7 +102,7 @@ async def ensure_renameable(
 
     # Pyright can return null for valid positions in some dynamic contexts.
     # Keep a lightweight local guard for obvious invalid targets.
-    lines = Path(file_path).read_text(encoding="utf-8").splitlines()
+    lines = (source if source is not None else _read_source_for_rename(file_path)).splitlines()
     if line < 0 or line >= len(lines):
         raise ValueError("Rename preflight failed: line is outside file bounds.")
     line_text = lines[line]
@@ -121,8 +127,9 @@ async def rename_symbol(
     include_diff: bool = False,
 ) -> RefactorResult:
     """Rename a symbol at the provided position."""
-    await ensure_renameable(pyright, file_path, line, character)
-    _ensure_import_alias_collision_free(file_path, line, character, new_name)
+    source = _read_source_for_rename(file_path)
+    await ensure_renameable(pyright, file_path, line, character, source)
+    _ensure_import_alias_collision_free(source, file_path, line, character, new_name)
     result = await rope.rename(file_path, line, character, new_name, apply)
     result = await post_apply_diagnostics(pyright, result)
 

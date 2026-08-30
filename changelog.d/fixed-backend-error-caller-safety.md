@@ -1,0 +1,1 @@
+- **Fixed:** Backend failures now retain typed, correlation-safe diagnostics while MCP callers receive actionable summaries without raw paths, provider output, or exception payloads.

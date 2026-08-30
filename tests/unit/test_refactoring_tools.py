@@ -73,6 +73,22 @@ async def test_rename_symbol_delegates_to_rope_no_apply(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rename_symbol_read_failure_is_backend_error(tmp_path: Path) -> None:
+    """Filesystem diagnostics stay behind the backend-error boundary."""
+    missing = tmp_path / "private" / "missing.py"
+
+    with pytest.raises(BackendError, match="Rename preflight could not read"):
+        await refactoring.rename_symbol(
+            AsyncMock(),
+            AsyncMock(),
+            str(missing),
+            0,
+            0,
+            "renamed",
+        )
+
+
+@pytest.mark.asyncio
 async def test_rename_symbol_apply_refreshes_diagnostics(tmp_path: Path) -> None:
     """Ensure apply mode notifies Pyright and attaches refreshed diagnostics."""
     first = tmp_path / "a.py"
