@@ -705,6 +705,35 @@ async def extract_superclass(
     return result
 
 
+async def extract_class(
+    ctx: Context,
+    file_path: str,
+    class_name: str,
+    new_class_name: str,
+    members: list[str],
+    collaborator_attribute: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move direct constructor fields and plain instance methods into a new collaborator while preserving the source class API through field properties and method delegates. The collaborator is stored on the explicitly named source attribute. Unsafe shapes fail closed: moved methods may only use selected self members, and decorated/async/generator methods, decorated/slotted classes, duplicate bindings, and ambiguous assignments are rejected. Defaults to preview mode (apply=False). Related: extract_superclass, move_method, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.extract_class(
+        app.pyright,
+        file_path,
+        class_name,
+        new_class_name,
+        members,
+        collaborator_attribute,
+        apply,
+    )
+    _LOGGER.debug(
+        "extract_class edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def expand_star_imports(
     ctx: Context,
     file_path: str,
@@ -1477,6 +1506,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(fix_circular_imports, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(extract_class, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_superclass, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_variable, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(inline_variable, DESTRUCTIVE_ANNOTATIONS),

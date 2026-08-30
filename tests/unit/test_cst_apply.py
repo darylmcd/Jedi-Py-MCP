@@ -3,7 +3,7 @@
 The foundation is tool-agnostic: every test below builds a tiny in-test
 ``cst.CSTTransformer`` and exercises the ``apply_cst_transformer`` /
 ``apply_cst_transformer_batch`` orchestrators. Real consumers
-(``extract_superclass``, ``convert_to_dataclass``, etc.) layer on top.
+(``extract_class``, ``extract_superclass``, ``convert_to_dataclass``, etc.) layer on top.
 """
 
 from __future__ import annotations

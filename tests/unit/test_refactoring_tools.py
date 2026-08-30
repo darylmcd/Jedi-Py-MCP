@@ -1239,3 +1239,132 @@ async def test_extract_superclass_empty_members_raises(tmp_path: Path) -> None:
         await refactoring.extract_superclass(
             pyright, str(target), "Foo", "Base", [], apply=False
         )
+
+
+_EXTRACT_CLASS_SOURCE = (
+    "class Order:\n"
+    "    def __init__(self, subtotal: float, tax: float, label: str):\n"
+    "        self.label = label\n"
+    "        self.subtotal: float = subtotal\n"
+    "        self.tax = tax\n\n"
+    "    def total(self, discount: float = 0, *, floor: float = 0) -> float:\n"
+    "        return max(self.subtotal + self.tax - discount, floor)\n\n"
+    "    def summary(self) -> str:\n"
+    '        return f"{self.label}: {self.total()}"\n'
+)
+
+
+@pytest.mark.asyncio
+async def test_extract_class_preview_preserves_delegated_public_surface(tmp_path: Path) -> None:
+    """Preview moves cohesive state/behavior while the source API remains usable."""
+    target = tmp_path / "order.py"
+    target.write_text(_EXTRACT_CLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.extract_class(
+        pyright,
+        str(target),
+        "Order",
+        "Pricing",
+        ["subtotal", "tax", "total"],
+        "_pricing",
+        apply=False,
+    )
+
+    assert result.applied is False
+    assert len(result.edits) == 1
+    transformed = result.edits[0].new_text
+    assert "class Pricing:" in transformed
+    assert "self._pricing = Pricing()" in transformed
+    assert "self._pricing.subtotal: float = subtotal" in transformed
+    assert "return self._pricing.total(discount, floor=floor)" in transformed
+    assert "@subtotal.setter" in transformed
+    assert target.read_text(encoding="utf-8") == _EXTRACT_CLASS_SOURCE
+
+    namespace: dict[str, object] = {}
+    exec(compile(transformed, str(target), "exec"), namespace)  # noqa: S102
+    order_type = namespace["Order"]
+    assert isinstance(order_type, type)
+    order = order_type(10.0, 2.0, "invoice")
+    assert order.total() == 12.0
+    order.subtotal = 20.0
+    assert order.summary() == "invoice: 22.0"
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extract_class_apply_writes_and_refreshes_diagnostics(tmp_path: Path) -> None:
+    """Apply mode atomically writes the transform and refreshes diagnostics."""
+    target = tmp_path / "order.py"
+    target.write_text(_EXTRACT_CLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.extract_class(
+        pyright,
+        str(target),
+        "Order",
+        "Pricing",
+        ["subtotal", "tax", "total"],
+        "_pricing",
+        apply=True,
+    )
+
+    assert result.applied is True
+    assert "class Pricing:" in target.read_text(encoding="utf-8")
+    pyright.notify_file_changed.assert_awaited_once_with(str(target))
+    pyright.get_diagnostics.assert_awaited_once_with(str(target))
+
+
+@pytest.mark.asyncio
+async def test_extract_class_rejects_method_dependency_left_on_source(tmp_path: Path) -> None:
+    """A moved method cannot silently lose access to an unselected source member."""
+    target = tmp_path / "order.py"
+    target.write_text(_EXTRACT_CLASS_SOURCE, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match="unselected self member"):
+        await refactoring.extract_class(
+            pyright,
+            str(target),
+            "Order",
+            "Presentation",
+            ["summary"],
+            "_presentation",
+        )
+
+    assert target.read_text(encoding="utf-8") == _EXTRACT_CLASS_SOURCE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("members", "new_class_name", "collaborator_attribute", "error"),
+    [
+        (["tax", "tax"], "Pricing", "_pricing", "unique"),
+        (["tax"], "Order", "_pricing", "differ"),
+        (["missing"], "Pricing", "_pricing", "not a direct"),
+        (["tax"], "Pricing", "label", "already exists"),
+    ],
+)
+async def test_extract_class_rejects_invalid_or_colliding_requests(
+    tmp_path: Path,
+    members: list[str],
+    new_class_name: str,
+    collaborator_attribute: str,
+    error: str,
+) -> None:
+    """Invalid requests fail before writing the source file."""
+    target = tmp_path / "order.py"
+    target.write_text(_EXTRACT_CLASS_SOURCE, encoding="utf-8")
+
+    with pytest.raises(BackendError, match=error):
+        await refactoring.extract_class(
+            AsyncMock(),
+            str(target),
+            "Order",
+            new_class_name,
+            members,
+            collaborator_attribute,
+        )
+
+    assert target.read_text(encoding="utf-8") == _EXTRACT_CLASS_SOURCE

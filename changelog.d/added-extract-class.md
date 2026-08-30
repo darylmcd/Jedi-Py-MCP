@@ -1,0 +1,1 @@
+- **Added:** Preview-first `extract_class` refactoring with fail-closed member analysis, field properties, method delegates, atomic apply, and refreshed diagnostics.

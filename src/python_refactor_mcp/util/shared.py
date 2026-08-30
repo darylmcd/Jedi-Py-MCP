@@ -62,14 +62,10 @@ def diagnostic_key(item: Diagnostic) -> tuple[str, int, int, int, int, str, str]
 
 async def attach_post_apply_diagnostics(
     pyright: DiagnosticsNotifier,
-    result: object,
-) -> object:
-    """Notify Pyright of changed files and append refreshed diagnostics.
-
-    Operates on any object with ``applied``, ``files_affected``, and
-    ``diagnostics_after`` attributes (i.e. ``RefactorResult``).
-    """
-    if not isinstance(result, RefactorResult) or not result.applied:
+    result: RefactorResult,
+) -> RefactorResult:
+    """Notify Pyright of changed files and append refreshed diagnostics."""
+    if not result.applied:
         return result
 
     normalized_files = sorted(set(result.files_affected))
