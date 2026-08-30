@@ -19,6 +19,7 @@ from python_refactor_mcp.tool_registry import (
     register_tools,
     tool_names_for_profile,
 )
+from python_refactor_mcp.tool_runtime import IDENTIFIER_PARAMS, PATH_PARAMS
 
 
 async def _profile_tools(profile: ToolProfile) -> list[Any]:
@@ -159,14 +160,14 @@ async def test_path_params_are_validated() -> None:
     that move/copy tools anchor workspace resolution on the source, not the
     destination.
     """
-    path_params = server._PATH_PARAMS  # pyright: ignore[reportPrivateUsage]
+    path_params = PATH_PARAMS
     expected_members = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
     assert expected_members == set(path_params)
     # Source/subject paths must precede destination paths.
     for src in ("file_path", "source_file", "source_path"):
         for dst in ("destination_file", "destination_package"):
             assert path_params.index(src) < path_params.index(dst), (
-                f"{src!r} must come before {dst!r} in _PATH_PARAMS"
+                f"{src!r} must come before {dst!r} in PATH_PARAMS"
             )
 
 
@@ -174,4 +175,4 @@ async def test_path_params_are_validated() -> None:
 async def test_identifier_params_are_validated() -> None:
     """All known identifier parameter names should be in the validation tuple."""
     expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
-    assert expected == set(server._IDENTIFIER_PARAMS)  # pyright: ignore[reportPrivateUsage]
+    assert expected == set(IDENTIFIER_PARAMS)

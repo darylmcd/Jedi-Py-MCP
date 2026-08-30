@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from python_refactor_mcp import server
@@ -13,6 +16,72 @@ from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE
 # truth the gate below asserts against. Keep it in sync with the wording in
 # ``python_refactor_mcp.models.Position`` ("0-based line and character offset").
 POSITION_CONVENTION_PHRASE = "Positions are 0-based (line and character offsets, LSP convention)."
+
+
+def _production_import_graph() -> dict[str, set[str]]:
+    """Build the package's module-level import graph from production sources."""
+    package_root = Path(__file__).resolve().parents[2] / "src" / "python_refactor_mcp"
+    modules: dict[str, Path] = {}
+    for path in package_root.rglob("*.py"):
+        relative_parts = list(path.relative_to(package_root).with_suffix("").parts)
+        if relative_parts[-1] == "__init__":
+            relative_parts.pop()
+        suffix = f".{'.'.join(relative_parts)}" if relative_parts else ""
+        modules[f"python_refactor_mcp{suffix}"] = path
+
+    def known_module(target: str) -> str | None:
+        candidates = [name for name in modules if target == name or target.startswith(f"{name}.")]
+        return max(candidates, key=len) if candidates else None
+
+    graph = {name: set() for name in modules}
+    for source, path in modules.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        current_package = source if path.name == "__init__.py" else source.rpartition(".")[0]
+        for node in ast.walk(tree):
+            targets: list[str] = []
+            if isinstance(node, ast.Import):
+                targets.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    package_parts = current_package.split(".")
+                    retained = package_parts[: len(package_parts) - (node.level - 1)]
+                    base = ".".join((*retained, *(node.module or "").split("."))).rstrip(".")
+                else:
+                    base = node.module or ""
+                targets.append(base)
+                targets.extend(f"{base}.{alias.name}" for alias in node.names if alias.name != "*")
+
+            for target in targets:
+                dependency = known_module(target)
+                if dependency is not None and dependency != source:
+                    graph[source].add(dependency)
+    return graph
+
+
+def _transitive_dependencies(graph: dict[str, set[str]], start: str) -> set[str]:
+    """Return every production module reachable from *start*."""
+    reachable: set[str] = set()
+    pending = list(graph[start])
+    while pending:
+        dependency = pending.pop()
+        if dependency in reachable:
+            continue
+        reachable.add(dependency)
+        pending.extend(graph[dependency] - reachable)
+    return reachable
+
+
+def test_server_and_tool_registry_are_not_an_import_cycle() -> None:
+    """Keep registration dependent on the acyclic tool-runtime seam."""
+    graph = _production_import_graph()
+    server_module = "python_refactor_mcp.server"
+    registry_module = "python_refactor_mcp.tool_registry"
+    runtime_module = "python_refactor_mcp.tool_runtime"
+
+    assert runtime_module in graph[server_module]
+    assert runtime_module in graph[registry_module]
+    assert registry_module in _transitive_dependencies(graph, server_module)
+    assert server_module not in _transitive_dependencies(graph, registry_module)
 
 
 @pytest.mark.asyncio

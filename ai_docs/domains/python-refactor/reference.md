@@ -7,6 +7,7 @@ Purpose: compact entry point for the Python refactor MCP domain.
 
 - `src/python_refactor_mcp/server.py` — MCP app lifecycle and complete registration assembly
 - `src/python_refactor_mcp/tool_registry.py` — profile policy, reliability budget, and declarative tool catalog
+- `src/python_refactor_mcp/tool_runtime.py` — request-scoped backend lookup, parameter validation, and error boundary
 - `src/python_refactor_mcp/config.py` — runtime config discovery
 - `src/python_refactor_mcp/models.py` — shared Pydantic response models
 - `src/python_refactor_mcp/backends/pyright_lsp.py` — Pyright LSP backend

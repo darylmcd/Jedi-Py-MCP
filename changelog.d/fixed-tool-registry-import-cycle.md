@@ -1,0 +1,1 @@
+- **Fixed:** Removed the server and tool-registry import cycle while preserving request-scoped backend resolution, error translation, and timing diagnostics.
