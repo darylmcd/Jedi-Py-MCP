@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-from python_refactor_mcp.models import CodeMetricsResult, FunctionMetrics
+from python_refactor_mcp.models import CodeMetricsResult, FunctionMetrics, ScanFailure
+from python_refactor_mcp.util.scan import parse_python_file
 
 
 def _cyclomatic_complexity(node: ast.AST) -> int:
@@ -64,15 +64,16 @@ async def code_metrics(
     """Compute cyclomatic/cognitive complexity, nesting depth, LoC, and param count."""
     paths = [file_path] if file_paths is None else file_paths
     all_functions: list[FunctionMetrics] = []
+    scan_failures: list[ScanFailure] = []
 
     for fp in paths:
-        content = Path(fp).read_text(encoding="utf-8")
-        try:
-            tree = ast.parse(content, filename=fp)
-        except SyntaxError:
+        parsed, failure = parse_python_file(fp)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
             continue
 
-        for node in ast.walk(tree):
+        for node in ast.walk(parsed.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 cc = _cyclomatic_complexity(node)
                 cog = _cognitive_complexity(node)
@@ -85,7 +86,7 @@ async def code_metrics(
                     params += 1
                 all_functions.append(FunctionMetrics(
                     name=node.name,
-                    file_path=str(Path(fp).resolve()),
+                    file_path=str(parsed.path),
                     line=node.lineno - 1,
                     cyclomatic_complexity=cc,
                     cognitive_complexity=cog,
@@ -103,4 +104,6 @@ async def code_metrics(
         total_functions=total,
         avg_cyclomatic=round(avg_cc, 2),
         max_cyclomatic=max_cc,
+        files_scanned=len(paths) - len(scan_failures),
+        scan_failures=scan_failures,
     )

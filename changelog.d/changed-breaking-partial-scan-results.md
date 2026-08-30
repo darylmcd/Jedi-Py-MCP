@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** File-scanning search and metrics tools now return explicit partial-scan failures and successful-file counts instead of silently omitting unreadable or unparseable inputs; `extract_superclass` also rejects ambiguous or colliding transforms before editing.

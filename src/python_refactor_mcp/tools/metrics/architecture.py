@@ -10,18 +10,22 @@ from typing import Any
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import (
     CouplingMetrics,
+    CouplingMetricsResult,
     DependencyGraph,
     InterfaceComparison,
     LayerViolation,
+    LayerViolationResult,
     ProtocolSource,
+    ScanFailure,
 )
+from python_refactor_mcp.util.scan import parse_python_file
 
 
 async def get_coupling_metrics(
     config: ServerConfig,
     dependency_graph: DependencyGraph | None = None,
     file_paths: list[str] | None = None,
-) -> list[CouplingMetrics]:
+) -> CouplingMetricsResult:
     """Compute afferent/efferent coupling and instability per module.
 
     Ca = number of modules that import this module (afferent).
@@ -53,14 +57,18 @@ async def get_coupling_metrics(
             instability=round(instability, 3),
         ))
 
-    return sorted(results, key=lambda m: m.instability, reverse=True)
+    return CouplingMetricsResult(
+        items=sorted(results, key=lambda m: m.instability, reverse=True),
+        files_scanned=dependency_graph.files_scanned,
+        scan_failures=dependency_graph.scan_failures,
+    )
 
 
 async def check_layer_violations(
     config: ServerConfig,
     layers: list[list[str]],
     file_paths: list[str] | None = None,
-) -> list[LayerViolation]:
+) -> LayerViolationResult:
     """Check import directions against declared layer ordering.
 
     ``layers`` is ordered from highest to lowest layer.
@@ -88,6 +96,7 @@ async def check_layer_violations(
         return None
 
     violations: list[LayerViolation] = []
+    scan_failures: list[ScanFailure] = []
     if file_paths:
         paths = [Path(fp) for fp in file_paths]
     else:
@@ -95,18 +104,18 @@ async def check_layer_violations(
         paths = python_files(workspace_root)
 
     for fp in paths:
-        try:
-            content = fp.read_text(encoding="utf-8")
-            tree = ast.parse(content, filename=str(fp))
-        except (SyntaxError, OSError):
+        parsed, failure = parse_python_file(fp)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
             continue
 
-        source_str = str(fp.resolve())
+        source_str = str(parsed.path)
         source_layer = _get_layer(source_str)
         if source_layer is None:
             continue
 
-        for node in ast.walk(tree):
+        for node in ast.walk(parsed.tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
             target_name: str | None = None
@@ -133,7 +142,11 @@ async def check_layer_violations(
                     import_line=node.lineno - 1,
                 ))
 
-    return violations
+    return LayerViolationResult(
+        items=violations,
+        files_scanned=len(paths) - len(scan_failures),
+        scan_failures=scan_failures,
+    )
 
 
 def _extract_methods(tree: ast.Module, class_name: str) -> dict[str, dict[str, object]]:

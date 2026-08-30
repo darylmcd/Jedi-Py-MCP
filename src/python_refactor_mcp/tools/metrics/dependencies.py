@@ -246,7 +246,6 @@ async def get_module_dependencies(
 
     for fp in sorted(paths):
         source = str(fp.resolve())
-        modules.add(source)
         try:
             content = fp.read_text(encoding="utf-8")
             tree = ast.parse(content, filename=str(fp))
@@ -260,6 +259,7 @@ async def get_module_dependencies(
             )
             continue
 
+        modules.add(source)
         if source not in graph:
             graph[source] = set()
 
@@ -301,5 +301,6 @@ async def get_module_dependencies(
         dependencies=all_deps,
         modules=sorted(modules),
         circular_dependencies=cycles,
+        files_scanned=len(paths) - len(scan_failures),
         scan_failures=scan_failures,
     )

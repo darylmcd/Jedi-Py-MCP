@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import ast
-import logging
 from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Location, TestCoverageEntry, TestCoverageMap
-
-_LOGGER = logging.getLogger(__name__)
+from python_refactor_mcp.models import Location, ScanFailure, TestCoverageEntry, TestCoverageMap
+from python_refactor_mcp.util.scan import parse_python_file
 
 
 class _ReferencesBackend(Protocol):
@@ -34,15 +32,16 @@ async def get_test_coverage_map(
         paths.append(file_path)
 
     entries: list[TestCoverageEntry] = []
+    scan_failures: list[ScanFailure] = []
     for path in paths:
-        try:
-            source = Path(path).read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=path)
-        except (OSError, SyntaxError):
+        parsed, failure = parse_python_file(path)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
             continue
 
-        source_lines = source.splitlines()
-        for node in ast.walk(tree):
+        source_lines = parsed.source.splitlines()
+        for node in ast.walk(parsed.tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
             name = node.name
@@ -52,10 +51,17 @@ async def get_test_coverage_map(
                 col = 0
 
             try:
-                refs = await pyright.get_references(path, line, max(col, 0), True)
-            except Exception:
-                _LOGGER.debug("reference lookup failed for %s:%s", path, name, exc_info=True)
-                refs = []
+                refs = await pyright.get_references(str(parsed.path), line, max(col, 0), True)
+            except Exception as exc:
+                scan_failures.append(
+                    ScanFailure(
+                        file_path=str(parsed.path),
+                        phase="references",
+                        error_type=type(exc).__name__,
+                        subject=name,
+                    )
+                )
+                continue
 
             test_refs = sorted({
                 ref.file_path for ref in refs
@@ -63,7 +69,7 @@ async def get_test_coverage_map(
             })
             entries.append(TestCoverageEntry(
                 symbol_name=name,
-                file_path=path,
+                file_path=str(parsed.path),
                 line=line,
                 test_references=test_refs,
                 covered=len(test_refs) > 0,
@@ -76,4 +82,6 @@ async def get_test_coverage_map(
         total_symbols=total,
         covered_count=covered,
         coverage_pct=round(covered / total * 100, 1) if total > 0 else 0.0,
+        files_scanned=len(paths) - sum(1 for failure in scan_failures if failure.phase == "read_or_parse"),
+        scan_failures=scan_failures,
     )

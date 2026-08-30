@@ -363,6 +363,21 @@ class ScanFailure(BaseModel):
     subject: str | None = None
 
 
+class ScanResult[T](BaseModel):
+    """Items produced by a partial-capable file scan plus safe failure metadata."""
+
+    items: list[T]
+    files_scanned: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
+
+
+class ConstructorSearchResult(ScanResult[ConstructorSite]):
+    """Constructor call sites plus pagination and partial-scan metadata."""
+
+    total_count: int
+    truncated: bool = False
+
+
 class StructuralSearchResult(BaseModel):
     """Result of a structural search including scan metadata."""
 
@@ -523,6 +538,8 @@ class CodeMetricsResult(BaseModel):
     total_functions: int
     avg_cyclomatic: float
     max_cyclomatic: int
+    files_scanned: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class ModuleDependency(BaseModel):
@@ -540,6 +557,7 @@ class DependencyGraph(BaseModel):
     dependencies: list[ModuleDependency]
     modules: list[str]
     circular_dependencies: list[list[str]]
+    files_scanned: int
     scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
@@ -553,6 +571,10 @@ class UnusedImport(BaseModel):
     message: str
 
 
+class UnusedImportScanResult(ScanResult[UnusedImport]):
+    """Unused imports plus partial-scan metadata."""
+
+
 class DuplicateGroup(BaseModel):
     """A group of duplicated code fragments."""
 
@@ -560,6 +582,10 @@ class DuplicateGroup(BaseModel):
     function_name: str
     occurrences: list[dict[str, object]]
     count: int
+
+
+class DuplicateCodeResult(ScanResult[DuplicateGroup]):
+    """Duplicate groups plus partial-scan metadata."""
 
 
 class TypeCoverageReport(BaseModel):
@@ -573,6 +599,8 @@ class TypeCoverageReport(BaseModel):
     return_coverage_pct: float
     param_coverage_pct: float
     unannotated: list[dict[str, object]]
+    files_scanned: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class CouplingMetrics(BaseModel):
@@ -584,6 +612,10 @@ class CouplingMetrics(BaseModel):
     instability: float
 
 
+class CouplingMetricsResult(ScanResult[CouplingMetrics]):
+    """Coupling metrics plus dependency-scan failure metadata."""
+
+
 class LayerViolation(BaseModel):
     """An import that violates declared layer ordering."""
 
@@ -592,6 +624,10 @@ class LayerViolation(BaseModel):
     source_layer: int
     target_layer: int
     import_line: int
+
+
+class LayerViolationResult(ScanResult[LayerViolation]):
+    """Layer violations plus partial-scan metadata."""
 
 
 class StaticError(BaseModel):
@@ -662,6 +698,8 @@ class TestCoverageMap(BaseModel):
     total_symbols: int
     covered_count: int
     coverage_pct: float
+    files_scanned: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class SecurityFinding(BaseModel):
@@ -681,6 +719,7 @@ class SecurityScanResult(BaseModel):
     findings: list[SecurityFinding]
     files_scanned: int
     total_findings: int
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
 class BackendLiveness(BaseModel):

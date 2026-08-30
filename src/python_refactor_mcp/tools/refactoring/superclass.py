@@ -15,6 +15,8 @@ instance attributes, since those are not class-level statements).
 
 from __future__ import annotations
 
+import symtable
+
 import libcst as cst
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -49,12 +51,16 @@ def _statement_member_name(statement: cst.BaseStatement) -> str | None:
     if isinstance(statement, cst.FunctionDef):
         return statement.name.value
     if isinstance(statement, cst.SimpleStatementLine):
-        for small in statement.body:
-            if isinstance(small, cst.Assign):
-                if len(small.targets) == 1 and isinstance(small.targets[0].target, cst.Name):
-                    return small.targets[0].target.value
-            elif isinstance(small, cst.AnnAssign) and isinstance(small.target, cst.Name):
-                return small.target.value
+        # Hoisting the entire line would also move sibling semicolon-separated
+        # statements, so only a one-statement line is a safe member boundary.
+        if len(statement.body) != 1:
+            return None
+        small = statement.body[0]
+        if isinstance(small, cst.Assign):
+            if len(small.targets) == 1 and isinstance(small.targets[0].target, cst.Name):
+                return small.targets[0].target.value
+        elif isinstance(small, cst.AnnAssign) and isinstance(small.target, cst.Name):
+            return small.target.value
     return None
 
 
@@ -67,18 +73,63 @@ class ExtractSuperclassTransformer(cst.CSTTransformer):
         self._base_class_name = base_class_name
         self._requested = list(members)
         self.class_found = False
+        self._class_depth = 0
+
+    def visit_Module(self, node: cst.Module) -> bool | None:  # noqa: N802
+        """Reject ambiguous source classes and top-level base-name collisions."""
+        source_definitions = [
+            statement
+            for statement in node.body
+            if isinstance(statement, cst.ClassDef) and statement.name.value == self._source_class
+        ]
+        if len(source_definitions) > 1:
+            raise BackendError(
+                f"Multiple top-level class definitions named {self._source_class!r}; "
+                "extract_superclass requires exactly one"
+            )
+        if len(source_definitions) != 1:
+            return True
+        if self._base_class_name == self._source_class:
+            raise BackendError("The new base class name must differ from the source class name")
+
+        module_symbols = symtable.symtable(node.code, "<extract_superclass>", "exec")
+        bound_names = {
+            name
+            for name in module_symbols.get_identifiers()
+            if (
+                (symbol := module_symbols.lookup(name)).is_assigned()
+                or symbol.is_imported()
+                or symbol.is_namespace()
+            )
+        }
+        if self._base_class_name in bound_names:
+            raise BackendError(
+                f"Cannot create base class {self._base_class_name!r}: "
+                "the name is already bound at module scope"
+            )
+        return True
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> bool | None:  # noqa: N802
+        """Track nesting so only a top-level source class can be transformed."""
+        _ = node
+        self._class_depth += 1
+        return True
 
     def leave_ClassDef(
         self, original_node: cst.ClassDef, updated_node: cst.ClassDef
     ) -> cst.BaseStatement | cst.FlattenSentinel[cst.BaseStatement]:
-        if original_node.name.value != self._source_class:
+        depth = self._class_depth
+        self._class_depth -= 1
+        if depth != 1 or original_node.name.value != self._source_class:
             return updated_node
         self.class_found = True
 
         block = updated_node.body
         if not isinstance(block, cst.IndentedBlock):
-            # A class body is always an indented block in real source; bail safely otherwise.
-            return updated_node
+            raise BackendError(
+                f"Cannot extract superclass from one-line class {self._source_class!r}; "
+                "expand its body first"
+            )
 
         requested = set(self._requested)
         found: set[str] = set()
@@ -140,6 +191,8 @@ async def extract_superclass(
     """
     if not members:
         raise BackendError("extract_superclass requires at least one member to hoist")
+    if len(set(members)) != len(members):
+        raise BackendError("extract_superclass members must not contain duplicates")
 
     transformer = ExtractSuperclassTransformer(class_name, base_class_name, members)
     edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)

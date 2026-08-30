@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-from python_refactor_mcp.models import TypeCoverageReport
+from python_refactor_mcp.models import ScanFailure, TypeCoverageReport
+from python_refactor_mcp.util.scan import parse_python_file
 
 
 async def get_type_coverage(
@@ -20,16 +20,17 @@ async def get_type_coverage(
     annotated_params = 0
     total_params = 0
     unannotated: list[dict[str, object]] = []
+    scan_failures: list[ScanFailure] = []
 
     for fp in paths:
-        try:
-            content = Path(fp).read_text(encoding="utf-8")
-            tree = ast.parse(content, filename=fp)
-        except (SyntaxError, OSError):
+        parsed, failure = parse_python_file(fp)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
             continue
 
-        resolved = str(Path(fp).resolve())
-        for node in ast.walk(tree):
+        resolved = str(parsed.path)
+        for node in ast.walk(parsed.tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             total_functions += 1
@@ -76,4 +77,6 @@ async def get_type_coverage(
         return_coverage_pct=round(return_pct, 1),
         param_coverage_pct=round(param_pct, 1),
         unannotated=unannotated,
+        files_scanned=len(paths) - len(scan_failures),
+        scan_failures=scan_failures,
     )

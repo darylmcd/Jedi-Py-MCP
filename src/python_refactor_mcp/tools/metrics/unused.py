@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.models import Diagnostic, UnusedImport
+from python_refactor_mcp.models import Diagnostic, ScanFailure, UnusedImport, UnusedImportScanResult
+from python_refactor_mcp.util.scan import ParsedPythonFile, parse_python_file
 
 
 class _PyrightDiagnosticsBackend(Protocol):
@@ -17,16 +17,35 @@ async def find_unused_imports(
     pyright: _PyrightDiagnosticsBackend,
     file_path: str,
     file_paths: list[str] | None = None,
-) -> list[UnusedImport]:
+) -> UnusedImportScanResult:
     """Find unused imports using Pyright reportUnusedImport diagnostics."""
     paths = [file_path] if file_paths is None else file_paths
     results: list[UnusedImport] = []
+    scan_failures: list[ScanFailure] = []
 
     for fp in paths:
-        # Read __all__ exports to avoid false positives on re-export facades.
-        all_exports = _read_all_exports(fp)
+        parsed, failure = parse_python_file(fp)
+        if parsed is None:
+            if failure is not None:
+                scan_failures.append(failure)
+            continue
 
-        diagnostics = await pyright.get_diagnostics(fp)
+        # Read __all__ exports to avoid false positives on re-export facades.
+        all_exports = _read_all_exports(parsed)
+
+        try:
+            diagnostics = await pyright.get_diagnostics(str(parsed.path))
+        except Exception as exc:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(parsed.path),
+                    phase="diagnostics",
+                    error_type=type(exc).__name__,
+                )
+            )
+            diagnostics = []
+
+        file_results: list[UnusedImport] = []
         for diag in diagnostics:
             if "import" in diag.message.lower() and (
                 diag.code == "reportUnusedImport"
@@ -42,7 +61,7 @@ async def find_unused_imports(
                 # Skip imports listed in __all__ (intentional re-exports).
                 if name is not None and name in all_exports:
                     continue
-                results.append(UnusedImport(
+                file_results.append(UnusedImport(
                     file_path=diag.file_path,
                     module="",
                     name=name,
@@ -50,22 +69,25 @@ async def find_unused_imports(
                     message=diag.message,
                 ))
 
-        # AST fallback for any not caught by Pyright
-        if not results:
-            results.extend(_ast_find_unused(fp))
+        # AST fallback fills gaps in Pyright's diagnostics. Merge by binding and
+        # line so one diagnostic cannot suppress other unused imports in the file.
+        seen = {(item.name, item.line) for item in file_results}
+        for fallback in _ast_find_unused(parsed):
+            if fallback.name in all_exports or (fallback.name, fallback.line) in seen:
+                continue
+            file_results.append(fallback)
+        results.extend(file_results)
 
-    return results
+    return UnusedImportScanResult(
+        items=results,
+        files_scanned=len(paths) - sum(1 for failure in scan_failures if failure.phase == "read_or_parse"),
+        scan_failures=scan_failures,
+    )
 
 
-def _read_all_exports(file_path: str) -> set[str]:
+def _read_all_exports(parsed: ParsedPythonFile) -> set[str]:
     """Read names from ``__all__`` in the given file, if present."""
-    try:
-        content = Path(file_path).read_text(encoding="utf-8")
-        tree = ast.parse(content, filename=file_path)
-    except (OSError, SyntaxError):
-        return set()
-
-    for node in tree.body:
+    for node in parsed.tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if (
@@ -91,19 +113,15 @@ def _extract_import_name(message: str) -> str | None:
     return None
 
 
-def _ast_find_unused(file_path: str) -> list[UnusedImport]:
+def _ast_find_unused(parsed: ParsedPythonFile) -> list[UnusedImport]:
     """AST-based fallback: compare imported names vs. used names."""
-    try:
-        content = Path(file_path).read_text(encoding="utf-8")
-        tree = ast.parse(content, filename=file_path)
-    except (SyntaxError, OSError):
-        return []
-
     imported: dict[str, tuple[str, int]] = {}  # name -> (module, line)
-    for node in ast.walk(tree):
+    for node in ast.walk(parsed.tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                name = alias.asname or alias.name
+                # ``import package.submodule`` binds only ``package`` unless
+                # the import has an explicit alias.
+                name = alias.asname or alias.name.split(".", maxsplit=1)[0]
                 imported[name] = (alias.name, node.lineno - 1)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
@@ -115,7 +133,7 @@ def _ast_find_unused(file_path: str) -> list[UnusedImport]:
 
     # Collect all Name references (excluding imports themselves)
     used: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(parsed.tree):
         if isinstance(node, ast.Name):
             used.add(node.id)
         elif isinstance(node, ast.Attribute):
@@ -130,7 +148,7 @@ def _ast_find_unused(file_path: str) -> list[UnusedImport]:
     for name, (module, line) in imported.items():
         if name not in used:
             results.append(UnusedImport(
-                file_path=str(Path(file_path).resolve()),
+                file_path=str(parsed.path),
                 module=module,
                 name=name,
                 line=line,

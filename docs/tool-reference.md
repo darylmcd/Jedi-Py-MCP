@@ -87,7 +87,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 | Tool | Purpose | Returns |
 |---|---|---|
-| `find_constructors` | Locate constructor call sites for a class. | `list[ConstructorSite]` |
+| `find_constructors` | Locate constructor call sites and report partial file/reference failures. | `ConstructorSearchResult` |
 | `search_symbols` | Search workspace symbols by name across semantic backends and report partial backend failures. | `SymbolSearchResult` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `list[StructuralMatch]` |
 | `structural_replace` | Rewrite LibCST matcher matches using `$name` capture templates. | `RefactorResult` |
@@ -95,23 +95,23 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `list[DeadCodeItem]` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
 | `autoimport_search` | Search autoimport database for a symbol name. | `list[ImportSuggestion]` |
-| `find_unused_imports` | Find unused imports in a file. | `list[UnusedImport]` |
+| `find_unused_imports` | Find unused imports and report partial file/backend failures. | `UnusedImportScanResult` |
 | `project_search` | Project-wide semantic symbol search via Jedi. | `list[SymbolInfo]` |
 
 ## Metrics and Architecture (10)
 
 | Tool | Purpose | Returns |
 |---|---|---|
-| `code_metrics` | Return complexity and quality metrics for a file. | `CodeMetrics` |
-| `get_module_dependencies` | Return import dependency graph for a file. | `list[Dependency]` |
-| `get_type_coverage` | Return type annotation coverage for a file. | `TypeCoverage` |
-| `get_coupling_metrics` | Return coupling metrics between modules. | `CouplingMetrics` |
-| `check_layer_violations` | Detect layer boundary violations in the codebase. | `list[LayerViolation]` |
+| `code_metrics` | Return complexity metrics plus partial-scan failures. | `CodeMetricsResult` |
+| `get_module_dependencies` | Return an import dependency graph plus partial-scan failures. | `DependencyGraph` |
+| `get_type_coverage` | Return type annotation coverage plus partial-scan failures. | `TypeCoverageReport` |
+| `get_coupling_metrics` | Return coupling metrics plus dependency-scan failures. | `CouplingMetricsResult` |
+| `check_layer_violations` | Detect layer violations and report partial file failures. | `LayerViolationResult` |
 | `interface_conformance` | Check class conformance to an interface or protocol. | `ConformanceResult` |
 | `extract_protocol` | Extract a Protocol interface from class usage patterns. | `RefactorResult` |
-| `find_duplicated_code` | Identify duplicated code blocks in a file or workspace. | `list[DuplicateBlock]` |
+| `find_duplicated_code` | Identify duplicated code blocks and report partial file failures. | `DuplicateCodeResult` |
 | `find_errors_static` | Rope-based static analysis for bad name/attribute accesses. | `list[StaticError]` |
-| `get_test_coverage_map` | Map source symbols to their test references. | `list[CoverageMapItem]` |
+| `get_test_coverage_map` | Map source symbols to test references and report partial lookup failures. | `TestCoverageMap` |
 
 ## History and Change Management (6)
 
@@ -136,6 +136,6 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `list_environments` | Discover available Python environments and virtualenvs. | `list[EnvironmentInfo]` |
 | `restart_server` | Restart the Pyright language server. | `str` |
 | `multi_project_rename` | Rename a symbol across multiple Rope projects simultaneously. | `RefactorResult` |
-| `security_scan` | AST-based SAST security scan for a file. | `list[SecurityIssue]` |
+| `security_scan` | AST-based SAST scan with explicit per-file failure metadata. | `SecurityScanResult` |
 | `security_autofix` | Rewrite unsafe `yaml.load` (SEC022) to `yaml.safe_load` via LibCST; skips explicit `Loader=`. | `RefactorResult` |
 | `server_status` | Read-only server health: version, workspace roots, per-backend liveness, degraded flag. | `ServerStatus` |
