@@ -10,6 +10,73 @@ from python_refactor_mcp.models import DependencyGraph, ModuleDependency, ScanFa
 from python_refactor_mcp.util.file_filter import python_files
 
 
+def _is_type_checking_guard(node: ast.expr) -> bool:
+    """Return whether *node* is the conventional static-only typing guard."""
+    return (
+        isinstance(node, ast.Name)
+        and node.id == "TYPE_CHECKING"
+        or isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "typing"
+        and node.attr == "TYPE_CHECKING"
+    )
+
+
+class _ImportCollector(ast.NodeVisitor):
+    """Collect imports and whether they execute while the module initializes.
+
+    Imports nested in functions are real architectural dependencies, so they
+    remain in ``DependencyGraph.dependencies``. They cannot create an import-
+    time cycle, however, and neither can imports guarded by ``TYPE_CHECKING``;
+    those edges are excluded from the runtime cycle graph.
+    """
+
+    def __init__(self) -> None:
+        self.imports: list[tuple[ast.Import | ast.ImportFrom, bool]] = []
+        self._deferred_scope_depth = 0
+        self._type_checking_depth = 0
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        self.imports.append((node, self._is_runtime_import))
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        self.imports.append((node, self._is_runtime_import))
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self._visit_deferred_scope(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self._visit_deferred_scope(node)
+
+    def visit_If(self, node: ast.If) -> None:  # noqa: N802
+        self.visit(node.test)
+        if _is_type_checking_guard(node.test):
+            self._type_checking_depth += 1
+            for statement in node.body:
+                self.visit(statement)
+            self._type_checking_depth -= 1
+            for statement in node.orelse:
+                self.visit(statement)
+            return
+        for statement in (*node.body, *node.orelse):
+            self.visit(statement)
+
+    @property
+    def _is_runtime_import(self) -> bool:
+        return self._deferred_scope_depth == 0 and self._type_checking_depth == 0
+
+    def _visit_deferred_scope(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self._deferred_scope_depth += 1
+        self.generic_visit(node)
+        self._deferred_scope_depth -= 1
+
+
+def _collect_imports(tree: ast.AST) -> list[tuple[ast.Import | ast.ImportFrom, bool]]:
+    collector = _ImportCollector()
+    collector.visit(tree)
+    return collector.imports
+
+
 def _import_roots(workspace_root: Path) -> tuple[Path, ...]:
     """Return import roots in Python resolution order for common layouts."""
     roots = [workspace_root / name for name in ("src", "lib")]
@@ -196,7 +263,7 @@ async def get_module_dependencies(
         if source not in graph:
             graph[source] = set()
 
-        for node in ast.walk(tree):
+        for node, is_runtime_import in _collect_imports(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     target = _resolve_module_to_file(alias.name, import_roots)
@@ -208,8 +275,9 @@ async def get_module_dependencies(
                     ))
                     if target:
                         modules.add(target)
-                        graph[source].add(target)
-            elif isinstance(node, ast.ImportFrom):
+                        if is_runtime_import:
+                            graph[source].add(target)
+            else:
                 absolute_module = _absolute_from_module(node, fp, import_roots)
                 resolution_roots = (
                     _source_first_import_roots(fp, import_roots) if node.level else import_roots
@@ -225,7 +293,8 @@ async def get_module_dependencies(
                     ))
                     if target:
                         modules.add(target)
-                        graph[source].add(target)
+                        if is_runtime_import:
+                            graph[source].add(target)
 
     cycles = _find_cycles(graph)
     return DependencyGraph(

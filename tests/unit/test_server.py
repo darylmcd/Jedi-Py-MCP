@@ -90,9 +90,15 @@ async def test_server_registers_expected_tool_surface() -> None:
     tools = await server.mcp.list_tools()
     names = {tool.name for tool in tools}
     assert DEFAULT_TOOL_PROFILE == "refactoring"
-    assert len(tools) == 67
+    assert len(tools) == 68
     assert len(tools) < MAX_TOOLS_PER_PROFILE
-    assert {"convert_to_dataclass", "prepare_rename", "get_diagnostics", "server_status"} <= names
+    assert {
+        "convert_to_dataclass",
+        "fix_circular_imports",
+        "prepare_rename",
+        "get_diagnostics",
+        "server_status",
+    } <= names
     assert "check_type_stub_freshness" not in names
     assert "Active tool profile: refactoring" in (server.mcp.instructions or "")
     assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in tools)
