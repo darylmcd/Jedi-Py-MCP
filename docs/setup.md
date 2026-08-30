@@ -26,6 +26,15 @@ Install with build tooling:
 python -m pip install -e ".[build]"
 ```
 
+Install the exact locked development environment (this is what CI does, and it is the
+reproducible option — it resolves every dependency from `uv.lock` rather than re-resolving,
+so your environment matches the one the merge gate validates against). Requires
+[uv](https://docs.astral.sh/uv/); it creates and populates `.venv` for you:
+
+```powershell
+uv sync --locked --all-extras
+```
+
 The `pyright` dependency (declared in `pyproject.toml`) installs the `pyright-langserver` executable used by the server.
 
 ## Executable Build

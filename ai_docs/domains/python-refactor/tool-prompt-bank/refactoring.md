@@ -1,0 +1,157 @@
+# Tool Prompt Bank — Refactoring (apply-gated)
+<!-- purpose: Goal / Validation / Chaining prompt triple per tool for the Refactoring (apply-gated) categories. -->
+
+Format defined in `../mcp-checklist.md` §E. Tool contracts are canonical in `../reference.md`.
+Index: `README.md`.
+
+## Refactoring (apply-gated)
+
+- `rename_symbol`:
+  - Goal: "Run `rename_symbol` with `apply=false` and summarize files_affected + edits count."
+  - Validation: "Run `rename_symbol` to a syntactically invalid name and show the validation error."
+  - Chaining: "Run `prepare_rename`, then `find_references`, then `rename_symbol` with `apply=true`."
+- `multi_project_rename`:
+  - Goal: "Run `multi_project_rename` across two workspaces with `apply=false` and list touched repos."
+  - Validation: "Run `multi_project_rename` with a missing workspace root and show the resolution error."
+  - Chaining: "Run `multi_project_rename` preview, then `get_diagnostics` per workspace before apply."
+- `extract_method`:
+  - Goal: "Run `extract_method` on a selection with `apply=false` and return the new method signature."
+  - Validation: "Run `extract_method` on a range spanning two functions and show the scope-violation error."
+  - Chaining: "Call `selection_range`, then `extract_method` on the outermost expression range."
+- `extract_superclass`:
+  - Goal: "Run `extract_superclass` on a class with a named member subset and `apply=false`, and return the proposed base-class body."
+  - Validation: "Run `extract_superclass` including an `@classmethod`/`@staticmethod`/`@property` member and show the unsupported-member-kind error."
+  - Chaining: "Run `extract_superclass` preview, then `interface_conformance` against the new base to confirm the subclass still satisfies it."
+- `extract_class`:
+  - Goal: "Run `extract_class` on cohesive constructor fields and instance methods with `apply=false`; show the collaborator plus source delegates."
+  - Validation: "Run `extract_class` on a method that uses an unselected `self` member and show the fail-closed dependency error."
+  - Chaining: "Preview `extract_class`, inspect the edit with `diff_preview`, then apply it and call `get_diagnostics`."
+- `convert_to_dataclass`:
+  - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
+  - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
+  - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `fix_circular_imports`:
+  - Goal: "Run `fix_circular_imports` with `apply=false`, and show which annotation-only cycle edges would move behind `TYPE_CHECKING`."
+  - Validation: "Include a cycle edge used at runtime and confirm `fix_circular_imports` leaves that mixed-use import unchanged."
+  - Chaining: "Run `get_module_dependencies`, preview `fix_circular_imports`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
+- `extract_variable`:
+  - Goal: "Run `extract_variable` on an expression with `apply=false` and return proposed local name."
+  - Validation: "Run `extract_variable` on an assignment LHS and show the invalid-target error."
+  - Chaining: "Use `extract_variable`, then `rename_symbol` to finalize the local's name."
+- `extract_protocol`:
+  - Goal: "Run `extract_protocol` from a class with `apply=false` and return the proposed Protocol body."
+  - Validation: "Run `extract_protocol` on a class with no public methods and show the empty-protocol response."
+  - Chaining: "Run `extract_protocol`, then `interface_conformance` on the origin class to confirm match."
+- `inline_method`:
+  - Goal: "Run `inline_method` on a one-call-site helper with `apply=false` and show the substituted body."
+  - Validation: "Run `inline_method` on a recursive method and show the unsafe-inline error."
+  - Chaining: "Call `find_references` first; only inline if callers == 1, then `inline_method` apply."
+- `inline_variable`:
+  - Goal: "Run `inline_variable` on a single-use local with `apply=false` and return the rewritten expression."
+  - Validation: "Run `inline_variable` on a variable mutated after assignment and show the unsafe error."
+  - Chaining: "Use `get_document_highlights` to confirm single-read before `inline_variable` apply."
+- `inline_parameter`:
+  - Goal: "Run `inline_parameter` with `apply=false` and return affected call-site count."
+  - Validation: "Run `inline_parameter` on a parameter with non-literal arguments and show the unsafe-inline error."
+  - Chaining: "Run `find_references` on the function, then `inline_parameter` only if all call-sites are constant."
+- `introduce_parameter`:
+  - Goal: "Run `introduce_parameter` with `apply=false` and summarize files_affected and edits count."
+  - Validation: "Run `introduce_parameter` on non-callable symbol and show corrective error guidance."
+  - Chaining: "Preview `introduce_parameter`, pass edits to `diff_preview`, then re-run with `apply=true` if accepted."
+- `introduce_factory`:
+  - Goal: "Run `introduce_factory` on a class with `apply=false` and return the proposed factory signature."
+  - Validation: "Run `introduce_factory` on a class without `__init__` and show the missing-ctor error."
+  - Chaining: "Use `introduce_factory` preview, then `find_constructors` to confirm call-site routing."
+- `move_symbol`:
+  - Goal: "Run `move_symbol` with `apply=false` and return import-rewrite count at each call site."
+  - Validation: "Run `move_symbol` with source == destination path and show the no-op rejection."
+  - Chaining: "Preview `move_symbol`, then `organize_imports` on the destination to normalize order."
+- `move_method`:
+  - Goal: "Run `move_method` to another class with `apply=false` and return self/static conversion summary."
+  - Validation: "Run `move_method` to a destination lacking required attributes and show the host-mismatch error."
+  - Chaining: "Call `move_method`, then `get_diagnostics` on both classes before apply."
+- `move_module`:
+  - Goal: "Run `move_module` with `apply=false` and return rewritten-import count."
+  - Validation: "Run `move_module` into itself and show the cycle-prevention error."
+  - Chaining: "Preview `move_module`, then `check_layer_violations` on the new location."
+- `module_to_package`:
+  - Goal: "Run `module_to_package` with `apply=false` and return the new `__init__.py` shape."
+  - Validation: "Run `module_to_package` on an already-package directory and show the no-op response."
+  - Chaining: "Use `module_to_package` apply, then `organize_imports` across downstream modules."
+- `encapsulate_field`:
+  - Goal: "Run `encapsulate_field` with `apply=false` and summarize generated accessor-related edits."
+  - Validation: "Run `encapsulate_field` on unsupported target and show explicit failure message."
+  - Chaining: "Preview `encapsulate_field`, then call `get_diagnostics` on affected files before applying."
+- `local_to_field`:
+  - Goal: "Run `local_to_field` on a method local with `apply=false` and return the proposed self-attribute name."
+  - Validation: "Run `local_to_field` outside a method and show the scope-error envelope."
+  - Chaining: "Run `local_to_field` preview, then `encapsulate_field` to add accessors if needed."
+- `method_object`:
+  - Goal: "Run `method_object` on a long method with `apply=false` and return the proposed class name + members."
+  - Validation: "Run `method_object` on a one-line method and show the triviality-reject envelope."
+  - Chaining: "Preview `method_object`, then `get_symbol_outline` on the new class to confirm shape."
+- `change_signature`:
+  - Goal: "Run `change_signature` to add a parameter with `apply=false` and list affected call-sites."
+  - Validation: "Run `change_signature` with duplicate parameter names and show the validation error."
+  - Chaining: "Call `find_references`, then `change_signature`; confirm all sites with `get_diagnostics` post-apply."
+- `argument_default_inliner`:
+  - Goal: "Run `argument_default_inliner` on a function and list call sites that still pass the default."
+  - Validation: "Run `argument_default_inliner` on a function without defaults and show the no-target response."
+  - Chaining: "Use inliner preview, then `change_signature` to drop the parameter once all sites are stripped."
+- `argument_normalizer`:
+  - Goal: "Run `argument_normalizer` with `apply=false` and return positional→keyword conversion count."
+  - Note: Known upstream issue — rope's normalizer strips Python 3 type annotations (see `known-rope-annotations` in backlog)."
+  - Validation: "Run `argument_normalizer` on a callsite with `*args` and show the limitation response."
+  - Chaining: "Run `argument_normalizer` preview, diff with `diff_preview`, then verify annotations survived before apply."
+- `restructure`:
+  - Goal: "Run `restructure` with a pattern→replacement pair and `apply=false`, then list match sites."
+  - Validation: "Run `restructure` with a pattern that fails to parse and show the parse error."
+  - Chaining: "Use `structural_search` to preview matches, then `restructure` to apply the edit."
+- `use_function`:
+  - Goal: "Run `use_function` to replace an inlined expression with a helper call, `apply=false`, list sites."
+  - Validation: "Run `use_function` on a helper with incompatible arity and show the mismatch error."
+  - Chaining: "Pair with `find_duplicated_code`: pick a duplicate block, then `use_function` to dedupe."
+- `generate_code`:
+  - Goal: "Run `generate_code` to emit a dataclass stub and return the new file path."
+  - Validation: "Run `generate_code` with an unknown template id and show the invalid-template error."
+  - Chaining: "Use `generate_code`, then `get_diagnostics` on the emitted file to verify it's clean."
+- `expand_star_imports`:
+  - Goal: "Run `expand_star_imports` on a module with `apply=false` and return explicit-name list."
+  - Validation: "Run `expand_star_imports` on a file with no star imports and confirm no-op response."
+  - Chaining: "Run `expand_star_imports`, then `find_unused_imports` to trim what actually isn't used."
+- `froms_to_imports`:
+  - Goal: "Run `froms_to_imports` on a module with `apply=false` and return conversion count."
+  - Validation: "Run `froms_to_imports` on a module without `from` imports and confirm no-op."
+  - Chaining: "Use `froms_to_imports`, then `organize_imports` to sort the rewritten block."
+- `relatives_to_absolutes`:
+  - Goal: "Run `relatives_to_absolutes` on a package with `apply=false` and return rewritten-import count."
+  - Validation: "Run `relatives_to_absolutes` on a top-level module and confirm no-relative no-op."
+  - Chaining: "Apply `relatives_to_absolutes`, then `check_layer_violations` to verify module ownership."
+- `fix_module_names`:
+  - Goal: "Run `fix_module_names` with `apply=false` and return the rename plan per file."
+  - Validation: "Run `fix_module_names` on a package with already-PEP8 names and confirm no-op."
+  - Chaining: "Preview `fix_module_names`, then `move_module` if physical relocation is needed."
+- `handle_long_imports`:
+  - Goal: "Run `handle_long_imports` with `apply=false` and return lines exceeding the configured limit."
+  - Validation: "Run `handle_long_imports` with line-limit=0 and show the invalid-config error."
+  - Chaining: "Run `handle_long_imports`, then `organize_imports` to finalize grouping."
+- `organize_imports`:
+  - Goal: "Run `organize_imports` on `src/python_refactor_mcp/server.py` with `apply=false`, then summarize proposed edits count."
+  - Validation: "Run `organize_imports` on a non-existent file and show the exact error returned."
+  - Chaining: "Preview `organize_imports`, then feed edits to `diff_preview` and summarize top 3 hunks."
+- `format_code`:
+  - Goal: "Run `format_code` on `src/python_refactor_mcp/server.py` with `apply=false` and report whether ruff-format would change the file."
+  - Validation: "Run `format_code` on a file that is already ruff-formatted and confirm zero edits and `applied=false`."
+  - Chaining: "Run `organize_imports` with `apply=true`, then `format_code` with `apply=true` to normalize layout + whitespace in one sweep, and compare diagnostics before/after."
+- `apply_lint_fixes`:
+  - Goal: "Run `apply_lint_fixes` on `src/python_refactor_mcp/server.py` with `apply=false` and report which lint diagnostics ruff would auto-fix."
+  - Validation: "Run `apply_lint_fixes` on a file with no fixable issues and confirm zero edits and `applied=false` with description `No fixable lint issues found`."
+  - Chaining: "Call `get_diagnostics` to see lint diagnostics, run `apply_lint_fixes` with `apply=true` and `unsafe_fixes=true`, then re-call `get_diagnostics` to confirm the fixable subset cleared."
+- `apply_type_annotations`:
+  - Goal: "Run `apply_type_annotations` on a target file with `apply=false` and report how many annotations Pyright would insert and which positions they would land at."
+  - Validation: "Run `apply_type_annotations` on a fully-annotated file and confirm zero edits with description `No inferable type annotations found`."
+  - Chaining: "Call `get_type_coverage` for a baseline, run `apply_type_annotations` with `apply=true`, then re-call `get_type_coverage` and report the coverage delta."
+- `apply_code_action`:
+  - Goal: "Run `apply_code_action` for a quick-fix at a diagnostic and return the resulting text edits."
+  - Validation: "Run `apply_code_action` with an unknown action id and show the not-found error."
+  - Chaining: "Call `get_diagnostics`, pick an action from its `relatedActions`, then `apply_code_action`."

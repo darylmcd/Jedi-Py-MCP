@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/darylmcd/Jedi-Py-MCP/actions/workflows/ci.yml)
 
-Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactoring. It combines three backends behind bounded MCP tool profiles:
+Production-oriented Python MCP server for code analysis and refactoring, combining three backends behind bounded tool profiles.
 
-- Pyright for semantic analysis, references, diagnostics, definitions, and call hierarchy.
-- Jedi for fallback analysis in dynamic or weakly typed code.
-- rope for edit generation and refactoring-safe file mutations.
+| Backend | Role |
+|---------|------|
+| Pyright | Semantic analysis, references, diagnostics, definitions, call hierarchy |
+| Jedi | Fallback analysis for dynamic or weakly typed code |
+| rope | Edit generation and refactoring-safe file mutations |
 
-**102-tool catalog** spanning analysis, navigation, refactoring, search, metrics, history management, and utilities. The default `refactoring` profile advertises a curated 69; the read-only `analysis` profile advertises 56.
+**102-tool catalog** across analysis, navigation, refactoring, search, metrics, history, and utilities. Default `refactoring` profile advertises 69; read-only `analysis` profile advertises 56. Full table: [`docs/tool-reference.md`](docs/tool-reference.md); source map: [`ai_docs/architecture.md`](ai_docs/architecture.md).
 
 ## Documentation
 
@@ -25,7 +27,7 @@ python -m pip install -e ".[dev]"
 python -m python_refactor_mcp C:\path\to\python\project
 ```
 
-See [docs/setup.md](docs/setup.md) for full installation, build, and client configuration details.
+- Full installation, build, and MCP client configuration: [`docs/setup.md`](docs/setup.md)
 
 ## Development
 
@@ -34,23 +36,13 @@ just ci    # run full local CI gate (lint, type check, test)
 just --list  # see all available recipes
 ```
 
-See [docs/setup.md](docs/setup.md) for development setup and [CI_POLICY.md](CI_POLICY.md) for merge-gate requirements.
-
-## Repository Map
-
-- `src/python_refactor_mcp/server.py`: MCP lifecycle and tool registration
-- `src/python_refactor_mcp/config.py`: workspace and runtime discovery
-- `src/python_refactor_mcp/models.py`: shared structured response models
-- `src/python_refactor_mcp/backends/`: Pyright, Jedi, and rope integrations
-- `src/python_refactor_mcp/tools/`: tool orchestration layer
-- `src/python_refactor_mcp/util/`: LSP, path, and diff helpers
-- `tests/unit/`: unit test suite
-- `tests/integration/`: end-to-end MCP and backend coverage
-- `ai_docs/`: canonical repo workflow and policy docs
+- Development setup: [`docs/setup.md`](docs/setup.md) · Merge-gate requirements: [`CI_POLICY.md`](CI_POLICY.md)
 
 ## Privacy Policy
 
-This server runs entirely on your local machine. It does not collect telemetry, make network requests, or transmit any data externally. See [PRIVACY.md](PRIVACY.md) for the full policy.
+Runs entirely on your local machine — no telemetry, no network requests, no data transmitted externally.
+
+- Full policy: [`PRIVACY.md`](PRIVACY.md)
 
 ## Support
 

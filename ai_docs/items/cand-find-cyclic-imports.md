@@ -1,6 +1,6 @@
 # cand-find-cyclic-imports — Parked: dedicated cycle report is redundant
 
-**row:** `cand-find-cyclic-imports` · **pri:** `Defer` · **size:** `—`
+**row:** `cand-find-cyclic-imports` · **pri:** `Defer` · **size:** `S`
 
 ## Anchors
 

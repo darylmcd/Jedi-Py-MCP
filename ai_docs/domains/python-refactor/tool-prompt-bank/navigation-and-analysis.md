@@ -1,0 +1,163 @@
+# Tool Prompt Bank — Navigation & Analysis
+<!-- purpose: Goal / Validation / Chaining prompt triple per tool for the Navigation & Analysis categories. -->
+
+Format defined in `../mcp-checklist.md` §E. Tool contracts are canonical in `../reference.md`.
+Index: `README.md`.
+
+## Navigation & lookups
+
+- `goto_definition`:
+  - Goal: "Run `goto_definition` at the cursor and return only the target file path and start line."
+  - Validation: "Run `goto_definition` on a whitespace position and show the empty-result response."
+  - Chaining: "Use `goto_definition`, then call `get_symbol_outline` on the target file to locate sibling members."
+- `get_declaration`:
+  - Goal: "Run `get_declaration` for symbol at cursor and return only file path and start line."
+  - Validation: "Run `get_declaration` on whitespace and show empty-result handling."
+  - Chaining: "Use `get_declaration` output to call `get_symbol_outline` on the declaration file."
+- `get_type_definition`:
+  - Goal: "Run `get_type_definition` and return the target type file and symbol range."
+  - Validation: "Run `get_type_definition` on a literal and report fallback/empty behavior."
+  - Chaining: "Resolve a variable with `get_type_info`, then call `get_type_definition` and summarize concrete type origin."
+- `call_hierarchy`:
+  - Goal: "Run `call_hierarchy` on a function and return direct callers grouped by module."
+  - Validation: "Run `call_hierarchy` on a private helper with zero callers and confirm the empty-caller envelope."
+  - Chaining: "Call `call_hierarchy`, pick the highest-fanout caller, then run `find_references` on it."
+- `find_references`:
+  - Goal: "Run `find_references` for a public API and return only file + line, deduped by file."
+  - Validation: "Run `find_references` on an identifier inside a string literal and show the non-symbol response."
+  - Chaining: "Before `rename_symbol`, run `find_references` to size impact; bail if >200 sites."
+- `find_type_users`:
+  - Goal: "Run `find_type_users` on a class definition and report the `by_kind` totals (annotation / instantiation / subclass / other)."
+  - Validation: "Run `find_type_users` with `kinds=['subclass']` and confirm only base-class sites are returned."
+  - Chaining: "Run `find_type_users` to scope the impact of changing a class API: count `subclass` and `instantiation` sites before invoking `change_signature` on its `__init__`."
+- `find_implementations`:
+  - Goal: "Run `find_implementations` on a protocol method and list each concrete class."
+  - Validation: "Run `find_implementations` on a non-abstract function and show the empty/invalid-target response."
+  - Chaining: "Call `find_implementations`, then `goto_definition` on each to confirm source ownership."
+- `prepare_rename`:
+  - Goal: "Run `prepare_rename` at cursor and return whether rename is valid plus editable range."
+  - Validation: "Attempt `prepare_rename` on a keyword and explain why rename is invalid."
+  - Chaining: "Use `prepare_rename` first; only if valid, call `rename_symbol` with `apply=false`."
+- `selection_range`:
+  - Goal: "Run `selection_range` at cursor and return the outermost enclosing range only."
+  - Validation: "Run `selection_range` on an out-of-bounds position and show the validation error."
+  - Chaining: "Use `selection_range` to find a containing block, then pass that range to `extract_method`."
+- `get_context`:
+  - Goal: "Run `get_context` at cursor and summarize enclosing class/function names."
+  - Validation: "Run `get_context` at column 0 of an empty line and show the minimal-context response."
+  - Chaining: "Call `get_context`, then `get_symbol_outline` of the enclosing container for peer members."
+- `get_symbol_outline`:
+  - Goal: "Run `get_symbol_outline` on a file and return only top-level class/function names."
+  - Validation: "Run `get_symbol_outline` on a non-Python file and show the empty/invalid response."
+  - Chaining: "Use `get_symbol_outline` to discover a target symbol, then `goto_definition` on it."
+- `get_sub_definitions`:
+  - Goal: "Run `get_sub_definitions` on a class and return its methods + nested classes."
+  - Validation: "Run `get_sub_definitions` on a module-level constant and show the leaf-node response."
+  - Chaining: "Use `get_sub_definitions` for scope discovery, then feed each child to `get_documentation`."
+- `type_hierarchy`:
+  - Goal: "Run `type_hierarchy` on a class and return both supertypes and subtypes, grouped."
+  - Validation: "Run `type_hierarchy` on a non-class symbol and show the invalid-target envelope."
+  - Chaining: "Call `type_hierarchy`, then `find_implementations` on the root for a full inheritance graph."
+- `get_all_names`:
+  - Goal: "Run `get_all_names` on a module and return the exported public-name list only."
+  - Validation: "Run `get_all_names` on a file with no `__all__` and confirm fallback enumeration behavior."
+  - Chaining: "Use `get_all_names` to bound a rename scope, then `find_references` on each exported name."
+- `get_document_highlights`:
+  - Goal: "Run `get_document_highlights` and group counts by highlight kind (read/write/text)."
+  - Validation: "Run `get_document_highlights` at an invalid position and show the returned tool error."
+  - Chaining: "Use `get_document_highlights` first; if broad scope is needed, escalate to `find_references`."
+- `get_inlay_hints`:
+  - Goal: "Run `get_inlay_hints` for the full file and return top 10 hints by position."
+  - Validation: "Run `get_inlay_hints` on a missing file and show exact error behavior."
+  - Chaining: "Use `get_inlay_hints`, then call `get_semantic_tokens` and compare inferred types with token classes."
+- `get_semantic_tokens`:
+  - Goal: "Run `get_semantic_tokens` and summarize token counts by token_type."
+  - Validation: "Run `get_semantic_tokens` for a file unsupported by backend and explain empty-result handling."
+  - Chaining: "Use `get_semantic_tokens` to identify high-density regions, then call `get_folding_ranges` to chunk review windows."
+- `get_folding_ranges`:
+  - Goal: "Run `get_folding_ranges` and return only start_line/end_line/kind."
+  - Validation: "Run `get_folding_ranges` on an invalid path and report the tool error."
+  - Chaining: "Use `get_folding_ranges` to split file sections, then call `get_symbol_outline` per section target."
+- `get_signature_help`:
+  - Goal: "Run `get_signature_help` at callsite and return signature label + active parameter."
+  - Validation: "Run `get_signature_help` outside a call expression and show null response handling."
+  - Chaining: "Call `get_signature_help`; if null, call `get_documentation` for fallback context."
+- `get_completions`:
+  - Goal: "Run `get_completions` at cursor and return the first 10 entries with kind + label."
+  - Validation: "Run `get_completions` inside a string literal and confirm the empty-completion response."
+  - Chaining: "Use `get_completions` to discover an attribute name, then `goto_definition` on the chosen entry."
+
+## Analysis
+
+- `get_diagnostics`:
+  - Goal: "Run `get_diagnostics` on a file and return only errors (severity=error)."
+  - Validation: "Run `get_diagnostics` on a non-existent path and show the exact validation error."
+  - Chaining: "After any refactor apply, call `get_diagnostics` on affected files to gate acceptance."
+- `get_workspace_diagnostics`:
+  - Goal: "Run `get_workspace_diagnostics` and summarize the top 5 files by error count."
+  - Validation: "Run `get_workspace_diagnostics` on a workspace with no Python files and confirm empty result."
+  - Chaining: "Use `get_workspace_diagnostics` to pick a hot file, then `get_diagnostics` for detail."
+- `get_syntax_errors`:
+  - Goal: "Run `get_syntax_errors` on a file and return line/col of each parse failure."
+  - Validation: "Run `get_syntax_errors` on well-formed code and confirm the empty-array response."
+  - Chaining: "Call `get_syntax_errors` first; only if clean, proceed to type-level tools like `get_type_info`."
+- `get_type_info`:
+  - Goal: "Run `get_type_info` at cursor and return declared type + inferred type."
+  - Validation: "Run `get_type_info` in a comment and show the no-symbol response."
+  - Chaining: "Use `get_type_info`, then `get_type_definition` to jump to the concrete type."
+- `get_type_hint_string`:
+  - Goal: "Run `get_type_hint_string` at cursor and return a single insert-ready annotation."
+  - Validation: "Run `get_type_hint_string` on an unanalyzable expression and show the fallback."
+  - Chaining: "Call `get_type_hint_string`, then `apply_code_action` for 'add type annotation'."
+- `get_type_coverage`:
+  - Goal: "Run `get_type_coverage` on a module and return the annotated / total ratio."
+  - Validation: "Run `get_type_coverage` on an empty file and confirm the zero-over-zero envelope."
+  - Chaining: "Rank modules by `get_type_coverage`, then run `create_type_stubs` on the worst."
+- `get_test_coverage_map`:
+  - Goal: "Run `get_test_coverage_map` for a source file and return uncovered line ranges."
+  - Validation: "Run `get_test_coverage_map` without prior coverage data and show the missing-data message."
+  - Chaining: "Use `get_test_coverage_map` to target untested code, then `get_symbol_outline` to draft tests."
+- `find_errors_static`:
+  - Goal: "Run `find_errors_static` on a file and summarize the top 5 error categories."
+  - Validation: "Run `find_errors_static` on a clean module and confirm zero findings."
+  - Chaining: "Use `find_errors_static` to locate an issue, then `apply_code_action` to suggest a fix."
+- `find_constructors`:
+  - Goal: "Run `find_constructors` for a class and return each `__init__` / factory signature."
+  - Validation: "Run `find_constructors` on a dataclass-only class and show synthetic-ctor handling."
+  - Chaining: "Use `find_constructors` output as input to `change_signature` to update call sites."
+- `deep_type_inference`:
+  - Goal: "Run `deep_type_inference` on an expression and return the narrowed type chain."
+  - Validation: "Run `deep_type_inference` on `Any` and confirm the inference-limit envelope."
+  - Chaining: "Call `deep_type_inference`; if specific enough, pass to `get_type_hint_string` for insertion."
+- `check_layer_violations`:
+  - Goal: "Run `check_layer_violations` and return only cross-layer imports with source + target modules."
+  - Validation: "Run `check_layer_violations` with no layering config and show the missing-config response."
+  - Chaining: "Use `check_layer_violations`, then `move_module` to relocate offending modules into the correct layer."
+- `interface_conformance`:
+  - Goal: "Run `interface_conformance` for a class against a Protocol and list missing members."
+  - Validation: "Run `interface_conformance` against a non-Protocol target and show the type-mismatch error."
+  - Chaining: "Use `interface_conformance` gaps as input to `extract_protocol` or member-add code actions."
+- `security_scan`:
+  - Goal: "Run `security_scan` on the workspace and return only High/Critical findings."
+  - Validation: "Run `security_scan` on an empty workspace and confirm no-findings envelope."
+  - Chaining: "Call `security_scan`, then `get_diagnostics` on each flagged file for inline context."
+- `simulate_execution`:
+  - Goal: "Run `simulate_execution` on a function and return the predicted return-type + side-effect list."
+  - Validation: "Run `simulate_execution` on code raising at import time and show the trapped-error envelope."
+  - Chaining: "Use `simulate_execution` pre-refactor, re-run post-apply, and diff predicted effects."
+- `get_documentation`:
+  - Goal: "Run `get_documentation` at cursor and return docstring first paragraph only."
+  - Validation: "Run `get_documentation` on an undocumented builtin and confirm empty-doc handling."
+  - Chaining: "Call `get_documentation`; if empty, call `get_type_info` for at-least-signature context."
+- `get_keyword_help`:
+  - Goal: "Run `get_keyword_help` for `match` and return a one-line summary."
+  - Validation: "Run `get_keyword_help` on a non-keyword identifier and show the validation error."
+  - Chaining: "Use `get_keyword_help` to confirm language semantics before suggesting a `restructure`."
+- `test_impact_select`:
+  - Goal: "Run `test_impact_select` with a changed-symbol anchor (`file_path`/`line`/`character`) and return the pytest node IDs that transitively exercise it."
+  - Validation: "Run `test_impact_select` on a symbol with zero test callers and confirm the empty-result envelope."
+  - Chaining: "Use `call_hierarchy` to confirm the caller graph, then `test_impact_select` to pick the minimal test set to re-run after a change."
+- `security_autofix`:
+  - Goal: "Run `security_autofix` on a file with `apply=false` and return which `yaml.load(...)` call sites it would rewrite to `yaml.safe_load(...)`."
+  - Validation: "Run `security_autofix` on a call site passing an explicit `Loader=`, and confirm it is skipped/counted rather than rewritten."
+  - Chaining: "Run `security_scan` to locate the SEC022 finding, then `security_autofix` with `apply=true` to fix it, then `security_scan` again to confirm it's clear."
