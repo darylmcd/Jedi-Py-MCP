@@ -20,13 +20,14 @@ Read order is defined by `../AGENTS.md`.
 ## Preferred Active References
 
 - `architecture.md`: compact system architecture reference
-- `ai_docs/domains/python-refactor/reference.md`: domain-specific entry point and authoritative tool count
-- `ai_docs/domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
-- `ai_docs/references/mcp_best_practices/README.md`: general MCP server best practices reference, split into 4 topic files
-- `ai_docs/references/testing.md`: stable test strategy and command reference
-- `ai_docs/references/tooling/python.md`: Python/runtime tooling reference
-- `ai_docs/prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
-- `ai_docs/procedures/release-handoff.md`: repeatable handoff sequence
+- `domains/python-refactor/reference.md`: domain-specific entry point and authoritative tool count
+- `domains/python-refactor/mcp-checklist.md`: MCP best-practice checklist and prompt-example template
+- `domains/python-refactor/tool-prompt-bank/README.md`: per-tool Goal/Validation/Chaining prompt triples, split into 3 category files
+- `references/mcp_best_practices/README.md`: general MCP server best practices reference, split into 4 topic files
+- `references/testing.md`: stable test strategy and command reference
+- `references/tooling/python.md`: Python/runtime tooling reference
+- `prompts/deep-review-refactor.md`: reusable deep code review + MCP audit prompt (keep updated with tool surface)
+- `procedures/release-handoff.md`: repeatable handoff sequence
 
 ## Project Map
 
@@ -45,13 +46,21 @@ Read order is defined by `../AGENTS.md`.
 - `../tests/contract/`: MCP protocol compliance coverage
 - `../tests/integration/`: transport and end-to-end coverage
 
+## Work Artifacts
+
+- `items/`: per-row backlog detail (Anchors/Acceptance/Evidence/Context). One file per open `backlog.md` row; deleted with the row on ship.
+- `plans/`: timestamped sweep and remediation trees owned by `/reconcile-plans`. Not a routing target — read via `planning_index.md`.
+- `audits/`: dated point-in-time audit output. Retention: latest 3.
+- `reports/`: dated point-in-time analysis output. Retention: latest 3.
+- `archive/plans/`: completed plan trees archived after 30 days stable. Historical only.
+
 ## Read By Task
 
 - Next-step or planning question: `planning_index.md` then `backlog.md`
 - Build, test, run, package, or validation command: `runtime.md`
 - Branching, validation flow, or handoff process: `workflow.md` and `../CI_POLICY.md`
-- Tool surface, workflows, and MCP domain details: `ai_docs/domains/python-refactor/reference.md`
-- Testing expectations and commands: `ai_docs/references/testing.md`
+- Tool surface, workflows, and MCP domain details: `domains/python-refactor/reference.md`
+- Testing expectations and commands: `references/testing.md`
 
 ## Organization Rules
 

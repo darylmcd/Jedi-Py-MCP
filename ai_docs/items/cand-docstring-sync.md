@@ -1,10 +1,11 @@
 # cand-docstring-sync — New tool: docstring_sync (signature vs docstring param diff)
 
-**row:** `cand-docstring-sync` · **pri:** `Low` · **size:** `L`
+**row:** `cand-docstring-sync` · **pri:** `Low` · **size:** `M`
 
 ## Anchors
 
-- TBD — likely new module under `src/python_refactor_mcp/tools/refactoring/` + registration
+- `src/python_refactor_mcp/tools/refactoring/docstrings.py` (new file — exact filename decided at plan time)
+- `src/python_refactor_mcp/tool_registry.py` (`TOOL_RECORDS` registration + profile membership)
 
 ## Acceptance
 

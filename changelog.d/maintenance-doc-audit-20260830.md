@@ -1,0 +1,1 @@
+- **Maintenance:** Documented the locked `uv sync --locked --all-extras` install path in setup, trimmed the README to pointer form, split the oversized tool prompt bank out of the MCP checklist into per-category files, and indexed the previously-unlisted `ai_docs/` work-artifact directories.
