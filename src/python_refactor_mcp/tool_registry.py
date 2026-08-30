@@ -664,6 +664,30 @@ async def convert_to_dataclass(
     return result
 
 
+async def fix_circular_imports(
+    ctx: Context,
+    file_path: str | None = None,
+    file_paths: list[str] | None = None,
+    apply: bool = False,
+) -> RefactorResult:
+    """Break runtime import cycles by moving only imports proven annotation-only behind `if TYPE_CHECKING:` and stringifying the affected annotations when needed. Mixed annotation/runtime imports and ambiguous source shapes are left unchanged. Scans the active workspace for runtime cycles; optionally restricts edits to `file_path` or `file_paths`. Defaults to preview mode (`apply=false`). Related: get_module_dependencies, get_diagnostics, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.fix_circular_imports(
+        app.pyright,
+        app.config,
+        file_path,
+        file_paths,
+        apply,
+    )
+    _LOGGER.debug(
+        "fix_circular_imports edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def extract_superclass(
     ctx: Context,
     file_path: str,
@@ -1452,6 +1476,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(rename_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(fix_circular_imports, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_superclass, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_variable, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(inline_variable, DESTRUCTIVE_ANNOTATIONS),

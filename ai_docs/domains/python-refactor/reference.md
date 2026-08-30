@@ -1,5 +1,5 @@
 # Python Refactor Domain Reference
-<!-- purpose: Domain reference — 100-tool catalog, bounded profiles, workflows, key models for python-refactor-mcp. -->
+<!-- purpose: Domain reference — 101-tool catalog, bounded profiles, workflows, key models for python-refactor-mcp. -->
 
 Purpose: compact entry point for the Python refactor MCP domain.
 
@@ -16,14 +16,14 @@ Purpose: compact entry point for the Python refactor MCP domain.
 - `src/python_refactor_mcp/tools/` — tool orchestration modules
 - `src/python_refactor_mcp/util/` — LSP client, diff helpers, shared utilities
 
-## Tool Catalog (100 tools)
+## Tool Catalog (101 tools)
 
 The server advertises one bounded profile at startup. Set
 `PYTHON_REFACTOR_MCP_TOOL_PROFILE` before launch; unknown values fail closed.
 
 | Profile | Advertised count | Purpose |
 |---|---:|---|
-| `refactoring` (default) | 67 | Every mutating tool plus the inspection, preview, diagnostics, history, and recovery tools needed for safe changes |
+| `refactoring` (default) | 68 | Every mutating tool plus the inspection, preview, diagnostics, history, and recovery tools needed for safe changes |
 | `analysis` | 56 | Every read-only tool for navigation, diagnostics, search, metrics, security inspection, and status |
 
 Each profile must remain below the reliability budget of 80. Their union is
@@ -39,8 +39,8 @@ The canonical catalog is assembled from `tool_registry.py::TOOL_RECORDS` and
 ### Navigation (10 tools)
 `goto_definition`, `get_declaration`, `get_type_definition`, `find_implementations`, `get_folding_ranges`, `get_symbol_outline`, `call_hierarchy`, `type_hierarchy`, `selection_range`, `get_module_public_api`
 
-### Refactoring (34 tools)
-`rename_symbol`, `prepare_rename`, `extract_method`, `extract_superclass`, `convert_to_dataclass`, `extract_variable`, `inline_variable`, `inline_method`, `inline_parameter`, `move_symbol`, `move_module`, `move_method`, `introduce_parameter`, `encapsulate_field`, `local_to_field`, `method_object`, `introduce_factory`, `module_to_package`, `generate_code`, `change_signature`, `argument_normalizer`, `argument_default_inliner`, `restructure`, `use_function`, `apply_code_action`, `organize_imports`, `format_code`, `apply_lint_fixes`, `apply_type_annotations`, `expand_star_imports`, `relatives_to_absolutes`, `froms_to_imports`, `handle_long_imports`, `fix_module_names`
+### Refactoring (35 tools)
+`rename_symbol`, `prepare_rename`, `extract_method`, `extract_superclass`, `convert_to_dataclass`, `fix_circular_imports`, `extract_variable`, `inline_variable`, `inline_method`, `inline_parameter`, `move_symbol`, `move_module`, `move_method`, `introduce_parameter`, `encapsulate_field`, `local_to_field`, `method_object`, `introduce_factory`, `module_to_package`, `generate_code`, `change_signature`, `argument_normalizer`, `argument_default_inliner`, `restructure`, `use_function`, `apply_code_action`, `organize_imports`, `format_code`, `apply_lint_fixes`, `apply_type_annotations`, `expand_star_imports`, `relatives_to_absolutes`, `froms_to_imports`, `handle_long_imports`, `fix_module_names`
 
 ### Search (10 tools)
 `find_constructors`, `search_symbols`, `structural_search`, `structural_replace`, `dead_code_detection`, `unused_symbol_sweep`, `suggest_imports`, `autoimport_search`, `find_unused_imports`, `project_search`

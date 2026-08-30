@@ -8,7 +8,7 @@ Jedi-Py-MCP is a production-oriented Python MCP server for analysis and refactor
 - Jedi for fallback analysis in dynamic or weakly typed code.
 - rope for edit generation and refactoring-safe file mutations.
 
-**100-tool catalog** spanning analysis, navigation, refactoring, search, metrics, history management, and utilities. The default `refactoring` profile advertises a curated 67; the read-only `analysis` profile advertises 56.
+**101-tool catalog** spanning analysis, navigation, refactoring, search, metrics, history management, and utilities. The default `refactoring` profile advertises a curated 68; the read-only `analysis` profile advertises 56.
 
 ## Documentation
 

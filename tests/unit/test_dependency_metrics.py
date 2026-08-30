@@ -105,3 +105,41 @@ async def test_module_dependencies_resolves_relative_import_from_sources_own_roo
     result = await metrics.get_module_dependencies(make_config(tmp_path), file_path=str(source))
 
     assert result.dependencies[0].target == str(expected_target.resolve())
+
+
+@pytest.mark.asyncio
+async def test_module_dependencies_excludes_type_checking_edges_from_runtime_cycles(
+    tmp_path: Path,
+) -> None:
+    first = _write_module(tmp_path / "first.py", "import second\n")
+    second = _write_module(
+        tmp_path / "second.py",
+        "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import first\n",
+    )
+
+    result = await metrics.get_module_dependencies(make_config(tmp_path))
+
+    assert result.circular_dependencies == []
+    assert {(item.source, item.target) for item in result.dependencies} >= {
+        (str(first.resolve()), str(second.resolve())),
+        (str(second.resolve()), str(first.resolve())),
+    }
+
+
+@pytest.mark.asyncio
+async def test_module_dependencies_excludes_function_local_edges_from_runtime_cycles(
+    tmp_path: Path,
+) -> None:
+    first = _write_module(tmp_path / "first.py", "import second\n")
+    second = _write_module(
+        tmp_path / "second.py",
+        "def load_first():\n    import first\n    return first\n",
+    )
+
+    result = await metrics.get_module_dependencies(make_config(tmp_path))
+
+    assert result.circular_dependencies == []
+    assert {(item.source, item.target) for item in result.dependencies} >= {
+        (str(first.resolve()), str(second.resolve())),
+        (str(second.resolve()), str(first.resolve())),
+    }

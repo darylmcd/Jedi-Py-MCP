@@ -46,7 +46,7 @@ async def test_tool_profiles_cover_complete_catalog() -> None:
     advertised: set[str] = set()
     for profile in TOOL_PROFILES:
         advertised.update(tool.name for tool in await _profile_tools(profile))
-    assert len(catalog) == 100
+    assert len(catalog) == 101
     assert advertised == catalog
 
 
@@ -56,7 +56,7 @@ def test_profile_policy_counts_are_explicit() -> None:
         profile: len(tool_names_for_profile(profile, extra_records=server.EXPLICIT_TOOL_RECORDS))
         for profile in TOOL_PROFILES
     }
-    assert counts == {"analysis": 56, "refactoring": 67}
+    assert counts == {"analysis": 56, "refactoring": 68}
 
 
 def test_profile_policy_rejects_unknown_profile() -> None:

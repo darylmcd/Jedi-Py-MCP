@@ -1,0 +1,1 @@
+- **Added:** Preview-first `fix_circular_imports` remediation that hoists only proven annotation-only runtime-cycle edges behind `TYPE_CHECKING`, while dependency analysis now excludes static-only and function-local imports from import-time cycles.

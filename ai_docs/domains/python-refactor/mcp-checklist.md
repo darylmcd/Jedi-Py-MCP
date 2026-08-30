@@ -111,7 +111,7 @@ Add a short prompt bank for every tool you expose.
 
 ### Tool Prompt Bank
 
-Every tool on the current 100-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
+Every tool on the current 101-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
 
 #### Navigation & lookups
 
@@ -336,6 +336,10 @@ Every tool on the current 100-tool server has a Goal / Validation / Chaining pro
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
   - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `fix_circular_imports`:
+  - Goal: "Run `fix_circular_imports` with `apply=false`, and show which annotation-only cycle edges would move behind `TYPE_CHECKING`."
+  - Validation: "Include a cycle edge used at runtime and confirm `fix_circular_imports` leaves that mixed-use import unchanged."
+  - Chaining: "Run `get_module_dependencies`, preview `fix_circular_imports`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
 - `extract_variable`:
   - Goal: "Run `extract_variable` on an expression with `apply=false` and return proposed local name."
   - Validation: "Run `extract_variable` on an assignment LHS and show the invalid-target error."
