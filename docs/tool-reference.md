@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete 102-tool catalog organized by category. A running server advertises
+Complete 103-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
@@ -42,7 +42,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (36)
+## Refactoring (37)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -52,6 +52,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `extract_class` | Move cohesive constructor fields and plain instance methods into a delegated collaborator (LibCST). | `RefactorResult` |
 | `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
 | `convert_to_dataclass` | Convert a behavior-free constructor into preview-first standard-library dataclass fields, using Pyright for missing annotations. | `RefactorResult` |
+| `docstring_sync` | Synchronize function parameters with Google, NumPy, or Sphinx docstring fields, preserving descriptions in preview-first edits. | `RefactorResult` |
 | `fix_circular_imports` | Hoist annotation-only runtime-cycle imports behind `TYPE_CHECKING`; mixed/runtime uses remain unchanged. | `RefactorResult` |
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |
 | `inline_variable` | Inline a variable definition and usages. | `RefactorResult` |

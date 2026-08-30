@@ -666,6 +666,27 @@ async def convert_to_dataclass(
     return result
 
 
+async def docstring_sync(
+    ctx: Context,
+    file_path: str,
+    line: int,
+    character: int,
+    style: str = "auto",
+    apply: bool = False,
+) -> RefactorResult:
+    """Synchronize one function signature with its existing Google, NumPy, or Sphinx docstring parameter fields. Point line/character at the function name. Positions are 0-based (line and character offsets, LSP convention). Auto-detection is the default; pass style='google', 'numpy', or 'sphinx' when adding the first parameter section. Existing descriptions are preserved, missing parameters are added, stale parameters are removed, and entries are reordered. Defaults to preview mode (`apply=false`). Related: change_signature, apply_type_annotations, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.docstring_sync(app.pyright, file_path, line, character, style, apply)
+    _LOGGER.debug(
+        "docstring_sync style=%s edits=%s files=%s applied=%s",
+        style,
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def fix_circular_imports(
     ctx: Context,
     file_path: str | None = None,
@@ -1526,6 +1547,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(rename_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(docstring_sync, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(fix_circular_imports, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_class, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_superclass, DESTRUCTIVE_ANNOTATIONS),

@@ -30,6 +30,10 @@ Index: `README.md`.
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
   - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `docstring_sync`:
+  - Goal: "Run `docstring_sync` on a function with `apply=false`; show added, removed, and reordered parameter fields while preserving descriptions."
+  - Validation: "Run `docstring_sync` against a docstring mixing Google and Sphinx fields and show the fail-closed ambiguity error."
+  - Chaining: "Run `change_signature`, preview `docstring_sync`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
 - `fix_circular_imports`:
   - Goal: "Run `fix_circular_imports` with `apply=false`, and show which annotation-only cycle edges would move behind `TYPE_CHECKING`."
   - Validation: "Include a cycle edge used at runtime and confirm `fix_circular_imports` leaves that mixed-use import unchanged."
@@ -100,9 +104,8 @@ Index: `README.md`.
   - Chaining: "Use inliner preview, then `change_signature` to drop the parameter once all sites are stripped."
 - `argument_normalizer`:
   - Goal: "Run `argument_normalizer` with `apply=false` and return positional→keyword conversion count."
-  - Note: Known upstream issue — rope's normalizer strips Python 3 type annotations (see `known-rope-annotations` in backlog)."
   - Validation: "Run `argument_normalizer` on a callsite with `*args` and show the limitation response."
-  - Chaining: "Run `argument_normalizer` preview, diff with `diff_preview`, then verify annotations survived before apply."
+  - Chaining: "Run `argument_normalizer` preview, inspect with `diff_preview`, then call `get_diagnostics` after apply."
 - `restructure`:
   - Goal: "Run `restructure` with a pattern→replacement pair and `apply=false`, then list match sites."
   - Validation: "Run `restructure` with a pattern that fails to parse and show the parse error."
