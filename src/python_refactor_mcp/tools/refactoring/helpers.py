@@ -128,4 +128,4 @@ async def post_apply_diagnostics(
     result: RefactorResult,
 ) -> RefactorResult:
     """Notify Pyright of changed files and append refreshed diagnostics."""
-    return await attach_post_apply_diagnostics(pyright, result)  # type: ignore[return-value]
+    return await attach_post_apply_diagnostics(pyright, result)

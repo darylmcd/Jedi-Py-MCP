@@ -111,7 +111,7 @@ Add a short prompt bank for every tool you expose.
 
 ### Tool Prompt Bank
 
-Every tool on the current 101-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
+Every tool on the current 102-tool server has a Goal / Validation / Chaining prompt triple. Organized by category to match the server registration; see `ai_docs/domains/python-refactor/reference.md` for full contract details.
 
 #### Navigation & lookups
 
@@ -332,6 +332,10 @@ Every tool on the current 101-tool server has a Goal / Validation / Chaining pro
   - Goal: "Run `extract_superclass` on a class with a named member subset and `apply=false`, and return the proposed base-class body."
   - Validation: "Run `extract_superclass` including an `@classmethod`/`@staticmethod`/`@property` member and show the unsupported-member-kind error."
   - Chaining: "Run `extract_superclass` preview, then `interface_conformance` against the new base to confirm the subclass still satisfies it."
+- `extract_class`:
+  - Goal: "Run `extract_class` on cohesive constructor fields and instance methods with `apply=false`; show the collaborator plus source delegates."
+  - Validation: "Run `extract_class` on a method that uses an unselected `self` member and show the fail-closed dependency error."
+  - Chaining: "Preview `extract_class`, inspect the edit with `diff_preview`, then apply it and call `get_diagnostics`."
 - `convert_to_dataclass`:
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."

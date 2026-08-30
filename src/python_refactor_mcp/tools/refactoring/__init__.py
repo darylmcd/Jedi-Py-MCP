@@ -1,6 +1,7 @@
 """Refactoring tools orchestrating rope edits with Pyright validation."""
 
 from .circular_imports import fix_circular_imports
+from .class_extraction import extract_class
 from .code_actions import apply_code_action, organize_imports
 from .dataclass_conversion import convert_to_dataclass
 from .extract import extract_method, extract_variable, inline_method, inline_parameter, inline_variable
@@ -40,6 +41,7 @@ __all__ = [
     "convert_to_dataclass",
     "encapsulate_field",
     "expand_star_imports",
+    "extract_class",
     "extract_method",
     "extract_superclass",
     "extract_variable",

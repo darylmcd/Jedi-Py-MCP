@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete 101-tool catalog organized by category. A running server advertises
+Complete 102-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
@@ -42,13 +42,14 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (35)
+## Refactoring (36)
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `prepare_rename` | Validate whether rename is allowed at a position. | `PrepareRenameResult \| None` |
 | `rename_symbol` | Generate or apply a rope rename. | `RefactorResult` |
 | `extract_method` | Extract a selected block into a method. | `RefactorResult` |
+| `extract_class` | Move cohesive constructor fields and plain instance methods into a delegated collaborator (LibCST). | `RefactorResult` |
 | `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
 | `convert_to_dataclass` | Convert a behavior-free constructor into preview-first standard-library dataclass fields, using Pyright for missing annotations. | `RefactorResult` |
 | `fix_circular_imports` | Hoist annotation-only runtime-cycle imports behind `TYPE_CHECKING`; mixed/runtime uses remain unchanged. | `RefactorResult` |
