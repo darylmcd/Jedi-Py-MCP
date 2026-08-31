@@ -1,0 +1,1 @@
+- **Maintenance:** Isolated semantic converter tests, consolidated their source-shape preflights, and rejected mutable built-in constructor defaults.

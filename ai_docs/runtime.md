@@ -35,7 +35,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 |---|---|---|
 | Changelog fragments | `python scripts/changelog_fragments.py` | `just changelog-check` |
 | Lint | `python -m ruff check .` | `just lint` |
-| Semantic converter formatting | `python -m ruff format --check <converter files>` | `just format-check-converters` |
+| Semantic converter formatting | `python -m ruff format --check <semantic converter files + focused tests>` | `just format-check-converters` |
 | Type check (Pyright) | `python -m pyright .` | `just typecheck` |
 | Type check (mypy) | `python -m mypy .` | `just typecheck-mypy` |
 | Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v` | `just test` |

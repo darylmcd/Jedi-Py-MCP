@@ -3,7 +3,7 @@
 
 # Variables
 python := ".venv/Scripts/python.exe"
-converter_format_files := "src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_refactoring_tools.py"
+converter_format_files := "src/python_refactor_mcp/tools/refactoring/_converter_preflight.py src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_semantic_converters.py"
 
 # Cross-platform shell
 set windows-shell := ["pwsh.exe", "-NoProfile", "-Command"]

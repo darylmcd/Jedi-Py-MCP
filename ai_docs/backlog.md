@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-31T19:44:39Z
+**updated_at:** 2026-08-31T20:56:07Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -63,8 +63,6 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `cand-split-module` | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
-| `split-semantic-converter-tests` | Low | — | **Isolate semantic converter tests** — move dataclass/Pydantic/TypedDict coverage out of the 2,000-line mixed-purpose test module into a focused module without changing behavior. [type: maintainability] [source: session-20260831] | S | items/split-semantic-converter-tests.md |
-| `cst-converter-preflight-dedup` | Low | split-semantic-converter-tests | **Share CST converter preflights** — extract duplicated top-level target, comment detection, and mutable-default checks behind one private helper without broadening accepted shapes. [type: maintainability] [source: session-20260831] | M | items/cst-converter-preflight-dedup.md |
 
 ## Defer
 

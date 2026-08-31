@@ -32,6 +32,7 @@ from python_refactor_mcp.util.cst_imports import (
     top_level_bindings,
 )
 
+from ._converter_preflight import contains_comment, is_mutable_default, top_level_class
 from .helpers import post_apply_diagnostics
 
 if TYPE_CHECKING:
@@ -76,27 +77,6 @@ class _ConversionPlan:
     imports: tuple[cst.ImportAlias, ...]
 
 
-class _CommentFinder(cst.CSTVisitor):
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit_Comment(self, node: cst.Comment) -> None:  # noqa: N802
-        self.found = True
-
-
-def _top_level_class(module: cst.Module, class_name: str) -> cst.ClassDef:
-    matches = [
-        statement
-        for statement in module.body
-        if isinstance(statement, cst.ClassDef) and statement.name.value == class_name
-    ]
-    if not matches:
-        raise BackendError(f"Top-level class {class_name!r} not found")
-    if len(matches) > 1:
-        raise BackendError(f"Multiple top-level classes named {class_name!r} found")
-    return matches[0]
-
-
 def _simple_self_assignment(statement: cst.BaseStatement) -> str | None:
     if not isinstance(statement, cst.SimpleStatementLine) or len(statement.body) != 1:
         return None
@@ -114,10 +94,6 @@ def _simple_self_assignment(statement: cst.BaseStatement) -> str | None:
     ):
         return None
     return target.attr.value
-
-
-def _is_mutable_default(value: cst.BaseExpression | None) -> bool:
-    return isinstance(value, (cst.Dict, cst.DictComp, cst.List, cst.ListComp, cst.Set, cst.SetComp))
 
 
 def _is_docstring(statement: cst.BaseStatement) -> bool:
@@ -195,9 +171,7 @@ def _constructor_plan(
     ):
         raise BackendError("convert_to_pydantic requires self plus one or more keyword-only parameters")
 
-    finder = _CommentFinder()
-    constructor.visit(finder)
-    if finder.found:
+    if contains_comment(constructor):
         raise BackendError("convert_to_pydantic refuses constructors containing comments")
 
     fields: list[_FieldPlan] = []
@@ -208,7 +182,7 @@ def _constructor_plan(
             raise BackendError(f"Field {parameter.name.value!r} conflicts with a reserved validation name")
         if parameter.annotation is None:
             raise BackendError(f"Keyword-only parameter {parameter.name.value!r} requires an annotation")
-        if _is_mutable_default(parameter.default):
+        if is_mutable_default(parameter.default):
             raise BackendError(f"Mutable default for {parameter.name.value!r} is not semantics-preserving")
         if parameter.name.value in _PYDANTIC_MEMBER_NAMES or parameter.name.value == "model_config":
             raise BackendError(f"Field {parameter.name.value!r} conflicts with the Pydantic BaseModel API")
@@ -474,7 +448,7 @@ async def convert_to_pydantic(
     """Convert a bounded keyword-only validated class to a Pydantic v2 model."""
     source_snapshot = read_cst_source_snapshot(file_path)
     module = source_snapshot.module
-    source_class = _top_level_class(module, class_name)
+    source_class = top_level_class(module, class_name)
     fields, validated_field, validation, validator_name = _constructor_plan(module, source_class)
     base_model, config_dict, field_validator, imports = _pydantic_references(
         module,
