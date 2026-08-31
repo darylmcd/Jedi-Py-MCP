@@ -120,11 +120,7 @@ def _class_level_name(statement: cst.BaseStatement) -> str | None:
     small = statement.body[0]
     if isinstance(small, cst.AnnAssign) and isinstance(small.target, cst.Name):
         return small.target.value
-    if (
-        isinstance(small, cst.Assign)
-        and len(small.targets) == 1
-        and isinstance(small.targets[0].target, cst.Name)
-    ):
+    if isinstance(small, cst.Assign) and len(small.targets) == 1 and isinstance(small.targets[0].target, cst.Name):
         return small.targets[0].target.value
     return None
 
@@ -178,9 +174,7 @@ def _constructor_fields(
     for statement in constructor.body.body:
         assignment = _simple_self_assignment(statement)
         if assignment is None:
-            raise BackendError(
-                "convert_to_dataclass only supports ordered direct self.field = field assignments"
-            )
+            raise BackendError("convert_to_dataclass only supports ordered direct self.field = field assignments")
         name, annotation = assignment
         if name in assignment_names:
             raise BackendError(f"Constructor assigns field {name!r} more than once")
@@ -210,9 +204,7 @@ def _constructor_fields(
     fields: list[_FieldPlan] = []
     for param in constructor_params:
         if _is_mutable_default(param.default):
-            raise BackendError(
-                f"Mutable default for {param.name.value!r} requires an explicit default_factory"
-            )
+            raise BackendError(f"Mutable default for {param.name.value!r} requires an explicit default_factory")
         position = positions.get(param.name)
         if not isinstance(position, CodePosition):
             raise BackendError(f"Cannot resolve source position for parameter {param.name.value!r}")
@@ -269,9 +261,7 @@ def _normalize_inferred_annotation(field_name: str, type_string: str) -> cst.Bas
     try:
         return cst.parse_expression(candidate)
     except cst.ParserSyntaxError as exc:
-        raise BackendError(
-            f"Pyright returned an unusable type for field {field_name!r}: {type_string!r}"
-        ) from exc
+        raise BackendError(f"Pyright returned an unusable type for field {field_name!r}: {type_string!r}") from exc
 
 
 class ConvertToDataclassTransformer(cst.CSTTransformer):
@@ -316,9 +306,7 @@ class ConvertToDataclassTransformer(cst.CSTTransformer):
         for statement in updated_node.body.body:
             if isinstance(statement, cst.FunctionDef) and statement.name.value == "__init__":
                 if replacement_fields:
-                    replacement_fields[0] = replacement_fields[0].with_changes(
-                        leading_lines=statement.leading_lines
-                    )
+                    replacement_fields[0] = replacement_fields[0].with_changes(leading_lines=statement.leading_lines)
                     body.extend(replacement_fields)
                 continue
             body.append(statement)
@@ -336,9 +324,7 @@ class ConvertToDataclassTransformer(cst.CSTTransformer):
         alias = cst.ImportAlias(name=cst.Name("dataclass"))
         if self._plan.import_alias != "dataclass":
             alias = alias.with_changes(asname=cst.AsName(name=cst.Name(self._plan.import_alias)))
-        statement = cst.SimpleStatementLine(
-            body=[cst.ImportFrom(module=cst.Name("dataclasses"), names=[alias])]
-        )
+        statement = cst.SimpleStatementLine(body=[cst.ImportFrom(module=cst.Name("dataclasses"), names=[alias])])
         body = list(updated_node.body)
         body.insert(import_insertion_index(body), statement)
         return updated_node.with_changes(body=body)
@@ -362,9 +348,7 @@ async def convert_to_dataclass(
     module = source_snapshot.module
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     position_ranges = wrapper.resolve(PositionProvider)
-    positions: dict[cst.CSTNode, object] = {
-        node: code_range.start for node, code_range in position_ranges.items()
-    }
+    positions: dict[cst.CSTNode, object] = {node: code_range.start for node, code_range in position_ranges.items()}
     source_class = _top_level_class(module, class_name)
     fields = list(_constructor_fields(source_class, positions))
     decorator, import_alias = _dataclass_decorator(module, source_class)
