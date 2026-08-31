@@ -27,6 +27,7 @@ from python_refactor_mcp.tools.refactoring import (
     typed_dict_conversion,
 )
 from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
+from python_refactor_mcp.util import cst_imports
 from python_refactor_mcp.util.cst_apply import (
     CstSourceSnapshot,
 )
@@ -1010,6 +1011,91 @@ async def test_apply_type_annotations_missing_file_raises(tmp_path: Path) -> Non
 # ── convert_to_dataclass (conservative LibCST conversion) ──
 
 
+@pytest.mark.parametrize(
+    (
+        "source",
+        "after_import_block",
+        "expected_index",
+        "preferred",
+        "fallback",
+        "expected_binding",
+    ),
+    [
+        (
+            '"""Module docs."""\nfrom __future__ import annotations\nimport typing as t\nclass User: pass\n',
+            False,
+            2,
+            "TypedDict",
+            "_mcp_TypedDict",
+            "TypedDict",
+        ),
+        (
+            "if enabled:\n    dataclass = object()\n_mcp_dataclass = object()\n",
+            False,
+            0,
+            "dataclass",
+            "_mcp_dataclass",
+            "_mcp_dataclass_2",
+        ),
+        (
+            "from pydantic import BaseModel as model_base\nmodel_base = object()\n",
+            True,
+            1,
+            "model_base",
+            "_mcp_model_base",
+            "_mcp_model_base",
+        ),
+    ],
+)
+def test_cst_import_planning_handles_imports_collisions_and_rebindings(
+    source: str,
+    after_import_block: bool,
+    expected_index: int,
+    preferred: str,
+    fallback: str,
+    expected_binding: str,
+) -> None:
+    module = cst.parse_module(source)
+    bindings = cst_imports.top_level_bindings(module)
+
+    assert cst_imports.import_insertion_index(
+        module.body,
+        after_import_block=after_import_block,
+    ) == expected_index
+    assert cst_imports.reserve_unique_binding(bindings, preferred, fallback) == expected_binding
+
+
+@pytest.mark.asyncio
+async def test_convert_to_dataclass_does_not_reuse_late_import(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    source = (
+        '"""Models."""\n'
+        "from __future__ import annotations\n"
+        "\n"
+        "dataclass = object()\n"
+        "_mcp_dataclass = object()\n"
+        "\n"
+        "class User:\n"
+        "    def __init__(self, name: str):\n"
+        "        self.name = name\n"
+        "\n"
+        "from dataclasses import dataclass as late_dataclass\n"
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.convert_to_dataclass(pyright, str(target), "User")
+
+    converted = result.edits[0].new_text
+    generated_import = "from dataclasses import dataclass as _mcp_dataclass_2"
+    assert converted.index('"""Models."""') < converted.index("from __future__ import annotations")
+    assert converted.index("from __future__ import annotations") < converted.index(generated_import)
+    assert converted.index(generated_import) < converted.index("class User:")
+    assert "@_mcp_dataclass_2\nclass User:" in converted
+    assert "from dataclasses import dataclass as late_dataclass" in converted
+    compile(converted, str(target), "exec")
+
+
 @pytest.mark.asyncio
 async def test_convert_to_dataclass_typed_preview_preserves_source(tmp_path: Path) -> None:
     target = tmp_path / "models.py"
@@ -1257,6 +1343,15 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
 @pytest.mark.parametrize(
     "source,error",
     [
+        (
+            "from pydantic import *\n"
+            "class User:\n"
+            "    def __init__(self, *, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise ValueError(\"name\")\n"
+            "        self.name = name\n",
+            "wildcard Pydantic imports",
+        ),
         (
             "class User:\n"
             "    def __init__(self, name: str) -> None:\n"

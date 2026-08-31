@@ -13,7 +13,6 @@ from __future__ import annotations
 import ast
 import keyword
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -25,6 +24,12 @@ from python_refactor_mcp.models import RefactorResult
 from python_refactor_mcp.util.cst_apply import (
     apply_cst_transformer,
     read_cst_source_snapshot,
+)
+from python_refactor_mcp.util.cst_imports import (
+    import_alias_binding,
+    import_insertion_index,
+    reserve_unique_binding,
+    top_level_bindings,
 )
 
 from .helpers import post_apply_diagnostics
@@ -226,41 +231,11 @@ def _validate_return_annotation(function: cst.FunctionDef) -> None:
         )
 
 
-def _bound_names(module: cst.Module) -> set[str]:
-    bindings: set[str] = set()
-    for statement in module.body:
-        if isinstance(statement, (cst.ClassDef, cst.FunctionDef)):
-            bindings.add(statement.name.value)
-            continue
-        if not isinstance(statement, cst.SimpleStatementLine):
-            continue
-        for small in statement.body:
-            if isinstance(small, cst.Assign):
-                for target in small.targets:
-                    if isinstance(target.target, cst.Name):
-                        bindings.add(target.target.value)
-            elif isinstance(small, cst.AnnAssign) and isinstance(small.target, cst.Name):
-                bindings.add(small.target.value)
-            elif isinstance(small, cst.Import):
-                for alias in small.names:
-                    if alias.asname is not None and isinstance(alias.asname.name, cst.Name):
-                        bindings.add(alias.asname.name.value)
-                    else:
-                        bindings.add(cst.Module([]).code_for_node(alias.name).split(".", 1)[0])
-            elif isinstance(small, cst.ImportFrom) and not isinstance(small.names, cst.ImportStar):
-                for alias in small.names:
-                    if alias.asname is not None and isinstance(alias.asname.name, cst.Name):
-                        bindings.add(alias.asname.name.value)
-                    elif isinstance(alias.name, cst.Name):
-                        bindings.add(alias.name.value)
-    return bindings
-
-
 def _typed_dict_base(
     module: cst.Module,
     bindings: set[str],
 ) -> tuple[cst.BaseExpression, cst.SimpleStatementLine | None]:
-    for statement in module.body[: _import_end_index(module.body)]:
+    for statement in module.body[: import_insertion_index(module.body, after_import_block=True)]:
         if not isinstance(statement, cst.SimpleStatementLine):
             continue
         for small in statement.body:
@@ -269,29 +244,17 @@ def _typed_dict_base(
                     continue
                 for alias in small.names:
                     if isinstance(alias.name, cst.Name) and alias.name.value == "TypedDict":
-                        if alias.asname is not None and isinstance(alias.asname.name, cst.Name):
-                            return (cst.Name(alias.asname.name.value), None)
-                        return (cst.Name("TypedDict"), None)
+                        return (cst.Name(import_alias_binding(alias, from_import=True)), None)
             if isinstance(small, cst.Import):
                 for alias in small.names:
                     if isinstance(alias.name, cst.Name) and alias.name.value == "typing":
-                        binding = (
-                            alias.asname.name.value
-                            if alias.asname is not None and isinstance(alias.asname.name, cst.Name)
-                            else "typing"
-                        )
+                        binding = import_alias_binding(alias, from_import=False)
                         return (
                             cst.Attribute(value=cst.Name(binding), attr=cst.Name("TypedDict")),
                             None,
                         )
 
-    import_binding = "TypedDict"
-    if import_binding in bindings:
-        import_binding = "_mcp_TypedDict"
-        suffix = 2
-        while import_binding in bindings:
-            import_binding = f"_mcp_TypedDict_{suffix}"
-            suffix += 1
+    import_binding = reserve_unique_binding(bindings, "TypedDict", "_mcp_TypedDict")
     alias = cst.ImportAlias(name=cst.Name("TypedDict"))
     if import_binding != "TypedDict":
         alias = alias.with_changes(asname=cst.AsName(name=cst.Name(import_binding)))
@@ -299,22 +262,6 @@ def _typed_dict_base(
         body=[cst.ImportFrom(module=cst.Name("typing"), names=[alias])]
     )
     return (cst.Name(import_binding), statement)
-
-
-def _import_end_index(body: Sequence[cst.BaseStatement]) -> int:
-    index = 0
-    if body and isinstance(body[0], cst.SimpleStatementLine):
-        first = body[0].body
-        if len(first) == 1 and isinstance(first[0], cst.Expr) and isinstance(first[0].value, cst.SimpleString):
-            index = 1
-    while index < len(body):
-        statement = body[index]
-        if not isinstance(statement, cst.SimpleStatementLine) or not statement.body:
-            break
-        if not all(isinstance(small, (cst.Import, cst.ImportFrom)) for small in statement.body):
-            break
-        index += 1
-    return index
 
 
 class ConvertToTypedDictTransformer(cst.CSTTransformer):
@@ -361,7 +308,7 @@ class ConvertToTypedDictTransformer(cst.CSTTransformer):
             body=cst.IndentedBlock(body=fields),
         )
         body = list(updated_node.body)
-        insert_at = _import_end_index(tuple(body))
+        insert_at = import_insertion_index(body, after_import_block=True)
         if self._plan.import_statement is not None:
             body.insert(insert_at, self._plan.import_statement)
             insert_at += 1
@@ -383,7 +330,7 @@ async def convert_to_typeddict(
         raise BackendError("typed_dict_name must be a valid non-keyword Python identifier")
     source_snapshot = read_cst_source_snapshot(file_path)
     module = source_snapshot.module
-    bindings = _bound_names(module)
+    bindings = top_level_bindings(module)
     if typed_dict_name in bindings:
         raise BackendError(f"Top-level name {typed_dict_name!r} already exists")
     function = _top_level_function(module, function_name)

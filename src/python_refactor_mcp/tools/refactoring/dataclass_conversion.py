@@ -23,6 +23,12 @@ from python_refactor_mcp.util.cst_apply import (
     apply_cst_transformer,
     read_cst_source_snapshot,
 )
+from python_refactor_mcp.util.cst_imports import (
+    import_alias_binding,
+    import_insertion_index,
+    reserve_unique_binding,
+    top_level_bindings,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -222,36 +228,14 @@ def _constructor_fields(
     return tuple(fields)
 
 
-def _import_binding(alias: cst.ImportAlias, *, from_import: bool) -> str:
-    if alias.asname is not None:
-        if not isinstance(alias.asname.name, cst.Name):
-            raise BackendError("Unsupported non-name import alias in dataclass conversion")
-        return alias.asname.name.value
-    if isinstance(alias.name, cst.Name):
-        return alias.name.value
-    dotted = cst.Module([]).code_for_node(alias.name)
-    return dotted if from_import else dotted.split(".", 1)[0]
-
-
-def _top_level_bindings(module: cst.Module) -> set[str]:
-    bindings: set[str] = set()
-    for statement in module.body:
-        direct_name = _class_level_name(statement)
-        if direct_name is not None:
-            bindings.add(direct_name)
-        if not isinstance(statement, cst.SimpleStatementLine):
-            continue
-        for small in statement.body:
-            if isinstance(small, cst.Import):
-                bindings.update(_import_binding(alias, from_import=False) for alias in small.names)
-            elif isinstance(small, cst.ImportFrom) and not isinstance(small.names, cst.ImportStar):
-                bindings.update(_import_binding(alias, from_import=True) for alias in small.names)
-    return bindings
-
-
-def _dataclass_decorator(module: cst.Module) -> tuple[cst.BaseExpression, str | None]:
+def _dataclass_decorator(
+    module: cst.Module,
+    source_class: cst.ClassDef,
+) -> tuple[cst.BaseExpression, str | None]:
     """Return the decorator expression and an optional import alias to add."""
     for statement in module.body:
+        if statement is source_class:
+            break
         if not isinstance(statement, cst.SimpleStatementLine):
             continue
         for small in statement.body:
@@ -260,21 +244,15 @@ def _dataclass_decorator(module: cst.Module) -> tuple[cst.BaseExpression, str | 
                     continue
                 for alias in small.names:
                     if isinstance(alias.name, cst.Name) and alias.name.value == "dataclass":
-                        return (cst.Name(_import_binding(alias, from_import=True)), None)
+                        return (cst.Name(import_alias_binding(alias, from_import=True)), None)
             if isinstance(small, cst.Import):
                 for alias in small.names:
                     if isinstance(alias.name, cst.Name) and alias.name.value == "dataclasses":
-                        binding = _import_binding(alias, from_import=False)
+                        binding = import_alias_binding(alias, from_import=False)
                         return (cst.Attribute(value=cst.Name(binding), attr=cst.Name("dataclass")), None)
 
-    bindings = _top_level_bindings(module)
-    decorator_binding = "dataclass"
-    if decorator_binding in bindings:
-        decorator_binding = "_mcp_dataclass"
-        suffix = 2
-        while decorator_binding in bindings:
-            decorator_binding = f"_mcp_dataclass_{suffix}"
-            suffix += 1
+    bindings = top_level_bindings(module)
+    decorator_binding = reserve_unique_binding(bindings, "dataclass", "_mcp_dataclass")
     return (cst.Name(decorator_binding), decorator_binding)
 
 
@@ -294,27 +272,6 @@ def _normalize_inferred_annotation(field_name: str, type_string: str) -> cst.Bas
         raise BackendError(
             f"Pyright returned an unusable type for field {field_name!r}: {type_string!r}"
         ) from exc
-
-
-def _import_insert_index(body: tuple[cst.BaseStatement, ...]) -> int:
-    index = 0
-    if body and isinstance(body[0], cst.SimpleStatementLine):
-        first = body[0].body
-        if len(first) == 1 and isinstance(first[0], cst.Expr) and isinstance(first[0].value, cst.SimpleString):
-            index = 1
-    while index < len(body):
-        statement = body[index]
-        if not isinstance(statement, cst.SimpleStatementLine) or len(statement.body) != 1:
-            break
-        small = statement.body[0]
-        if not (
-            isinstance(small, cst.ImportFrom)
-            and isinstance(small.module, cst.Name)
-            and small.module.value == "__future__"
-        ):
-            break
-        index += 1
-    return index
 
 
 class ConvertToDataclassTransformer(cst.CSTTransformer):
@@ -383,7 +340,7 @@ class ConvertToDataclassTransformer(cst.CSTTransformer):
             body=[cst.ImportFrom(module=cst.Name("dataclasses"), names=[alias])]
         )
         body = list(updated_node.body)
-        body.insert(_import_insert_index(tuple(body)), statement)
+        body.insert(import_insertion_index(body), statement)
         return updated_node.with_changes(body=body)
 
 
@@ -410,7 +367,7 @@ async def convert_to_dataclass(
     }
     source_class = _top_level_class(module, class_name)
     fields = list(_constructor_fields(source_class, positions))
-    decorator, import_alias = _dataclass_decorator(module)
+    decorator, import_alias = _dataclass_decorator(module, source_class)
 
     for index, field in enumerate(fields):
         if field.annotation is not None:
