@@ -30,6 +30,10 @@ Index: `README.md`.
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
   - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `convert_to_typeddict`:
+  - Goal: "Run `convert_to_typeddict` on a top-level function with consistent dict-literal returns and `apply=false`; show the generated fields and return annotation."
+  - Validation: "Use inconsistent return keys or field types and show the fail-closed error without edits."
+  - Chaining: "Preview `convert_to_typeddict`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
 - `convert_function_to_method`:
   - Goal: "Run `convert_function_to_method` with `apply=false`; show the moved method and every rewritten same-module caller."
   - Validation: "Include a cross-file or non-call function reference and show the fail-closed partial-rewrite error."

@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-31T03:04:30Z
+**updated_at:** 2026-08-31T13:55:17Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -63,7 +63,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `cand-split-module` | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
-| `cand-convert-typeddict-pydantic` | Low | — | **New tools: convert to TypedDict / Pydantic v2** — dict-shaped returns→TypedDict; typed classes→Pydantic v2; field types from Pyright; preview-default. Remaining BRAIN-003 scope beyond the dataclass slice. [type: enhancement] [source: brainstorm-BRAIN-003] | M | items/cand-convert-typeddict-pydantic.md |
+| `cand-convert-pydantic-v2` | Low | — | **Define and implement `convert_to_pydantic`** — specify one semantics-preserving typed-class validation mapping, then add a preview-first Pydantic v2 conversion. Weaker evidence. [type: enhancement] [source: brainstorm-BRAIN-003] | M | items/cand-convert-pydantic-v2.md |
 
 ## Defer
 

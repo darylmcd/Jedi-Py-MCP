@@ -666,6 +666,31 @@ async def convert_to_dataclass(
     return result
 
 
+async def convert_to_typeddict(
+    ctx: Context,
+    file_path: str,
+    function_name: str,
+    typed_dict_name: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Convert a top-level function's consistent dict-literal returns into a generated `TypedDict`. Every return must use the same ordered string-identifier keys, and Pyright must infer one concrete type per field across all branches. Dynamic or inconsistent shapes fail closed. Defaults to preview mode (`apply=false`). Related: get_type_info, apply_type_annotations, convert_to_dataclass."""
+    app = get_current_backends()
+    result = await refactoring.convert_to_typeddict(
+        app.pyright,
+        file_path,
+        function_name,
+        typed_dict_name,
+        apply,
+    )
+    _LOGGER.debug(
+        "convert_to_typeddict edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def convert_function_to_method(
     ctx: Context,
     file_path: str,
@@ -1599,6 +1624,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(rename_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(convert_to_typeddict, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_function_to_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_method_to_function, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(docstring_sync, DESTRUCTIVE_ANNOTATIONS),

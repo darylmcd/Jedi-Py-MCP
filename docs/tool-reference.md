@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete 105-tool catalog organized by category. A running server advertises
+Complete 106-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
@@ -42,7 +42,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (39)
+## Refactoring (40)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -52,6 +52,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `extract_class` | Move cohesive constructor fields and plain instance methods into a delegated collaborator (LibCST). | `RefactorResult` |
 | `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
 | `convert_to_dataclass` | Convert a behavior-free constructor into preview-first standard-library dataclass fields, using Pyright for missing annotations. | `RefactorResult` |
+| `convert_to_typeddict` | Convert consistent dict-literal function returns into a generated TypedDict, using Pyright for concrete field types. | `RefactorResult` |
 | `convert_function_to_method` | Move a free function into a plain class and rewrite direct same-module callers; unsupported reference shapes fail closed. | `RefactorResult` |
 | `convert_method_to_function` | Move a direct instance method to module scope and rewrite direct same-module callers; unsupported reference shapes fail closed. | `RefactorResult` |
 | `docstring_sync` | Synchronize function parameters with Google, NumPy, or Sphinx docstring fields, preserving descriptions in preview-first edits. | `RefactorResult` |

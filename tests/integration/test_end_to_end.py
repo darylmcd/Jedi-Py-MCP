@@ -600,6 +600,44 @@ async def test_new_refactoring_tools_preview_mode(
 
 
 @pytest.mark.asyncio
+async def test_convert_to_typeddict_uses_live_pyright_types(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ensure the MCP path turns real Pyright hovers into a compilable preview."""
+    target = sample_workspace / "src" / "typed_dict_target.py"
+    source = (
+        "def make_payload(name: str, active: bool) -> dict[str, object]:\n"
+        '    return {"name": name, "active": active}\n'
+    )
+    target.write_text(source, encoding="utf-8")
+
+    result = await mcp_session.call_tool(
+        "convert_to_typeddict",
+        {
+            "file_path": str(target),
+            "function_name": "make_payload",
+            "typed_dict_name": "Payload",
+            "apply": False,
+        },
+    )
+
+    assert result.is_error is not True
+    payload = result.structured_content
+    _assert_refactor_preview_payload(payload)
+    assert isinstance(payload, dict)
+    edits = payload["edits"]
+    assert isinstance(edits, list) and len(edits) == 1
+    converted = edits[0]["new_text"]
+    assert "class Payload(TypedDict):" in converted
+    assert "name: str" in converted
+    assert "active: bool" in converted
+    assert "def make_payload(name: str, active: bool) -> Payload:" in converted
+    compile(converted, str(target), "exec")
+    assert target.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
 async def test_module_to_package_preview_mode(
     mcp_session: ClientSession,
     sample_workspace: Path,
