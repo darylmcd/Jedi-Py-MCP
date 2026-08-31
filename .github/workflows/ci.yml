@@ -48,10 +48,11 @@ jobs:
       - name: Format check (semantic converters)
         run: >-
           .\.venv\Scripts\python -m ruff format --check
+          src/python_refactor_mcp/tools/refactoring/_converter_preflight.py
           src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py
           src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py
           src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py
-          tests/unit/test_refactoring_tools.py
+          tests/unit/test_semantic_converters.py
 
       - name: Type check (Pyright)
         run: .\.venv\Scripts\python -m pyright .

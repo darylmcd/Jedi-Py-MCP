@@ -17,7 +17,7 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 |---|---|
 | Changelog fragments | python scripts/changelog_fragments.py |
 | Lint | python -m ruff check . |
-| Semantic converter formatting | python -m ruff format --check src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_refactoring_tools.py |
+| Semantic converter formatting | python -m ruff format --check src/python_refactor_mcp/tools/refactoring/_converter_preflight.py src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_semantic_converters.py |
 | Type check (Pyright) | python -m pyright . |
 | Type check (mypy) | python -m mypy . |
 | Unit + contract tests | python -m pytest tests/unit/ tests/contract/ -v |

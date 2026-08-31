@@ -30,6 +30,7 @@ from python_refactor_mcp.util.cst_imports import (
     top_level_bindings,
 )
 
+from ._converter_preflight import contains_comment, is_mutable_default, top_level_class
 from .helpers import post_apply_diagnostics
 
 if TYPE_CHECKING:
@@ -53,29 +54,6 @@ class _ConversionPlan:
     fields: tuple[_FieldPlan, ...]
     decorator: cst.BaseExpression
     import_alias: str | None
-
-
-class _CommentFinder(cst.CSTVisitor):
-    """Record whether a subtree contains comments that a rewrite could lose."""
-
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit_Comment(self, node: cst.Comment) -> None:  # noqa: N802
-        self.found = True
-
-
-def _top_level_class(module: cst.Module, class_name: str) -> cst.ClassDef:
-    matches = [
-        statement
-        for statement in module.body
-        if isinstance(statement, cst.ClassDef) and statement.name.value == class_name
-    ]
-    if not matches:
-        raise BackendError(f"Top-level class {class_name!r} not found")
-    if len(matches) > 1:
-        raise BackendError(f"Multiple top-level classes named {class_name!r} found")
-    return matches[0]
 
 
 def _simple_self_assignment(
@@ -125,10 +103,6 @@ def _class_level_name(statement: cst.BaseStatement) -> str | None:
     return None
 
 
-def _is_mutable_default(value: cst.BaseExpression | None) -> bool:
-    return isinstance(value, (cst.Dict, cst.DictComp, cst.List, cst.ListComp, cst.Set, cst.SetComp))
-
-
 def _constructor_fields(
     source_class: cst.ClassDef,
     positions: dict[cst.CSTNode, object],
@@ -164,9 +138,7 @@ def _constructor_fields(
     if not params.params or params.params[0].name.value != "self":
         raise BackendError("convert_to_dataclass requires self as the first constructor parameter")
 
-    finder = _CommentFinder()
-    constructor.visit(finder)
-    if finder.found:
+    if contains_comment(constructor):
         raise BackendError("convert_to_dataclass refuses constructors containing comments")
 
     assignment_names: list[str] = []
@@ -203,7 +175,7 @@ def _constructor_fields(
 
     fields: list[_FieldPlan] = []
     for param in constructor_params:
-        if _is_mutable_default(param.default):
+        if is_mutable_default(param.default):
             raise BackendError(f"Mutable default for {param.name.value!r} requires an explicit default_factory")
         position = positions.get(param.name)
         if not isinstance(position, CodePosition):
@@ -349,7 +321,7 @@ async def convert_to_dataclass(
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     position_ranges = wrapper.resolve(PositionProvider)
     positions: dict[cst.CSTNode, object] = {node: code_range.start for node, code_range in position_ranges.items()}
-    source_class = _top_level_class(module, class_name)
+    source_class = top_level_class(module, class_name)
     fields = list(_constructor_fields(source_class, positions))
     decorator, import_alias = _dataclass_decorator(module, source_class)
 
