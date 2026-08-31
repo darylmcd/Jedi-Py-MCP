@@ -1,0 +1,1 @@
+- **Added:** `convert_to_typeddict`, a preview-first refactoring that turns consistent dict-literal function returns into a generated `TypedDict` with Pyright-backed field types and fail-closed shape validation.

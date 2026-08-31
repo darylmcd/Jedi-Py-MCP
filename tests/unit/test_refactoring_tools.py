@@ -1128,6 +1128,225 @@ async def test_convert_to_dataclass_rejects_unsafe_constructor_shapes(
     pyright.get_hover.assert_not_awaited()
 
 
+# ── convert_to_typeddict (consistent dict-literal returns) ──
+
+
+def _type_info(type_string: str) -> TypeInfo:
+    return TypeInfo(expression="value", type_string=type_string, source="pyright")
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_preview_preserves_source(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    source = (
+        "def make_user(name: str, enabled: bool) -> dict[str, object]:\n"
+        '    return {"name": name, "enabled": enabled}\n'
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_hover.side_effect = [_type_info("str"), _type_info("bool")]
+
+    result = await refactoring.convert_to_typeddict(
+        pyright,
+        str(target),
+        "make_user",
+        "UserPayload",
+    )
+
+    assert result.applied is False
+    assert target.read_text(encoding="utf-8") == source
+    assert len(result.edits) == 1
+    converted = result.edits[0].new_text
+    assert "from typing import TypedDict" in converted
+    assert "class UserPayload(TypedDict):\n    name: str\n    enabled: bool\n" in converted
+    assert "def make_user(name: str, enabled: bool) -> UserPayload:" in converted
+    compile(converted, str(target), "exec")
+    assert pyright.get_hover.await_count == 2
+    pyright.notify_file_changed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_accepts_consistent_branch_types(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    target.write_text(
+        "def make_user(enabled: bool):\n"
+        "    if enabled:\n"
+        '        return {"name": "ready", "enabled": enabled}\n'
+        '    return {"name": "waiting", "enabled": enabled}\n',
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_hover.side_effect = [
+        _type_info("Literal['ready']"),
+        _type_info("bool"),
+        _type_info("Literal['waiting']"),
+        _type_info("bool"),
+    ]
+
+    result = await refactoring.convert_to_typeddict(
+        pyright,
+        str(target),
+        "make_user",
+        "UserPayload",
+    )
+
+    converted = result.edits[0].new_text
+    assert "name: str" in converted
+    assert "enabled: bool" in converted
+    compile(converted, str(target), "exec")
+    assert pyright.get_hover.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_apply_writes_and_refreshes(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    target.write_text(
+        "import typing as t\n\n"
+        "def make_user(name: str):\n"
+        '    return {"name": name}\n',
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_hover.return_value = _type_info("(variable) name: builtins.str")
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.convert_to_typeddict(
+        pyright,
+        str(target),
+        "make_user",
+        "UserPayload",
+        apply=True,
+    )
+
+    assert result.applied is True
+    converted = target.read_text(encoding="utf-8")
+    assert "class UserPayload(t.TypedDict):" in converted
+    assert "from typing import TypedDict" not in converted
+    pyright.notify_file_changed.assert_awaited_once_with(str(target))
+    pyright.get_diagnostics.assert_awaited_once_with(str(target))
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_does_not_reuse_late_import(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    target.write_text(
+        "def payload(name: str):\n"
+        '    return {"name": name}\n'
+        "\n"
+        "from typing import TypedDict as LateTypedDict\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_hover.return_value = _type_info("str")
+
+    result = await refactoring.convert_to_typeddict(
+        pyright,
+        str(target),
+        "payload",
+        "Payload",
+    )
+
+    converted = result.edits[0].new_text
+    assert converted.startswith("from typing import TypedDict\n\nclass Payload(TypedDict):")
+    assert "from typing import TypedDict as LateTypedDict" in converted
+    compile(converted, str(target), "exec")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source,error",
+    [
+        (
+            "def payload(name: str):\n"
+            '    return {"name": name}\n'
+            "\n"
+            "class Payload:\n"
+            "    pass\n",
+            "already exists",
+        ),
+        (
+            "def payload(key: str, value: str):\n"
+            "    return {key: value}\n",
+            "valid identifiers",
+        ),
+        (
+            "def payload(flag: bool):\n"
+            "    if flag:\n"
+            '        return {"name": "ready"}\n'
+            '    return {"name": "waiting", "enabled": flag}\n',
+            "same ordered keys",
+        ),
+        (
+            "def payload(name: str) -> str:\n"
+            '    return {"name": name}\n',
+            "dict/mapping return annotations",
+        ),
+    ],
+)
+async def test_convert_to_typeddict_rejects_unsafe_shapes(
+    tmp_path: Path,
+    source: str,
+    error: str,
+) -> None:
+    target = tmp_path / "payloads.py"
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match=error):
+        await refactoring.convert_to_typeddict(
+            pyright,
+            str(target),
+            "payload",
+            "Payload",
+        )
+
+    assert target.read_text(encoding="utf-8") == source
+    pyright.get_hover.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_rejects_inconsistent_inferred_types(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    source = (
+        "def payload(flag: bool):\n"
+        "    if flag:\n"
+        '        return {"value": 1}\n'
+        '    return {"value": "one"}\n'
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_hover.side_effect = [_type_info("int"), _type_info("str")]
+
+    with pytest.raises(BackendError, match="inconsistent inferred types"):
+        await refactoring.convert_to_typeddict(
+            pyright,
+            str(target),
+            "payload",
+            "Payload",
+        )
+
+    assert target.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_convert_to_typeddict_rejects_unknown_inferred_type(tmp_path: Path) -> None:
+    target = tmp_path / "payloads.py"
+    source = "def payload(value):\n    return {\"value\": value}\n"
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_hover.return_value = _type_info("Unknown")
+
+    with pytest.raises(BackendError, match="could not infer a concrete type"):
+        await refactoring.convert_to_typeddict(
+            pyright,
+            str(target),
+            "payload",
+            "Payload",
+        )
+
+    assert target.read_text(encoding="utf-8") == source
+
+
 _SUPERCLASS_SOURCE = (
     "class Foo:\n"
     "    shared = 1\n\n"

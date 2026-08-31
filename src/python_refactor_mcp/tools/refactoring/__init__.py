@@ -33,6 +33,7 @@ from .structure import (
 )
 from .superclass import extract_superclass
 from .type_annotations import apply_type_annotations
+from .typed_dict_conversion import convert_to_typeddict
 
 __all__ = [
     "apply_code_action",
@@ -43,6 +44,7 @@ __all__ = [
     "convert_to_dataclass",
     "convert_function_to_method",
     "convert_method_to_function",
+    "convert_to_typeddict",
     "docstring_sync",
     "encapsulate_field",
     "expand_star_imports",
