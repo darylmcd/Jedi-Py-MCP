@@ -127,7 +127,7 @@ async def find_references(
     include_context: bool = False,
     limit: int | None = None,
 ) -> ReferenceResult:
-    """Find all references to a symbol across the workspace. Use when you need to understand how widely a function, class, or variable is used before renaming, moving, or deleting it. Returns locations from both Pyright and Jedi for comprehensive coverage. Set include_context=True to get surrounding source lines. Related: prepare_rename, rename_symbol. Positions are 0-based (line and character offsets, LSP convention)."""
+    """Find all references to a symbol across the workspace. Use when you need to understand how widely a function, class, or variable is used before renaming, moving, or deleting it. Returns merged Pyright/Jedi locations and typed `backend_failures` when optional enrichment is incomplete. Set include_context=True to get surrounding source lines. Related: prepare_rename, rename_symbol. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     result = await analysis.find_references(
         app.pyright,
@@ -659,6 +659,58 @@ async def convert_to_dataclass(
     result = await refactoring.convert_to_dataclass(app.pyright, file_path, class_name, apply)
     _LOGGER.debug(
         "convert_to_dataclass edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
+async def convert_function_to_method(
+    ctx: Context,
+    file_path: str,
+    function_name: str,
+    class_name: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move a top-level function into a plain class and rewrite every direct caller in the definition module from `function(instance, ...)` to `instance.function(...)`. The function's first positional parameter becomes the bound receiver without renaming, so body semantics and annotations stay intact. Cross-file or non-call references fail closed to prevent partial rewrites. Defaults to preview mode (`apply=false`). Related: find_references, convert_method_to_function, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.convert_function_to_method(
+        app.pyright,
+        app.jedi,
+        file_path,
+        function_name,
+        class_name,
+        apply,
+    )
+    _LOGGER.debug(
+        "convert_function_to_method edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
+async def convert_method_to_function(
+    ctx: Context,
+    file_path: str,
+    class_name: str,
+    method_name: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Move a direct instance method from a plain class to module scope and rewrite every direct caller in that module from `instance.method(...)` to `method(instance, ...)`. The receiver parameter is preserved exactly; cross-file or non-call references fail closed to prevent partial rewrites. Defaults to preview mode (`apply=false`). Related: find_references, convert_function_to_method, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.convert_method_to_function(
+        app.pyright,
+        app.jedi,
+        file_path,
+        class_name,
+        method_name,
+        apply,
+    )
+    _LOGGER.debug(
+        "convert_method_to_function edits=%s files=%s applied=%s",
         len(result.edits),
         len(result.files_affected),
         result.applied,
@@ -1547,6 +1599,8 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(rename_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(convert_function_to_method, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(convert_method_to_function, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(docstring_sync, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(fix_circular_imports, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_class, DESTRUCTIVE_ANNOTATIONS),

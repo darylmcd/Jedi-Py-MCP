@@ -206,6 +206,12 @@ def test_validate_params_validates_list_paths(tmp_path: Path) -> None:
     ]
 
 
+def test_validate_params_rejects_non_string_list_path(tmp_path: Path) -> None:
+    """Malformed path lists fail instead of silently dropping entries."""
+    with pytest.raises(ValueError, match="file_paths must contain only strings"):
+        _validate_params({"file_paths": [str(tmp_path / "a.py"), 3]}, tmp_path)
+
+
 def test_validate_params_resolves_nested_transaction_paths(tmp_path: Path) -> None:
     """Every transaction step path is normalized against the selected workspace."""
     kwargs = {
@@ -234,6 +240,32 @@ def test_validate_params_accepts_valid_identifier(tmp_path: Path) -> None:
     kwargs = {"new_name": "good_name"}
     _validate_params(kwargs, tmp_path)
     assert kwargs["new_name"] == "good_name"
+
+
+def test_validate_params_rejects_bad_list_identifier(tmp_path: Path) -> None:
+    """Identifier lists receive the same validation as scalar names."""
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _validate_params({"class_names": ["Good", "1bad"]}, tmp_path)
+
+
+def test_validate_params_rejects_non_string_list_identifier(tmp_path: Path) -> None:
+    """Malformed identifier lists fail instead of silently dropping entries."""
+    with pytest.raises(ValueError, match="class_names must contain only strings"):
+        _validate_params({"class_names": ["Good", 3]}, tmp_path)
+
+
+def test_validate_params_rejects_bad_nested_transaction_identifier(tmp_path: Path) -> None:
+    """Transaction steps cannot bypass top-level identifier validation."""
+    kwargs = {
+        "steps": [
+            {
+                "tool": "rename_symbol",
+                "args": {"file_path": str(tmp_path / "a.py"), "new_name": "1bad"},
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _validate_params(kwargs, tmp_path)
 
 
 # ── _tool_error_boundary (wrapper integration) ───────────────────────────

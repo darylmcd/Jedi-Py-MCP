@@ -7,6 +7,7 @@ from .dataclass_conversion import convert_to_dataclass
 from .docstrings import docstring_sync
 from .extract import extract_method, extract_variable, inline_method, inline_parameter, inline_variable
 from .format import format_code
+from .function_method_conversion import convert_function_to_method, convert_method_to_function
 from .imports import (
     autoimport_search,
     expand_star_imports,
@@ -40,6 +41,8 @@ __all__ = [
     "autoimport_search",
     "change_signature",
     "convert_to_dataclass",
+    "convert_function_to_method",
+    "convert_method_to_function",
     "docstring_sync",
     "encapsulate_field",
     "expand_star_imports",

@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from python_refactor_mcp.models import (
+    BackendFailure,
     Location,
     ReferenceResult,
 )
@@ -107,9 +108,9 @@ async def find_references(
     if not pyright_references:
         try:
             jedi_references = await jedi.get_references(file_path, line, character)
-        except Exception:
+        except Exception as exc:
             # Jedi is an optional fallback with no stable plugin exception family;
-            # an empty Pyright result remains valid when the fallback fails.
+            # retain the usable Pyright result while surfacing partial discovery.
             _LOGGER.debug("jedi reference fallback failed for %s:%d:%d", file_path, line, character, exc_info=True)
             return ReferenceResult(
                 symbol=f"{file_path}:{line}:{character}",
@@ -117,6 +118,13 @@ async def find_references(
                 references=[],
                 total_count=0,
                 source="pyright",
+                backend_failures=[
+                    BackendFailure(
+                        backend="jedi",
+                        operation="get_references",
+                        error_type=type(exc).__name__,
+                    )
+                ],
             )
         deduped_jedi = sorted(
             {
@@ -152,9 +160,18 @@ async def find_references(
             if key not in merged:
                 source = "combined"
                 merged[key] = location
-    except Exception:
+    except Exception as exc:
         # Keep the Pyright result if Jedi enrichment fails.
         _LOGGER.debug("jedi reference enrichment failed for %s:%d:%d", file_path, line, character, exc_info=True)
+        backend_failures = [
+            BackendFailure(
+                backend="jedi",
+                operation="get_references",
+                error_type=type(exc).__name__,
+            )
+        ]
+    else:
+        backend_failures = []
 
     deduped = sorted(merged.values(), key=_location_key)
     if include_context:
@@ -168,4 +185,5 @@ async def find_references(
         total_count=total_count,
         source=source,
         truncated=truncated,
+        backend_failures=backend_failures,
     )

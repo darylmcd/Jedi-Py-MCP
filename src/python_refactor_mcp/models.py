@@ -101,6 +101,7 @@ class ReferenceResult(BaseModel):
     total_count: int
     source: str
     truncated: bool = False
+    backend_failures: list[BackendFailure] = Field(default_factory=list)
 
 
 class TypeUserSite(BaseModel):

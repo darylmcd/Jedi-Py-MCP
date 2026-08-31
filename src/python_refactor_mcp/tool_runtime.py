@@ -41,13 +41,22 @@ _LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
 
 # Parameters that must be valid Python identifiers.
 IDENTIFIER_PARAMS: tuple[str, ...] = (
+    "base_class_name",
+    "class_name",
+    "collaborator_attribute",
+    "destination_attr",
     "new_name",
+    "new_class_name",
+    "function_name",
     "method_name",
     "variable_name",
     "parameter_name",
     "factory_name",
     "classname",
+    "protocol_name",
+    "symbol_name",
 )
+_LIST_IDENTIFIER_PARAMS: tuple[str, ...] = ("class_names", "members")
 
 
 def _transaction_step_args(kwargs: dict[str, Any]) -> list[dict[str, Any]]:
@@ -153,17 +162,33 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
     for param_name in _LIST_PATH_PARAMS:
         values = kwargs.get(param_name)
         if isinstance(values, list):
-            kwargs[param_name] = [validate_workspace_path(v, workspace_root) for v in values if isinstance(v, str)]
+            if not all(isinstance(value, str) for value in values):
+                raise ValueError(f"{param_name} must contain only strings")
+            kwargs[param_name] = [validate_workspace_path(value, workspace_root) for value in values]
 
     for args in _transaction_step_args(kwargs):
         file_path = args.get("file_path")
         if isinstance(file_path, str):
             args["file_path"] = validate_workspace_path(file_path, workspace_root)
 
+    _validate_identifiers(kwargs)
+    for args in _transaction_step_args(kwargs):
+        _validate_identifiers(args)
+
+
+def _validate_identifiers(kwargs: dict[str, Any]) -> None:
+    """Validate scalar and list-valued identifier parameters in one argument object."""
     for param_name in IDENTIFIER_PARAMS:
         value = kwargs.get(param_name)
         if isinstance(value, str):
             validate_identifier(value, param_name)
+    for param_name in _LIST_IDENTIFIER_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            if not all(isinstance(value, str) for value in values):
+                raise ValueError(f"{param_name} must contain only strings")
+            for value in values:
+                validate_identifier(value, param_name)
 
 
 def _safe_failure_diagnostics(exc: BackendError) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -226,10 +251,9 @@ def tool_error_boundary(
             if backends is not None:
                 _validate_params(kwargs, backends.config.workspace_root)
             else:
-                for param_name in IDENTIFIER_PARAMS:
-                    value = kwargs.get(param_name)
-                    if isinstance(value, str):
-                        validate_identifier(value, param_name)
+                _validate_identifiers(kwargs)
+                for step_args in _transaction_step_args(kwargs):
+                    _validate_identifiers(step_args)
 
             return await func(*args, **kwargs)
         except BackendError as exc:
