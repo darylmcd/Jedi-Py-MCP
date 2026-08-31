@@ -1128,6 +1128,194 @@ async def test_convert_to_dataclass_rejects_unsafe_constructor_shapes(
     pyright.get_hover.assert_not_awaited()
 
 
+# ── convert_to_pydantic (bounded Pydantic v2 conversion) ──
+
+
+@pytest.mark.asyncio
+async def test_convert_to_pydantic_preview_preserves_validation_and_call_shape(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "models.py"
+    source = (
+        "class User:\n"
+        "    def __init__(self, *, name: str, enabled: bool = True) -> None:\n"
+        "        if not name.strip():\n"
+        "            raise ValueError(\"name is required\")\n"
+        "        self.name = name\n"
+        "        self.enabled = enabled\n"
+        "\n"
+        "    def label(self) -> str:\n"
+        "        return self.name\n"
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.convert_to_pydantic(pyright, str(target), "User")
+
+    assert result.applied is False
+    assert target.read_text(encoding="utf-8") == source
+    assert len(result.edits) == 1
+    converted = result.edits[0].new_text
+    assert "from pydantic import BaseModel, ConfigDict, field_validator" in converted
+    assert "class User(BaseModel):" in converted
+    assert 'model_config = ConfigDict(extra="forbid")' in converted
+    assert "    name: str\n" in converted
+    assert "    enabled: bool = True\n" in converted
+    assert "@field_validator('name')" in converted
+    assert "if not value.strip():" in converted
+    assert "def __init__" not in converted
+    assert "    def label(self) -> str:" in converted
+    pyright.notify_file_changed.assert_not_awaited()
+
+    namespace: dict[str, object] = {}
+    exec(compile(converted, str(target), "exec"), namespace)  # noqa: S102
+    user_type = namespace["User"]
+    valid = user_type(name="Ada")  # type: ignore[operator]
+    assert valid.label() == "Ada"
+    with pytest.raises(ValueError, match="name is required"):
+        user_type(name=" ")  # type: ignore[operator]
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        user_type(name="Ada", unexpected=True)  # type: ignore[operator]
+    with pytest.raises(TypeError):
+        user_type("Ada")  # type: ignore[operator]
+
+
+@pytest.mark.asyncio
+async def test_convert_to_pydantic_apply_writes_and_refreshes(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(
+        "class User:\n"
+        "    def __init__(self, *, name: str) -> None:\n"
+        "        if not name:\n"
+        "            raise ValueError(\"name is required\")\n"
+        "        self.name = name\n",
+        encoding="utf-8",
+    )
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await refactoring.convert_to_pydantic(
+        pyright,
+        str(target),
+        "User",
+        apply=True,
+    )
+
+    assert result.applied is True
+    assert "class User(BaseModel):" in target.read_text(encoding="utf-8")
+    pyright.notify_file_changed.assert_awaited_once_with(str(target))
+    pyright.get_diagnostics.assert_awaited_once_with(str(target))
+
+
+@pytest.mark.asyncio
+async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -> None:
+    target = tmp_path / "models.py"
+    source = (
+        "class User:\n"
+        "    def __init__(self, *, name: str) -> None:\n"
+        "        if not name:\n"
+        "            raise ValueError(\"name is required\")\n"
+        "        self.name = name\n"
+        "\n"
+        "from pydantic import BaseModel, ConfigDict, field_validator\n"
+    )
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    result = await refactoring.convert_to_pydantic(pyright, str(target), "User")
+
+    converted = result.edits[0].new_text
+    generated_import = (
+        "from pydantic import BaseModel as _mcp_pydantic_basemodel, "
+        "ConfigDict as _mcp_pydantic_configdict, "
+        "field_validator as _mcp_pydantic_field_validator"
+    )
+    assert generated_import in converted
+    assert converted.index(generated_import) < converted.index("class User(")
+    assert "class User(_mcp_pydantic_basemodel):" in converted
+
+    namespace: dict[str, object] = {}
+    exec(compile(converted, str(target), "exec"), namespace)  # noqa: S102
+    user_type = namespace["User"]
+    assert user_type(name="Ada").name == "Ada"  # type: ignore[operator]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source,error",
+    [
+        (
+            "class User:\n"
+            "    def __init__(self, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise ValueError(\"name\")\n"
+            "        self.name = name\n",
+            "keyword-only parameters",
+        ),
+        (
+            "class User(Base):\n"
+            "    def __init__(self, *, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise ValueError(\"name\")\n"
+            "        self.name = name\n",
+            "without bases",
+        ),
+        (
+            "class User:\n"
+            "    def __init__(self, *, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise ValueError(\"name\")\n"
+            "        self.name = name\n"
+            "\n"
+            "    @property\n"
+            "    def display_name(self) -> str:\n"
+            "        return self.name\n",
+            "descriptors and class data are unsupported",
+        ),
+        (
+            "class User:\n"
+            "    def __init__(self, *, first: str, last: str) -> None:\n"
+            "        if not first or not last:\n"
+            "            raise ValueError(\"name\")\n"
+            "        self.first = first\n"
+            "        self.last = last\n",
+            "exactly one field",
+        ),
+        (
+            "class User:\n"
+            "    def __init__(self, *, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise TypeError(\"name\")\n"
+            "        self.name = name\n",
+            "raise ValueError",
+        ),
+        (
+            "class Sample:\n"
+            "    def __init__(self, *, len: int) -> None:\n"
+            "        if not len:\n"
+            "            raise ValueError(\"len\")\n"
+            "        self.len = len\n",
+            "reserved validation name",
+        ),
+    ],
+)
+async def test_convert_to_pydantic_rejects_semantic_risk_without_writing(
+    tmp_path: Path,
+    source: str,
+    error: str,
+) -> None:
+    target = tmp_path / "models.py"
+    target.write_text(source, encoding="utf-8")
+    pyright = AsyncMock()
+
+    with pytest.raises(BackendError, match=error):
+        class_name = "Sample" if source.startswith("class Sample:") else "User"
+        await refactoring.convert_to_pydantic(pyright, str(target), class_name)
+
+    assert target.read_text(encoding="utf-8") == source
+    pyright.notify_file_changed.assert_not_awaited()
+
+
 # ── convert_to_typeddict (consistent dict-literal returns) ──
 
 

@@ -30,6 +30,10 @@ Index: `README.md`.
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
   - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `convert_to_pydantic`:
+  - Goal: "Run `convert_to_pydantic` on a fully typed keyword-only constructor with one independent `ValueError` guard and `apply=false`; show the generated fields, config, and validator."
+  - Validation: "Use inheritance, a descriptor, positional construction, or cross-field validation and show the fail-closed error without edits."
+  - Chaining: "Preview `convert_to_pydantic`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
 - `convert_to_typeddict`:
   - Goal: "Run `convert_to_typeddict` on a top-level function with consistent dict-literal returns and `apply=false`; show the generated fields and return annotation."
   - Validation: "Use inconsistent return keys or field types and show the fail-closed error without edits."

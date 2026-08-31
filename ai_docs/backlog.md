@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-08-31T13:55:17Z
+**updated_at:** 2026-08-31T15:42:41Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -52,6 +52,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
+| `cst-plan-source-coherence` | High | — | **Bind CST plans to source snapshots** — require plan, transform, and emit to consume one verified source snapshot so concurrent edits cannot receive stale semantic plans. [type: reliability] [source: session-20260831] | M | items/cst-plan-source-coherence.md |
 
 ## Medium
 
@@ -63,7 +64,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `cand-split-module` | Low | — | **New tool `split_module`** — partition a module into N modules by symbol selection (batch CST emit; rope `Move` for import rewrites v1). Weaker evidence — proposed candidate. [type: enhancement] [source: candidate-proposal] | M | items/cand-split-module.md |
-| `cand-convert-pydantic-v2` | Low | — | **Define and implement `convert_to_pydantic`** — specify one semantics-preserving typed-class validation mapping, then add a preview-first Pydantic v2 conversion. Weaker evidence. [type: enhancement] [source: brainstorm-BRAIN-003] | M | items/cand-convert-pydantic-v2.md |
+| `cst-import-planning-dedup` | Low | — | **Centralize CST import planning** — extract collision-safe binding discovery, alias selection, and import insertion shared by dataclass, TypedDict, and Pydantic converters. [type: maintainability] [source: session-20260831] | M | items/cst-import-planning-dedup.md |
 
 ## Defer
 

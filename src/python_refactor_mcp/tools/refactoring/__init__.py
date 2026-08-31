@@ -16,6 +16,7 @@ from .imports import (
     relatives_to_absolutes,
 )
 from .lint_fix import apply_lint_fixes
+from .pydantic_conversion import convert_to_pydantic
 from .rename import prepare_rename, rename_symbol
 from .signature import change_signature, introduce_parameter, restructure
 from .structure import (
@@ -44,6 +45,7 @@ __all__ = [
     "convert_to_dataclass",
     "convert_function_to_method",
     "convert_method_to_function",
+    "convert_to_pydantic",
     "convert_to_typeddict",
     "docstring_sync",
     "encapsulate_field",

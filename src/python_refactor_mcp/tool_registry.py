@@ -666,6 +666,24 @@ async def convert_to_dataclass(
     return result
 
 
+async def convert_to_pydantic(
+    ctx: Context,
+    file_path: str,
+    class_name: str,
+    apply: bool = False,
+) -> RefactorResult:
+    """Convert one plain class with a fully typed keyword-only constructor into a Pydantic v2 model. The eligible constructor contains exactly one independent `ValueError` guard followed by ordered direct field assignments; inheritance, descriptors, positional construction, cross-field validation, mutable defaults, and broader behavior fail closed. Defaults to preview mode (`apply=false`) and refreshes diagnostics after apply. Related: convert_to_dataclass, convert_to_typeddict, diff_preview."""
+    app = get_current_backends()
+    result = await refactoring.convert_to_pydantic(app.pyright, file_path, class_name, apply)
+    _LOGGER.debug(
+        "convert_to_pydantic edits=%s files=%s applied=%s",
+        len(result.edits),
+        len(result.files_affected),
+        result.applied,
+    )
+    return result
+
+
 async def convert_to_typeddict(
     ctx: Context,
     file_path: str,
@@ -1624,6 +1642,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(rename_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(extract_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_dataclass, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(convert_to_pydantic, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_to_typeddict, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_function_to_method, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(convert_method_to_function, DESTRUCTIVE_ANNOTATIONS),

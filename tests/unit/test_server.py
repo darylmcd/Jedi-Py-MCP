@@ -108,10 +108,11 @@ async def test_server_registers_expected_tool_surface() -> None:
     tools = await server.mcp.list_tools()
     names = {tool.name for tool in tools}
     assert DEFAULT_TOOL_PROFILE == "refactoring"
-    assert len(tools) == 73
+    assert len(tools) == 74
     assert len(tools) < MAX_TOOLS_PER_PROFILE
     assert {
         "convert_to_dataclass",
+        "convert_to_pydantic",
         "convert_to_typeddict",
         "convert_function_to_method",
         "convert_method_to_function",
