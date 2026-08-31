@@ -1,0 +1,1 @@
+- **Added:** preview-first `convert_to_pydantic` conversion for bounded keyword-only validated classes, with fail-closed semantic-risk checks and post-apply diagnostics.
