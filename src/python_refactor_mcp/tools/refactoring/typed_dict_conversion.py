@@ -98,7 +98,7 @@ def _string_key(expression: cst.BaseExpression) -> str | None:
         return None
     try:
         value = ast.literal_eval(expression.value)
-    except (SyntaxError, ValueError):
+    except SyntaxError, ValueError:
         return None
     return value if isinstance(value, str) else None
 
@@ -124,9 +124,7 @@ def _return_fields(
                 raise BackendError("convert_to_typeddict does not support dictionary unpacking")
             name = _string_key(element.key)
             if name is None or not name.isidentifier() or keyword.iskeyword(name):
-                raise BackendError(
-                    "convert_to_typeddict requires unique string keys that are valid identifiers"
-                )
+                raise BackendError("convert_to_typeddict requires unique string keys that are valid identifiers")
             if name in seen:
                 raise BackendError(f"Return dictionary contains duplicate key {name!r}")
             seen.add(name)
@@ -142,8 +140,7 @@ def _return_fields(
             expected_names = names
         elif names != expected_names:
             raise BackendError(
-                "All return dictionaries must use the same ordered keys; "
-                f"expected={expected_names!r}, found={names!r}"
+                f"All return dictionaries must use the same ordered keys; expected={expected_names!r}, found={names!r}"
             )
         returns.append(tuple(fields))
     return tuple(returns)
@@ -160,9 +157,7 @@ def _annotation_from_hover(field_name: str, type_string: str) -> cst.BaseExpress
     try:
         return cst.parse_expression(candidate)
     except cst.ParserSyntaxError as exc:
-        raise BackendError(
-            f"Pyright returned an unusable type for field {field_name!r}: {type_string!r}"
-        ) from exc
+        raise BackendError(f"Pyright returned an unusable type for field {field_name!r}: {type_string!r}") from exc
 
 
 def _widen_literal_type(field_name: str, candidate: str) -> str:
@@ -198,15 +193,11 @@ def _widen_literal_type(field_name: str, candidate: str) -> str:
     for value_node in values:
         try:
             value = ast.literal_eval(value_node)
-        except (ValueError, TypeError):
-            raise BackendError(
-                f"Pyright inferred a non-primitive Literal type for field {field_name!r}"
-            ) from None
+        except ValueError, TypeError:
+            raise BackendError(f"Pyright inferred a non-primitive Literal type for field {field_name!r}") from None
         type_name = primitive_names.get(type(value))
         if type_name is None:
-            raise BackendError(
-                f"Pyright inferred an unsupported Literal type for field {field_name!r}"
-            )
+            raise BackendError(f"Pyright inferred an unsupported Literal type for field {field_name!r}")
         if type_name not in type_names:
             type_names.append(type_name)
     return " | ".join(type_names)
@@ -226,9 +217,7 @@ def _validate_return_annotation(function: cst.FunctionDef) -> None:
         return
     name = _annotation_name(function.returns.annotation)
     if name not in _DICT_ANNOTATION_NAMES:
-        raise BackendError(
-            "convert_to_typeddict only replaces absent or dict/mapping return annotations"
-        )
+        raise BackendError("convert_to_typeddict only replaces absent or dict/mapping return annotations")
 
 
 def _typed_dict_base(
@@ -258,9 +247,7 @@ def _typed_dict_base(
     alias = cst.ImportAlias(name=cst.Name("TypedDict"))
     if import_binding != "TypedDict":
         alias = alias.with_changes(asname=cst.AsName(name=cst.Name(import_binding)))
-    statement = cst.SimpleStatementLine(
-        body=[cst.ImportFrom(module=cst.Name("typing"), names=[alias])]
-    )
+    statement = cst.SimpleStatementLine(body=[cst.ImportFrom(module=cst.Name("typing"), names=[alias])])
     return (cst.Name(import_binding), statement)
 
 
@@ -286,9 +273,7 @@ class ConvertToTypedDictTransformer(cst.CSTTransformer):
         if not is_target:
             return updated_node
         self.function_found = True
-        return updated_node.with_changes(
-            returns=cst.Annotation(annotation=cst.Name(self._plan.typed_dict_name))
-        )
+        return updated_node.with_changes(returns=cst.Annotation(annotation=cst.Name(self._plan.typed_dict_name)))
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802
         fields = [
@@ -338,9 +323,7 @@ async def convert_to_typeddict(
 
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     position_ranges = wrapper.resolve(PositionProvider)
-    positions: dict[cst.CSTNode, object] = {
-        node: code_range.start for node, code_range in position_ranges.items()
-    }
+    positions: dict[cst.CSTNode, object] = {node: code_range.start for node, code_range in position_ranges.items()}
     return_fields = _return_fields(function, positions)
 
     inferred: dict[str, str] = {}
@@ -358,9 +341,7 @@ async def convert_to_typeddict(
             rendered = cst.Module([]).code_for_node(annotation)
             prior = inferred.setdefault(field.name, rendered)
             if prior != rendered:
-                raise BackendError(
-                    f"Field {field.name!r} has inconsistent inferred types: {prior!r} and {rendered!r}"
-                )
+                raise BackendError(f"Field {field.name!r} has inconsistent inferred types: {prior!r} and {rendered!r}")
             annotations.setdefault(field.name, annotation)
 
     base, import_statement = _typed_dict_base(module, bindings)
@@ -386,8 +367,7 @@ async def convert_to_typeddict(
         edits=edits,
         files_affected=files_affected,
         description=(
-            f"Converted {function_name} return dictionaries to {typed_dict_name} "
-            f"with {len(ordered_names)} field(s)"
+            f"Converted {function_name} return dictionaries to {typed_dict_name} with {len(ordered_names)} field(s)"
         ),
         applied=bool(apply and edits),
     )

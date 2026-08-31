@@ -25,7 +25,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 ## Canonical Runner
 
 - `just --list`: lists every supported recipe.
-- `just validate`: fast pre-push check (changelog fragments + `ruff` + `pyright` + unit + contract tests).
+- `just validate`: fast pre-push check (changelog fragments + `ruff` lint + semantic-converter format check + `pyright` + unit + contract tests).
 - `just ci`: exact local mirror of the hosted CI validate job.
 - `just full`: full local validation surface, currently the same as `just ci`.
 
@@ -35,6 +35,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 |---|---|---|
 | Changelog fragments | `python scripts/changelog_fragments.py` | `just changelog-check` |
 | Lint | `python -m ruff check .` | `just lint` |
+| Semantic converter formatting | `python -m ruff format --check <converter files>` | `just format-check-converters` |
 | Type check (Pyright) | `python -m pyright .` | `just typecheck` |
 | Type check (mypy) | `python -m mypy .` | `just typecheck-mypy` |
 | Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v` | `just test` |
@@ -88,10 +89,11 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 2. Sync `.venv` from `uv.lock` with all extras.
 3. Validate changelog fragments (and PR change coverage when `CHANGELOG_BASE_REF` is set).
 4. Run `ruff`.
-5. Run `pyright`.
-6. Run `mypy`.
-7. Run unit + contract tests.
-8. Run integration tests.
+5. Check the semantic converter surface with the pinned Ruff formatter.
+6. Run `pyright`.
+7. Run `mypy`.
+8. Run unit + contract tests.
+9. Run integration tests.
 
 ## Policy Boundaries
 

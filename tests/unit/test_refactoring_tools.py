@@ -137,11 +137,7 @@ async def test_rename_symbol_apply_refreshes_diagnostics(tmp_path: Path) -> None
 async def test_import_alias_rename_rejects_same_scope_collision(tmp_path: Path) -> None:
     """An alias rename cannot silently merge with an existing local binding."""
     module = tmp_path / "consumer.py"
-    source = (
-        "from provider import Widget as Alias\n"
-        "Renamed = object()\n"
-        "instance = Alias()\n"
-    )
+    source = "from provider import Widget as Alias\nRenamed = object()\ninstance = Alias()\n"
     module.write_text(source, encoding="utf-8")
 
     pyright = AsyncMock()
@@ -405,7 +401,10 @@ async def test_inline_method_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.inline_method.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py")], files_affected=["/repo/a.py"], description="inlined", applied=False,
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="inlined",
+        applied=False,
     )
     result = await refactoring.inline_method(pyright, rope, "/repo/a.py", 5, 4, apply=False)
     assert result.applied is False
@@ -418,7 +417,10 @@ async def test_inline_parameter_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.inline_parameter.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py")], files_affected=["/repo/a.py"], description="inlined param", applied=False,
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="inlined param",
+        applied=False,
     )
     result = await refactoring.inline_parameter(pyright, rope, "/repo/a.py", 3, 10, apply=False)
     assert result.applied is False
@@ -431,7 +433,10 @@ async def test_move_method_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.move_method.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py")], files_affected=["/repo/a.py"], description="moved", applied=False,
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="moved",
+        applied=False,
     )
     result = await refactoring.move_method(pyright, rope, "/repo/a.py", 2, 4, "other", apply=False)
     assert result.applied is False
@@ -444,7 +449,10 @@ async def test_move_module_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.move_module.return_value = RefactorResult(
-        edits=[_edit("/repo/src/mod.py")], files_affected=["/repo/src/mod.py"], description="moved module", applied=False,
+        edits=[_edit("/repo/src/mod.py")],
+        files_affected=["/repo/src/mod.py"],
+        description="moved module",
+        applied=False,
     )
     result = await refactoring.move_module(pyright, rope, "/repo/src/mod.py", "/repo/lib/", apply=False)
     assert result.applied is False
@@ -457,7 +465,10 @@ async def test_generate_code_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.generate_code.return_value = RefactorResult(
-        edits=[_edit("/repo/a.py")], files_affected=["/repo/a.py"], description="generated", applied=False,
+        edits=[_edit("/repo/a.py")],
+        files_affected=["/repo/a.py"],
+        description="generated",
+        applied=False,
     )
     result = await refactoring.generate_code(pyright, rope, "/repo/a.py", 1, 0, "class", apply=False)
     assert result.applied is False
@@ -470,7 +481,10 @@ async def test_fix_module_names_delegates_to_rope() -> None:
     pyright = AsyncMock()
     rope = AsyncMock()
     rope.fix_module_names.return_value = RefactorResult(
-        edits=[], files_affected=[], description="fixed", applied=False,
+        edits=[],
+        files_affected=[],
+        description="fixed",
+        applied=False,
     )
     result = await refactoring.fix_module_names(pyright, rope, apply=False)
     assert result.applied is False
@@ -570,7 +584,8 @@ async def test_format_code_preview_does_not_write(tmp_path: Path, monkeypatch: p
 
 @pytest.mark.asyncio
 async def test_format_code_apply_writes_and_refreshes_diagnostics(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Apply mode writes formatted content and notifies Pyright."""
     from python_refactor_mcp.tools.refactoring import format as format_mod
@@ -596,7 +611,8 @@ async def test_format_code_apply_writes_and_refreshes_diagnostics(
 
 @pytest.mark.asyncio
 async def test_format_code_noop_when_already_formatted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A file that round-trips unchanged yields zero edits."""
     from python_refactor_mcp.tools.refactoring import format as format_mod
@@ -620,7 +636,8 @@ async def test_format_code_noop_when_already_formatted(
 
 @pytest.mark.asyncio
 async def test_format_code_batch_mode_filters_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Batch mode includes only files that ruff actually changed."""
     from python_refactor_mcp.tools.refactoring import format as format_mod
@@ -638,7 +655,10 @@ async def test_format_code_batch_mode_filters_unchanged(
     pyright.get_diagnostics.return_value = []
 
     result = await format_mod.format_code(
-        pyright, file_path=str(dirty), apply=False, file_paths=[str(dirty), str(clean)],
+        pyright,
+        file_path=str(dirty),
+        apply=False,
+        file_paths=[str(dirty), str(clean)],
     )
 
     assert len(result.edits) == 1
@@ -647,7 +667,8 @@ async def test_format_code_batch_mode_filters_unchanged(
 
 @pytest.mark.asyncio
 async def test_format_code_ruff_failure_raises_backend_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A non-zero ruff exit propagates as BackendError."""
     from python_refactor_mcp.errors import BackendError
@@ -687,7 +708,8 @@ async def test_format_code_missing_ruff_raises(monkeypatch: pytest.MonkeyPatch, 
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_preview_does_not_write(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Preview mode returns a whole-file edit but leaves disk untouched."""
     from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
@@ -717,7 +739,8 @@ async def test_apply_lint_fixes_preview_does_not_write(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_apply_writes_and_refreshes_diagnostics(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Apply mode writes fixed content and notifies Pyright."""
     from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
@@ -743,7 +766,8 @@ async def test_apply_lint_fixes_apply_writes_and_refreshes_diagnostics(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_noop_when_no_fixable_issues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A file with no fixable lint issues yields zero edits."""
     from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
@@ -768,7 +792,8 @@ async def test_apply_lint_fixes_noop_when_no_fixable_issues(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_batch_mode_filters_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Batch mode includes only files that ruff actually changed."""
     from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
@@ -786,7 +811,10 @@ async def test_apply_lint_fixes_batch_mode_filters_unchanged(
     pyright.get_diagnostics.return_value = []
 
     result = await lint_mod.apply_lint_fixes(
-        pyright, file_path=str(dirty), apply=False, file_paths=[str(dirty), str(clean)],
+        pyright,
+        file_path=str(dirty),
+        apply=False,
+        file_paths=[str(dirty), str(clean)],
     )
 
     assert len(result.edits) == 1
@@ -795,7 +823,8 @@ async def test_apply_lint_fixes_batch_mode_filters_unchanged(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_unsafe_flag_propagates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`unsafe_fixes=True` is forwarded to the subprocess wrapper."""
     from python_refactor_mcp.tools.refactoring import lint_fix as lint_mod
@@ -818,7 +847,8 @@ async def test_apply_lint_fixes_unsafe_flag_propagates(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_ruff_failure_raises_backend_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A genuine ruff failure (parse error) propagates as BackendError."""
     from python_refactor_mcp.errors import BackendError
@@ -839,7 +869,8 @@ async def test_apply_lint_fixes_ruff_failure_raises_backend_error(
 
 @pytest.mark.asyncio
 async def test_apply_lint_fixes_missing_ruff_raises(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """When ruff is not on PATH, the wrapper raises a clear BackendError."""
     from python_refactor_mcp.errors import BackendError
@@ -989,7 +1020,10 @@ async def test_apply_type_annotations_batch_mode_aggregates(tmp_path: Path) -> N
     pyright.get_inlay_hints.side_effect = fake_hints
 
     result = await refactoring.apply_type_annotations(
-        pyright, file_path=str(a), apply=False, file_paths=[str(a), str(b)],
+        pyright,
+        file_path=str(a),
+        apply=False,
+        file_paths=[str(a), str(b)],
     )
 
     assert len(result.edits) == 1
@@ -1058,10 +1092,13 @@ def test_cst_import_planning_handles_imports_collisions_and_rebindings(
     module = cst.parse_module(source)
     bindings = cst_imports.top_level_bindings(module)
 
-    assert cst_imports.import_insertion_index(
-        module.body,
-        after_import_block=after_import_block,
-    ) == expected_index
+    assert (
+        cst_imports.import_insertion_index(
+            module.body,
+            after_import_block=after_import_block,
+        )
+        == expected_index
+    )
     assert cst_imports.reserve_unique_binding(bindings, preferred, fallback) == expected_binding
 
 
@@ -1131,9 +1168,7 @@ async def test_convert_to_dataclass_typed_preview_preserves_source(tmp_path: Pat
 async def test_convert_to_dataclass_uses_pyright_for_untyped_field(tmp_path: Path) -> None:
     target = tmp_path / "models.py"
     target.write_text(
-        "class User:\n"
-        "    def __init__(self, name):\n"
-        "        self.name = name\n",
+        "class User:\n    def __init__(self, name):\n        self.name = name\n",
         encoding="utf-8",
     )
     pyright = AsyncMock()
@@ -1153,9 +1188,7 @@ async def test_convert_to_dataclass_uses_pyright_for_untyped_field(tmp_path: Pat
 async def test_convert_to_dataclass_apply_writes_and_refreshes(tmp_path: Path) -> None:
     target = tmp_path / "models.py"
     target.write_text(
-        "class User:\n"
-        "    def __init__(self, name: str):\n"
-        "        self.name = name\n",
+        "class User:\n    def __init__(self, name: str):\n        self.name = name\n",
         encoding="utf-8",
     )
     pyright = AsyncMock()
@@ -1198,15 +1231,11 @@ async def test_convert_to_dataclass_ignores_same_named_nested_class(tmp_path: Pa
     "source,error",
     [
         (
-            "class User:\n"
-            "    def __init__(self, name: str):\n"
-            "        self.name = name.strip()\n",
+            "class User:\n    def __init__(self, name: str):\n        self.name = name.strip()\n",
             "only supports ordered direct",
         ),
         (
-            "class User:\n"
-            "    def __init__(self, names: list[str] = []):\n"
-            "        self.names = names\n",
+            "class User:\n    def __init__(self, names: list[str] = []):\n        self.names = names\n",
             "Mutable default",
         ),
     ],
@@ -1239,7 +1268,7 @@ async def test_convert_to_pydantic_preview_preserves_validation_and_call_shape(
         "class User:\n"
         "    def __init__(self, *, name: str, enabled: bool = True) -> None:\n"
         "        if not name.strip():\n"
-        "            raise ValueError(\"name is required\")\n"
+        '            raise ValueError("name is required")\n'
         "        self.name = name\n"
         "        self.enabled = enabled\n"
         "\n"
@@ -1286,7 +1315,7 @@ async def test_convert_to_pydantic_apply_writes_and_refreshes(tmp_path: Path) ->
         "class User:\n"
         "    def __init__(self, *, name: str) -> None:\n"
         "        if not name:\n"
-        "            raise ValueError(\"name is required\")\n"
+        '            raise ValueError("name is required")\n'
         "        self.name = name\n",
         encoding="utf-8",
     )
@@ -1313,7 +1342,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
         "class User:\n"
         "    def __init__(self, *, name: str) -> None:\n"
         "        if not name:\n"
-        "            raise ValueError(\"name is required\")\n"
+        '            raise ValueError("name is required")\n'
         "        self.name = name\n"
         "\n"
         "from pydantic import BaseModel, ConfigDict, field_validator\n"
@@ -1348,7 +1377,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User:\n"
             "    def __init__(self, *, name: str) -> None:\n"
             "        if not name:\n"
-            "            raise ValueError(\"name\")\n"
+            '            raise ValueError("name")\n'
             "        self.name = name\n",
             "wildcard Pydantic imports",
         ),
@@ -1356,7 +1385,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User:\n"
             "    def __init__(self, name: str) -> None:\n"
             "        if not name:\n"
-            "            raise ValueError(\"name\")\n"
+            '            raise ValueError("name")\n'
             "        self.name = name\n",
             "keyword-only parameters",
         ),
@@ -1364,7 +1393,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User(Base):\n"
             "    def __init__(self, *, name: str) -> None:\n"
             "        if not name:\n"
-            "            raise ValueError(\"name\")\n"
+            '            raise ValueError("name")\n'
             "        self.name = name\n",
             "without bases",
         ),
@@ -1372,7 +1401,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User:\n"
             "    def __init__(self, *, name: str) -> None:\n"
             "        if not name:\n"
-            "            raise ValueError(\"name\")\n"
+            '            raise ValueError("name")\n'
             "        self.name = name\n"
             "\n"
             "    @property\n"
@@ -1384,7 +1413,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User:\n"
             "    def __init__(self, *, first: str, last: str) -> None:\n"
             "        if not first or not last:\n"
-            "            raise ValueError(\"name\")\n"
+            '            raise ValueError("name")\n'
             "        self.first = first\n"
             "        self.last = last\n",
             "exactly one field",
@@ -1393,7 +1422,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class User:\n"
             "    def __init__(self, *, name: str) -> None:\n"
             "        if not name:\n"
-            "            raise TypeError(\"name\")\n"
+            '            raise TypeError("name")\n'
             "        self.name = name\n",
             "raise ValueError",
         ),
@@ -1401,7 +1430,7 @@ async def test_convert_to_pydantic_does_not_reuse_late_imports(tmp_path: Path) -
             "class Sample:\n"
             "    def __init__(self, *, len: int) -> None:\n"
             "        if not len:\n"
-            "            raise ValueError(\"len\")\n"
+            '            raise ValueError("len")\n'
             "        self.len = len\n",
             "reserved validation name",
         ),
@@ -1435,8 +1464,7 @@ def _type_info(type_string: str) -> TypeInfo:
 async def test_convert_to_typeddict_preview_preserves_source(tmp_path: Path) -> None:
     target = tmp_path / "payloads.py"
     source = (
-        "def make_user(name: str, enabled: bool) -> dict[str, object]:\n"
-        '    return {"name": name, "enabled": enabled}\n'
+        'def make_user(name: str, enabled: bool) -> dict[str, object]:\n    return {"name": name, "enabled": enabled}\n'
     )
     target.write_text(source, encoding="utf-8")
     pyright = AsyncMock()
@@ -1497,9 +1525,7 @@ async def test_convert_to_typeddict_accepts_consistent_branch_types(tmp_path: Pa
 async def test_convert_to_typeddict_apply_writes_and_refreshes(tmp_path: Path) -> None:
     target = tmp_path / "payloads.py"
     target.write_text(
-        "import typing as t\n\n"
-        "def make_user(name: str):\n"
-        '    return {"name": name}\n',
+        'import typing as t\n\ndef make_user(name: str):\n    return {"name": name}\n',
         encoding="utf-8",
     )
     pyright = AsyncMock()
@@ -1526,10 +1552,7 @@ async def test_convert_to_typeddict_apply_writes_and_refreshes(tmp_path: Path) -
 async def test_convert_to_typeddict_does_not_reuse_late_import(tmp_path: Path) -> None:
     target = tmp_path / "payloads.py"
     target.write_text(
-        "def payload(name: str):\n"
-        '    return {"name": name}\n'
-        "\n"
-        "from typing import TypedDict as LateTypedDict\n",
+        'def payload(name: str):\n    return {"name": name}\n\nfrom typing import TypedDict as LateTypedDict\n',
         encoding="utf-8",
     )
     pyright = AsyncMock()
@@ -1553,16 +1576,11 @@ async def test_convert_to_typeddict_does_not_reuse_late_import(tmp_path: Path) -
     "source,error",
     [
         (
-            "def payload(name: str):\n"
-            '    return {"name": name}\n'
-            "\n"
-            "class Payload:\n"
-            "    pass\n",
+            'def payload(name: str):\n    return {"name": name}\n\nclass Payload:\n    pass\n',
             "already exists",
         ),
         (
-            "def payload(key: str, value: str):\n"
-            "    return {key: value}\n",
+            "def payload(key: str, value: str):\n    return {key: value}\n",
             "valid identifiers",
         ),
         (
@@ -1573,8 +1591,7 @@ async def test_convert_to_typeddict_does_not_reuse_late_import(tmp_path: Path) -
             "same ordered keys",
         ),
         (
-            "def payload(name: str) -> str:\n"
-            '    return {"name": name}\n',
+            'def payload(name: str) -> str:\n    return {"name": name}\n',
             "dict/mapping return annotations",
         ),
     ],
@@ -1603,12 +1620,7 @@ async def test_convert_to_typeddict_rejects_unsafe_shapes(
 @pytest.mark.asyncio
 async def test_convert_to_typeddict_rejects_inconsistent_inferred_types(tmp_path: Path) -> None:
     target = tmp_path / "payloads.py"
-    source = (
-        "def payload(flag: bool):\n"
-        "    if flag:\n"
-        '        return {"value": 1}\n'
-        '    return {"value": "one"}\n'
-    )
+    source = 'def payload(flag: bool):\n    if flag:\n        return {"value": 1}\n    return {"value": "one"}\n'
     target.write_text(source, encoding="utf-8")
     pyright = AsyncMock()
     pyright.get_hover.side_effect = [_type_info("int"), _type_info("str")]
@@ -1627,7 +1639,7 @@ async def test_convert_to_typeddict_rejects_inconsistent_inferred_types(tmp_path
 @pytest.mark.asyncio
 async def test_convert_to_typeddict_rejects_unknown_inferred_type(tmp_path: Path) -> None:
     target = tmp_path / "payloads.py"
-    source = "def payload(value):\n    return {\"value\": value}\n"
+    source = 'def payload(value):\n    return {"value": value}\n'
     target.write_text(source, encoding="utf-8")
     pyright = AsyncMock()
     pyright.get_hover.return_value = _type_info("Unknown")
@@ -1656,11 +1668,7 @@ async def test_semantic_converters_reject_drift_between_planning_and_transform(
     converter_module: ModuleType
 
     if converter_name == "dataclass":
-        source = (
-            "class User:\n"
-            "    def __init__(self, name: str):\n"
-            "        self.name = name\n"
-        )
+        source = "class User:\n    def __init__(self, name: str):\n        self.name = name\n"
         converter_module = dataclass_conversion
     elif converter_name == "pydantic":
         source = (
@@ -1712,12 +1720,7 @@ async def test_semantic_converters_reject_drift_between_planning_and_transform(
 
 
 _SUPERCLASS_SOURCE = (
-    "class Foo:\n"
-    "    shared = 1\n\n"
-    "    def bar(self):\n"
-    "        return 1\n\n"
-    "    def baz(self):\n"
-    "        return 2\n"
+    "class Foo:\n    shared = 1\n\n    def bar(self):\n        return 1\n\n    def baz(self):\n        return 2\n"
 )
 
 
@@ -1728,9 +1731,7 @@ async def test_extract_superclass_preview_does_not_write(tmp_path: Path) -> None
     target.write_text(_SUPERCLASS_SOURCE, encoding="utf-8")
     pyright = AsyncMock()
 
-    result = await refactoring.extract_superclass(
-        pyright, str(target), "Foo", "Base", ["bar", "shared"], apply=False
-    )
+    result = await refactoring.extract_superclass(pyright, str(target), "Foo", "Base", ["bar", "shared"], apply=False)
 
     assert result.applied is False
     assert len(result.edits) == 1
@@ -1749,9 +1750,7 @@ async def test_extract_superclass_apply_writes_and_refreshes(tmp_path: Path) -> 
     pyright = AsyncMock()
     pyright.get_diagnostics.return_value = []
 
-    result = await refactoring.extract_superclass(
-        pyright, str(target), "Foo", "Base", ["bar"], apply=True
-    )
+    result = await refactoring.extract_superclass(pyright, str(target), "Foo", "Base", ["bar"], apply=True)
 
     assert result.applied is True
     written = target.read_text(encoding="utf-8")
@@ -1771,9 +1770,7 @@ async def test_extract_superclass_missing_member_raises(tmp_path: Path) -> None:
     pyright = AsyncMock()
 
     with pytest.raises(BackendError, match="not found"):
-        await refactoring.extract_superclass(
-            pyright, str(target), "Foo", "Base", ["nonexistent"], apply=False
-        )
+        await refactoring.extract_superclass(pyright, str(target), "Foo", "Base", ["nonexistent"], apply=False)
 
 
 @pytest.mark.asyncio
@@ -1789,9 +1786,7 @@ async def test_extract_superclass_rejects_property_member(tmp_path: Path) -> Non
     pyright = AsyncMock()
 
     with pytest.raises(BackendError, match="property"):
-        await refactoring.extract_superclass(
-            pyright, str(target), "Foo", "Base", ["value"], apply=False
-        )
+        await refactoring.extract_superclass(pyright, str(target), "Foo", "Base", ["value"], apply=False)
 
 
 @pytest.mark.asyncio
@@ -1804,9 +1799,7 @@ async def test_extract_superclass_missing_class_raises(tmp_path: Path) -> None:
     pyright = AsyncMock()
 
     with pytest.raises(BackendError, match="not found"):
-        await refactoring.extract_superclass(
-            pyright, str(target), "Missing", "Base", ["bar"], apply=False
-        )
+        await refactoring.extract_superclass(pyright, str(target), "Missing", "Base", ["bar"], apply=False)
 
 
 @pytest.mark.asyncio
@@ -1819,9 +1812,7 @@ async def test_extract_superclass_empty_members_raises(tmp_path: Path) -> None:
     pyright = AsyncMock()
 
     with pytest.raises(BackendError, match="at least one member"):
-        await refactoring.extract_superclass(
-            pyright, str(target), "Foo", "Base", [], apply=False
-        )
+        await refactoring.extract_superclass(pyright, str(target), "Foo", "Base", [], apply=False)
 
 
 @pytest.mark.asyncio
@@ -1834,8 +1825,7 @@ async def test_extract_superclass_empty_members_raises(tmp_path: Path) -> None:
         ("class Foo: shared = 1\n", "Base", ["shared"], "one-line class"),
         ("class Foo:\n    shared = 1; other = 2\n", "Base", ["shared"], "not found"),
         (
-            "class Foo:\n    def bar(self):\n        pass\n\n"
-            "class Foo:\n    def bar(self):\n        pass\n",
+            "class Foo:\n    def bar(self):\n        pass\n\nclass Foo:\n    def bar(self):\n        pass\n",
             "Base",
             ["bar"],
             "Multiple top-level",
@@ -1854,9 +1844,7 @@ async def test_extract_superclass_preflight_rejects_ambiguous_requests_without_w
     target.write_text(source, encoding="utf-8")
 
     with pytest.raises(BackendError, match=error):
-        await refactoring.extract_superclass(
-            AsyncMock(), str(target), "Foo", base_name, members, apply=False
-        )
+        await refactoring.extract_superclass(AsyncMock(), str(target), "Foo", base_name, members, apply=False)
 
     assert target.read_text(encoding="utf-8") == source
 
@@ -1876,9 +1864,7 @@ async def test_extract_superclass_ignores_nested_class_with_same_name(tmp_path: 
     target = tmp_path / "m.py"
     target.write_text(source, encoding="utf-8")
 
-    result = await refactoring.extract_superclass(
-        AsyncMock(), str(target), "Foo", "Base", ["bar"], apply=False
-    )
+    result = await refactoring.extract_superclass(AsyncMock(), str(target), "Foo", "Base", ["bar"], apply=False)
 
     new_text = result.edits[0].new_text
     assert "class Container:\n    class Foo:\n        def bar" in new_text

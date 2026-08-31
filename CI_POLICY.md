@@ -6,8 +6,8 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 
 - Local quality commands are defined and runnable.
 - Hosted CI is configured in `.github/workflows/ci.yml` and runs changelog
-  validation, lint, type checking, unit + contract tests, and integration tests
-  on Python 3.14 (Windows).
+  validation, lint, targeted semantic-converter formatting, type checking,
+  unit + contract tests, and integration tests on Python 3.14 (Windows).
 - The CI job mirrors the local validation table exactly; update both together
 	when commands or tooling change.
 
@@ -17,6 +17,7 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 |---|---|
 | Changelog fragments | python scripts/changelog_fragments.py |
 | Lint | python -m ruff check . |
+| Semantic converter formatting | python -m ruff format --check src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_refactoring_tools.py |
 | Type check (Pyright) | python -m pyright . |
 | Type check (mypy) | python -m mypy . |
 | Unit + contract tests | python -m pytest tests/unit/ tests/contract/ -v |

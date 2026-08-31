@@ -3,6 +3,7 @@
 
 # Variables
 python := ".venv/Scripts/python.exe"
+converter_format_files := "src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_refactoring_tools.py"
 
 # Cross-platform shell
 set windows-shell := ["pwsh.exe", "-NoProfile", "-Command"]
@@ -45,6 +46,10 @@ test-all: test test-integration
 lint:
     {{ python }} -m ruff check .
 
+# Enforce stable formatting on the semantic converter surface
+format-check-converters:
+    {{ python }} -m ruff format --check {{ converter_format_files }}
+
 # Validate pending changelog fragments (CI sets CHANGELOG_BASE_REF on PRs)
 changelog-check:
     {{ python }} scripts/changelog_fragments.py
@@ -78,13 +83,13 @@ reinstall target_python="python":
 # --- Aggregates ---
 
 # Fast local sanity check before pushing
-validate: changelog-check lint typecheck test
+validate: changelog-check lint format-check-converters typecheck test
 
 # Local equivalent of CI pipeline (mirrors .github/workflows/ci.yml)
-ci: changelog-check lint typecheck typecheck-mypy test test-integration
+ci: changelog-check lint format-check-converters typecheck typecheck-mypy test test-integration
 
 # Everything including all test suites
-full: changelog-check lint typecheck typecheck-mypy test test-integration
+full: changelog-check lint format-check-converters typecheck typecheck-mypy test test-integration
 
 # --- Clean ---
 
