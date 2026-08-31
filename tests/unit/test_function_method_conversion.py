@@ -265,3 +265,36 @@ async def test_conversion_rejects_partial_reference_discovery(tmp_path: Path) ->
             "total",
             "Ledger",
         )
+
+
+@pytest.mark.parametrize("apply", [False, True])
+@pytest.mark.asyncio
+async def test_conversion_rejects_source_drift_during_semantic_planning(
+    tmp_path: Path,
+    apply: bool,
+) -> None:
+    target = tmp_path / "ledger.py"
+    source = "class Ledger:\n    pass\n\n\ndef total(ledger):\n    return ledger.value\n"
+    newer_source = "class Ledger:\n    changed = True\n"
+    target.write_text(source, encoding="utf-8")
+    path = str(target)
+    declaration = _location(source, path, 4, "total")
+    pyright, jedi = _semantic_backends([declaration])
+
+    def inject_drift(*_args: object, **_kwargs: object) -> list[Location]:
+        target.write_text(newer_source, encoding="utf-8")
+        return [declaration]
+
+    pyright.get_references.side_effect = inject_drift
+
+    with pytest.raises(BackendError, match="Stale edit source changed during CST planning"):
+        await refactoring.convert_function_to_method(
+            pyright,
+            jedi,
+            path,
+            "total",
+            "Ledger",
+            apply=apply,
+        )
+
+    assert target.read_text(encoding="utf-8") == newer_source

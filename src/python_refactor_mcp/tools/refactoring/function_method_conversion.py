@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import symtable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import libcst as cst
@@ -21,7 +20,11 @@ from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import RefactorResult
 from python_refactor_mcp.tools.analysis.references import find_references
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer, parse_module
+from python_refactor_mcp.util.cst_apply import (
+    CstSourceSnapshot,
+    apply_cst_transformer,
+    read_cst_source_snapshot,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -35,25 +38,27 @@ _Position = tuple[int, int]
 
 @dataclass(frozen=True)
 class _SourceFacts:
+    snapshot: CstSourceSnapshot
     module: cst.Module
     positions: dict[cst.CSTNode, CodeRange]
     symbols: symtable.SymbolTable
 
 
 def _read_source(file_path: str) -> _SourceFacts:
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError, UnicodeError) as exc:
-        raise BackendError(f"Cannot read file for function/method conversion: {exc}") from exc
-
-    module = parse_module(source, file_path)
+    snapshot = read_cst_source_snapshot(file_path)
+    module = snapshot.module
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     positions = dict(wrapper.resolve(PositionProvider))
     try:
-        symbols = symtable.symtable(source, file_path, "exec")
+        symbols = symtable.symtable(snapshot.source, file_path, "exec")
     except SyntaxError as exc:  # pragma: no cover - LibCST normally reports first
         raise BackendError(f"Cannot build symbol table for {file_path}: {exc}") from exc
-    return _SourceFacts(module=module, positions=positions, symbols=symbols)
+    return _SourceFacts(
+        snapshot=snapshot,
+        module=module,
+        positions=positions,
+        symbols=symbols,
+    )
 
 
 def _node_position(positions: dict[cst.CSTNode, CodeRange], node: cst.CSTNode) -> _Position:
@@ -473,7 +478,12 @@ async def convert_function_to_method(
         receiver_is_positional_only,
         reference_positions,
     )
-    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
+    edits, files_affected = apply_cst_transformer(
+        file_path,
+        transformer,
+        apply=apply,
+        source_snapshot=facts.snapshot,
+    )
     result = RefactorResult(
         edits=edits,
         files_affected=files_affected,
@@ -513,7 +523,12 @@ async def convert_method_to_function(
     )
     _validate_call_sites(facts, reference_positions, "method")
     transformer = _MethodToFunctionTransformer(method_name, class_name, reference_positions)
-    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
+    edits, files_affected = apply_cst_transformer(
+        file_path,
+        transformer,
+        apply=apply,
+        source_snapshot=facts.snapshot,
+    )
     result = RefactorResult(
         edits=edits,
         files_affected=files_affected,

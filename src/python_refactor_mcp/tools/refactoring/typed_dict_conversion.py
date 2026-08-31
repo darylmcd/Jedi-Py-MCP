@@ -15,7 +15,6 @@ import keyword
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import libcst as cst
@@ -23,7 +22,10 @@ from libcst.metadata import CodePosition, MetadataWrapper, PositionProvider
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import RefactorResult
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer, parse_module
+from python_refactor_mcp.util.cst_apply import (
+    apply_cst_transformer,
+    read_cst_source_snapshot,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -379,12 +381,8 @@ async def convert_to_typeddict(
     """Convert consistent dict-literal returns to a generated ``TypedDict``."""
     if not typed_dict_name.isidentifier() or keyword.iskeyword(typed_dict_name):
         raise BackendError("typed_dict_name must be a valid non-keyword Python identifier")
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError, UnicodeError) as exc:
-        raise BackendError(f"Cannot read file for TypedDict conversion: {exc}") from exc
-
-    module = parse_module(source, file_path)
+    source_snapshot = read_cst_source_snapshot(file_path)
+    module = source_snapshot.module
     bindings = _bound_names(module)
     if typed_dict_name in bindings:
         raise BackendError(f"Top-level name {typed_dict_name!r} already exists")
@@ -428,7 +426,12 @@ async def convert_to_typeddict(
         import_statement=import_statement,
     )
     transformer = ConvertToTypedDictTransformer(plan)
-    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
+    edits, files_affected = apply_cst_transformer(
+        file_path,
+        transformer,
+        apply=apply,
+        source_snapshot=source_snapshot,
+    )
     if not transformer.function_found:
         raise BackendError(f"Top-level function {function_name!r} not found")
 

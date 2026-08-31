@@ -1,0 +1,1 @@
+- **Fixed:** Bind semantic refactoring plans, previews, and writes to one verified source snapshot so concurrent edits fail closed.
