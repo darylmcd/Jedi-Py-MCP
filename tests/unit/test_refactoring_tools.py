@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import AsyncMock
 
+import libcst as cst
 import pytest
 
 from python_refactor_mcp.errors import BackendError, RopeError
@@ -19,7 +21,18 @@ from python_refactor_mcp.models import (
     TypeInfo,
 )
 from python_refactor_mcp.tools import refactoring
+from python_refactor_mcp.tools.refactoring import (
+    dataclass_conversion,
+    pydantic_conversion,
+    typed_dict_conversion,
+)
 from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
+from python_refactor_mcp.util.cst_apply import (
+    CstSourceSnapshot,
+)
+from python_refactor_mcp.util.cst_apply import (
+    apply_cst_transformer as apply_cst_transformer_direct,
+)
 from tests.helpers import make_diag as _diag
 from tests.helpers import make_edit as _edit
 
@@ -1533,6 +1546,74 @@ async def test_convert_to_typeddict_rejects_unknown_inferred_type(tmp_path: Path
         )
 
     assert target.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.parametrize("converter_name", ["dataclass", "pydantic", "typeddict"])
+@pytest.mark.asyncio
+async def test_semantic_converters_reject_drift_between_planning_and_transform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    converter_name: str,
+) -> None:
+    target = tmp_path / "models.py"
+    pyright = AsyncMock()
+    pyright.get_hover.return_value = _type_info("str")
+    converter_module: ModuleType
+
+    if converter_name == "dataclass":
+        source = (
+            "class User:\n"
+            "    def __init__(self, name: str):\n"
+            "        self.name = name\n"
+        )
+        converter_module = dataclass_conversion
+    elif converter_name == "pydantic":
+        source = (
+            "class User:\n"
+            "    def __init__(self, *, name: str) -> None:\n"
+            "        if not name:\n"
+            "            raise ValueError('name required')\n"
+            "        self.name = name\n"
+        )
+        converter_module = pydantic_conversion
+    else:
+        source = "def payload(name: str):\n    return {'name': name}\n"
+        converter_module = typed_dict_conversion
+
+    target.write_text(source, encoding="utf-8")
+    newer_source = "external = True\n"
+
+    def inject_drift(
+        file_path: str,
+        transformer: cst.CSTTransformer,
+        *,
+        apply: bool = False,
+        source_snapshot: CstSourceSnapshot | None = None,
+    ) -> tuple[list[TextEdit], list[str]]:
+        target.write_text(newer_source, encoding="utf-8")
+        return apply_cst_transformer_direct(
+            file_path,
+            transformer,
+            apply=apply,
+            source_snapshot=source_snapshot,
+        )
+
+    monkeypatch.setattr(converter_module, "apply_cst_transformer", inject_drift)
+
+    with pytest.raises(BackendError, match="Stale edit source changed during CST planning"):
+        if converter_name == "dataclass":
+            await refactoring.convert_to_dataclass(pyright, str(target), "User")
+        elif converter_name == "pydantic":
+            await refactoring.convert_to_pydantic(pyright, str(target), "User")
+        else:
+            await refactoring.convert_to_typeddict(
+                pyright,
+                str(target),
+                "payload",
+                "Payload",
+            )
+
+    assert target.read_text(encoding="utf-8") == newer_source
 
 
 _SUPERCLASS_SOURCE = (

@@ -21,6 +21,7 @@ from python_refactor_mcp.util.cst_apply import (
     apply_cst_transformer,
     apply_cst_transformer_batch,
     parse_module,
+    read_cst_source_snapshot,
 )
 
 
@@ -150,6 +151,29 @@ def test_apply_cst_transformer_rejects_source_drift(
             str(target),
             _RenameNameTransformer(old="x", new="renamed"),
             apply=True,
+        )
+
+    assert target.read_text(encoding="utf-8") == "external = 2\n"
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_apply_cst_transformer_rejects_drift_since_semantic_snapshot(
+    tmp_path: Path,
+    apply: bool,
+) -> None:
+    """A plan bound to older source cannot emit a preview or mutate newer source."""
+    target = tmp_path / "m.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    snapshot = read_cst_source_snapshot(str(target))
+
+    target.write_text("external = 2\n", encoding="utf-8")
+
+    with pytest.raises(BackendError, match="Stale edit source changed during CST planning"):
+        apply_cst_transformer(
+            str(target),
+            _RenameNameTransformer(old="x", new="renamed"),
+            apply=apply,
+            source_snapshot=snapshot,
         )
 
     assert target.read_text(encoding="utf-8") == "external = 2\n"

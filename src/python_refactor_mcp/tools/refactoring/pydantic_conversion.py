@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import libcst as cst
@@ -21,7 +20,10 @@ from pydantic import BaseModel as _RuntimeBaseModel
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import RefactorResult
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer, parse_module
+from python_refactor_mcp.util.cst_apply import (
+    apply_cst_transformer,
+    read_cst_source_snapshot,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -545,12 +547,8 @@ async def convert_to_pydantic(
     apply: bool = False,
 ) -> RefactorResult:
     """Convert a bounded keyword-only validated class to a Pydantic v2 model."""
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError, UnicodeError) as exc:
-        raise BackendError(f"Cannot read file for Pydantic conversion: {exc}") from exc
-
-    module = parse_module(source, file_path)
+    source_snapshot = read_cst_source_snapshot(file_path)
+    module = source_snapshot.module
     source_class = _top_level_class(module, class_name)
     fields, validated_field, validation, validator_name = _constructor_plan(module, source_class)
     base_model, config_dict, field_validator, imports = _pydantic_references(
@@ -568,7 +566,12 @@ async def convert_to_pydantic(
         imports=imports,
     )
     transformer = ConvertToPydanticTransformer(class_name, plan)
-    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
+    edits, files_affected = apply_cst_transformer(
+        file_path,
+        transformer,
+        apply=apply,
+        source_snapshot=source_snapshot,
+    )
     if not transformer.class_found:
         raise BackendError(f"Top-level class {class_name!r} not found")
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import libcst as cst
@@ -20,7 +19,10 @@ from libcst.metadata import CodePosition, MetadataWrapper, PositionProvider
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import RefactorResult
-from python_refactor_mcp.util.cst_apply import apply_cst_transformer, parse_module
+from python_refactor_mcp.util.cst_apply import (
+    apply_cst_transformer,
+    read_cst_source_snapshot,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -399,12 +401,8 @@ async def convert_to_dataclass(
     annotations. Unsupported source shapes raise :class:`BackendError` without
     modifying the file.
     """
-    try:
-        source = Path(file_path).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError) as exc:
-        raise BackendError(f"Cannot read file for dataclass conversion: {exc}") from exc
-
-    module = parse_module(source, file_path)
+    source_snapshot = read_cst_source_snapshot(file_path)
+    module = source_snapshot.module
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     position_ranges = wrapper.resolve(PositionProvider)
     positions: dict[cst.CSTNode, object] = {
@@ -433,7 +431,12 @@ async def convert_to_dataclass(
 
     plan = _ConversionPlan(fields=tuple(fields), decorator=decorator, import_alias=import_alias)
     transformer = ConvertToDataclassTransformer(class_name, plan)
-    edits, files_affected = apply_cst_transformer(file_path, transformer, apply=apply)
+    edits, files_affected = apply_cst_transformer(
+        file_path,
+        transformer,
+        apply=apply,
+        source_snapshot=source_snapshot,
+    )
     if not transformer.class_found:
         raise BackendError(f"Top-level class {class_name!r} not found")
 

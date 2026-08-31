@@ -23,6 +23,7 @@ hand it to one of the orchestrators below, then wrap the returned edits into a
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import libcst as cst
@@ -35,6 +36,16 @@ from python_refactor_mcp.util.diff import (
     write_atomic_if_unchanged,
 )
 from python_refactor_mcp.util.shared import end_position_for_content
+
+
+@dataclass(frozen=True)
+class CstSourceSnapshot:
+    """One parsed source snapshot shared by semantic planning and CST emission."""
+
+    file_path: str
+    source: str
+    source_bytes: bytes
+    module: cst.Module
 
 
 def parse_module(source: str, file_path: str) -> cst.Module:
@@ -50,6 +61,36 @@ def parse_module(source: str, file_path: str) -> cst.Module:
         raise BackendError(f"Failed to parse {file_path} as Python source: {exc}") from exc
 
 
+def read_cst_source_snapshot(file_path: str) -> CstSourceSnapshot:
+    """Read and parse *file_path* once for a snapshot-coherent CST operation."""
+    path = Path(file_path).resolve()
+    try:
+        source_bytes = path.read_bytes()
+        # Match ``Path.read_text``'s universal-newline behavior while retaining
+        # the exact bytes for optimistic-concurrency checks.
+        source = source_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    except (FileNotFoundError, OSError, UnicodeError) as exc:
+        raise BackendError(f"Cannot read file for CST transform: {exc}") from exc
+
+    return CstSourceSnapshot(
+        file_path=str(path),
+        source=source,
+        source_bytes=source_bytes,
+        module=parse_module(source, file_path),
+    )
+
+
+def _verify_snapshot_current(snapshot: CstSourceSnapshot) -> None:
+    try:
+        current_bytes = Path(snapshot.file_path).read_bytes()
+    except OSError as exc:
+        raise BackendError(f"Cannot verify CST source snapshot: {exc}") from exc
+    if current_bytes != snapshot.source_bytes:
+        raise BackendError(
+            f"Stale edit source changed during CST planning: {snapshot.file_path}"
+        )
+
+
 def _whole_file_edit(file_path: str, original: str, new_source: str) -> TextEdit:
     """Build a single whole-file replace ``TextEdit`` covering the original content."""
     return TextEdit(
@@ -62,25 +103,26 @@ def _whole_file_edit(file_path: str, original: str, new_source: str) -> TextEdit
 def _build_cst_transform(
     file_path: str,
     transformer: cst.CSTTransformer,
+    source_snapshot: CstSourceSnapshot | None = None,
 ) -> tuple[list[TextEdit], list[str], bytes]:
     """Build one CST transform and retain the exact source bytes it consumed."""
-    try:
-        original_bytes = Path(file_path).read_bytes()
-        # Match ``Path.read_text``'s universal-newline behavior while retaining
-        # the exact bytes separately for the optimistic-concurrency guard.
-        original = original_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    except (FileNotFoundError, OSError, UnicodeError) as exc:
-        raise BackendError(f"Cannot read file for CST transform: {exc}") from exc
+    snapshot = source_snapshot or read_cst_source_snapshot(file_path)
+    if Path(file_path).resolve() != Path(snapshot.file_path):
+        raise BackendError("CST source snapshot does not match the transform target")
 
-    module = parse_module(original, file_path)
-    new_module = MetadataWrapper(module, unsafe_skip_copy=True).visit(transformer)
+    # Check on both sides of the potentially expensive transformation. This
+    # rejects drift that occurs during async semantic planning or CST traversal
+    # before a preview is emitted; apply mode retains its atomic write guard too.
+    _verify_snapshot_current(snapshot)
+    new_module = MetadataWrapper(snapshot.module, unsafe_skip_copy=True).visit(transformer)
     new_source = new_module.code
+    _verify_snapshot_current(snapshot)
 
-    if new_source == original:
-        return ([], [], original_bytes)
+    if new_source == snapshot.source:
+        return ([], [], snapshot.source_bytes)
 
-    edit = _whole_file_edit(file_path, original, new_source)
-    return ([edit], [file_path], original_bytes)
+    edit = _whole_file_edit(file_path, snapshot.source, new_source)
+    return ([edit], [file_path], snapshot.source_bytes)
 
 
 def apply_cst_transformer(
@@ -88,6 +130,7 @@ def apply_cst_transformer(
     transformer: cst.CSTTransformer,
     *,
     apply: bool = False,
+    source_snapshot: CstSourceSnapshot | None = None,
 ) -> tuple[list[TextEdit], list[str]]:
     """Read *file_path*, run *transformer*, return ``(edits, files_affected)``.
 
@@ -95,13 +138,19 @@ def apply_cst_transformer(
     change the source (string-equal output), the result is empty — no edit, no
     file mutation, no entry in ``files_affected``. When ``apply`` is True the
     exact source bytes are checked again immediately before the atomic replace;
-    stale transforms fail without overwriting the newer source.
+    stale transforms fail without overwriting the newer source. Pass a
+    ``source_snapshot`` when semantic planning preceded transformation so the
+    plan, preview, and optional write are bound to the same parsed source.
 
     Wrap the returned ``edits`` and ``files_affected`` into a ``RefactorResult``
     in the caller; if the result is non-empty pass it through
     ``post_apply_diagnostics`` so Pyright sees the new content.
     """
-    edits, files_affected, original_bytes = _build_cst_transform(file_path, transformer)
+    edits, files_affected, original_bytes = _build_cst_transform(
+        file_path,
+        transformer,
+        source_snapshot,
+    )
 
     if apply and edits:
         write_atomic_if_unchanged(file_path, edits[0].new_text, original_bytes)
@@ -142,7 +191,9 @@ def apply_cst_transformer_batch(
 
 
 __all__ = [
+    "CstSourceSnapshot",
     "apply_cst_transformer",
     "apply_cst_transformer_batch",
     "parse_module",
+    "read_cst_source_snapshot",
 ]
