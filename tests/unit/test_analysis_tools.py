@@ -73,6 +73,13 @@ async def test_find_references_keeps_pyright_results_when_jedi_fails() -> None:
     assert result.source == "pyright"
     assert result.total_count == 1
     assert result.references[0].file_path == "/repo/a.py"
+    assert [failure.model_dump() for failure in result.backend_failures] == [
+        {
+            "backend": "jedi",
+            "operation": "get_references",
+            "error_type": "RuntimeError",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -339,6 +346,13 @@ async def test_find_references_jedi_fallback_exception_returns_partial() -> None
 
     assert result.references == []
     assert result.total_count == 0
+    assert [failure.model_dump() for failure in result.backend_failures] == [
+        {
+            "backend": "jedi",
+            "operation": "get_references",
+            "error_type": "RuntimeError",
+        }
+    ]
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,14 @@ Index: `README.md`.
   - Goal: "Run `convert_to_dataclass` on a plain class with `apply=false`, and return the proposed decorator, fields, and import edit."
   - Validation: "Run `convert_to_dataclass` on a constructor containing behavior and show the fail-closed unsupported-shape error."
   - Chaining: "Run `convert_to_dataclass` preview, inspect it with `diff_preview`, then apply and call `get_diagnostics`."
+- `convert_function_to_method`:
+  - Goal: "Run `convert_function_to_method` with `apply=false`; show the moved method and every rewritten same-module caller."
+  - Validation: "Include a cross-file or non-call function reference and show the fail-closed partial-rewrite error."
+  - Chaining: "Run `find_references`, preview `convert_function_to_method`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
+- `convert_method_to_function`:
+  - Goal: "Run `convert_method_to_function` with `apply=false`; show the module-level function plus bound and unbound caller rewrites."
+  - Validation: "Include a decorated method or cross-file reference and show the fail-closed unsupported-shape error."
+  - Chaining: "Run `find_references`, preview `convert_method_to_function`, inspect with `diff_preview`, then apply and call `get_diagnostics`."
 - `docstring_sync`:
   - Goal: "Run `docstring_sync` on a function with `apply=false`; show added, removed, and reordered parameter fields while preserving descriptions."
   - Validation: "Run `docstring_sync` against a docstring mixing Google and Sphinx fields and show the fail-closed ambiguity error."

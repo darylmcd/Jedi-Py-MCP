@@ -26,6 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import libcst as cst
+from libcst.metadata import MetadataWrapper
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import Position, Range, TextEdit
@@ -72,7 +73,7 @@ def _build_cst_transform(
         raise BackendError(f"Cannot read file for CST transform: {exc}") from exc
 
     module = parse_module(original, file_path)
-    new_module = module.visit(transformer)
+    new_module = MetadataWrapper(module, unsafe_skip_copy=True).visit(transformer)
     new_source = new_module.code
 
     if new_source == original:

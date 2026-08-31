@@ -12,6 +12,7 @@ from pathlib import Path
 
 import libcst as cst
 import pytest
+from libcst.metadata import CodeRange, PositionProvider
 
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import TextEdit
@@ -46,6 +47,18 @@ class _NoopTransformer(cst.CSTTransformer):
     """A transformer that visits every node and changes nothing."""
 
 
+class _PositionAwareRename(cst.CSTTransformer):
+    """Exercise metadata-dependent transformers through the shared helper."""
+
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.Name:  # noqa: N802
+        position = self.get_metadata(PositionProvider, original_node)
+        if isinstance(position, CodeRange) and position.start.line == 1:
+            return updated_node.with_changes(value="renamed")
+        return updated_node
+
+
 def test_parse_module_wraps_syntax_errors_with_file_context() -> None:
     """A LibCST parser error becomes a ``BackendError`` mentioning the file."""
     with pytest.raises(BackendError, match="Failed to parse /tmp/oops.py"):
@@ -63,6 +76,20 @@ def test_apply_cst_transformer_no_change_returns_empty(tmp_path: Path) -> None:
     assert files == []
     # Disk content untouched.
     assert target.read_text(encoding="utf-8") == "x = 1\n"
+
+
+def test_apply_cst_transformer_resolves_declared_metadata(tmp_path: Path) -> None:
+    target = tmp_path / "sample.py"
+    target.write_text("value = 1\n", encoding="utf-8")
+
+    edits, files = apply_cst_transformer(
+        str(target),
+        _PositionAwareRename(),
+        apply=False,
+    )
+
+    assert files == [str(target)]
+    assert edits[0].new_text == "renamed = 1\n"
 
 
 def test_apply_cst_transformer_emits_whole_file_replace(tmp_path: Path) -> None:

@@ -1,13 +1,13 @@
 # Tool Reference
 
-Complete 103-tool catalog organized by category. A running server advertises
+Complete 105-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
 
 | Tool | Purpose | Returns |
 |---|---|---|
-| `find_references` | Find all references to a symbol. | `ReferenceResult` |
+| `find_references` | Find all references to a symbol and expose optional-backend failures separately from usable locations. | `ReferenceResult` |
 | `find_type_users` | Inverse of `find_references` scoped to a type — classify sites as annotation / instantiation / subclass / other. | `TypeUsersResult` |
 | `get_type_info` | Resolve type information for an expression or symbol. | `TypeInfo` |
 | `get_completions` | Return completion candidates for a cursor location. | `list[CompletionItem]` |
@@ -42,7 +42,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (37)
+## Refactoring (39)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -52,6 +52,8 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `extract_class` | Move cohesive constructor fields and plain instance methods into a delegated collaborator (LibCST). | `RefactorResult` |
 | `extract_superclass` | Pull selected methods/attributes up into a new base class (LibCST). | `RefactorResult` |
 | `convert_to_dataclass` | Convert a behavior-free constructor into preview-first standard-library dataclass fields, using Pyright for missing annotations. | `RefactorResult` |
+| `convert_function_to_method` | Move a free function into a plain class and rewrite direct same-module callers; unsupported reference shapes fail closed. | `RefactorResult` |
+| `convert_method_to_function` | Move a direct instance method to module scope and rewrite direct same-module callers; unsupported reference shapes fail closed. | `RefactorResult` |
 | `docstring_sync` | Synchronize function parameters with Google, NumPy, or Sphinx docstring fields, preserving descriptions in preview-first edits. | `RefactorResult` |
 | `fix_circular_imports` | Hoist annotation-only runtime-cycle imports behind `TYPE_CHECKING`; mixed/runtime uses remain unchanged. | `RefactorResult` |
 | `extract_variable` | Extract an expression into a variable. | `RefactorResult` |

@@ -1,0 +1,1 @@
+- **Added:** Add preview-first `convert_function_to_method` and `convert_method_to_function` tools with semantic caller discovery, typed partial-backend diagnostics, atomic CST rewrites, post-apply diagnostics, and fail-closed unsupported-reference handling.

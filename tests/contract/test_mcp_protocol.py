@@ -46,7 +46,7 @@ async def test_tool_profiles_cover_complete_catalog() -> None:
     advertised: set[str] = set()
     for profile in TOOL_PROFILES:
         advertised.update(tool.name for tool in await _profile_tools(profile))
-    assert len(catalog) == 103
+    assert len(catalog) == 105
     assert advertised == catalog
 
 
@@ -56,7 +56,7 @@ def test_profile_policy_counts_are_explicit() -> None:
         profile: len(tool_names_for_profile(profile, extra_records=server.EXPLICIT_TOOL_RECORDS))
         for profile in TOOL_PROFILES
     }
-    assert counts == {"analysis": 56, "refactoring": 70}
+    assert counts == {"analysis": 56, "refactoring": 72}
 
 
 def test_profile_policy_rejects_unknown_profile() -> None:
@@ -174,5 +174,20 @@ async def test_path_params_are_validated() -> None:
 @pytest.mark.asyncio
 async def test_identifier_params_are_validated() -> None:
     """All known identifier parameter names should be in the validation tuple."""
-    expected = {"new_name", "method_name", "variable_name", "parameter_name", "factory_name", "classname"}
+    expected = {
+        "base_class_name",
+        "class_name",
+        "classname",
+        "collaborator_attribute",
+        "destination_attr",
+        "factory_name",
+        "function_name",
+        "method_name",
+        "new_class_name",
+        "new_name",
+        "parameter_name",
+        "protocol_name",
+        "symbol_name",
+        "variable_name",
+    }
     assert expected == set(IDENTIFIER_PARAMS)
