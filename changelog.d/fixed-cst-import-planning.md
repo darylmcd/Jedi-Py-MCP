@@ -1,0 +1,1 @@
+- **Fixed:** Share collision-safe import planning across dataclass, TypedDict, and Pydantic conversions so generated imports respect module docstrings, future imports, aliases, and late rebindings.

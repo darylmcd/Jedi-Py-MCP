@@ -24,6 +24,13 @@ from python_refactor_mcp.util.cst_apply import (
     apply_cst_transformer,
     read_cst_source_snapshot,
 )
+from python_refactor_mcp.util.cst_imports import (
+    import_alias_binding,
+    import_insertion_index,
+    reserve_unique_binding,
+    statement_bindings,
+    top_level_bindings,
+)
 
 from .helpers import post_apply_diagnostics
 
@@ -151,19 +158,6 @@ def _loaded_names(module: cst.Module, node: cst.CSTNode) -> set[str]:
     return {child.id for child in ast.walk(tree) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)}
 
 
-def _member_name(statement: cst.BaseStatement) -> str | None:
-    if isinstance(statement, (cst.ClassDef, cst.FunctionDef)):
-        return statement.name.value
-    if not isinstance(statement, cst.SimpleStatementLine) or len(statement.body) != 1:
-        return None
-    small = statement.body[0]
-    if isinstance(small, cst.AnnAssign) and isinstance(small.target, cst.Name):
-        return small.target.value
-    if isinstance(small, cst.Assign) and len(small.targets) == 1 and isinstance(small.targets[0].target, cst.Name):
-        return small.targets[0].target.value
-    return None
-
-
 def _constructor_plan(
     module: cst.Module,
     source_class: cst.ClassDef,
@@ -273,62 +267,6 @@ def _constructor_plan(
     return (tuple(fields), validated_field, validation, validator_name)
 
 
-def _import_binding(alias: cst.ImportAlias, *, from_import: bool) -> str:
-    if alias.asname is not None:
-        if not isinstance(alias.asname.name, cst.Name):
-            raise BackendError("Unsupported non-name import alias in Pydantic conversion")
-        return alias.asname.name.value
-    dotted = cst.Module([]).code_for_node(alias.name)
-    return dotted if from_import else dotted.split(".", 1)[0]
-
-
-def _top_level_bindings(module: cst.Module) -> set[str]:
-    bindings: set[str] = set()
-    for statement in module.body:
-        direct_name = _member_name(statement)
-        if direct_name is not None:
-            bindings.add(direct_name)
-        if not isinstance(statement, cst.SimpleStatementLine):
-            continue
-        for small in statement.body:
-            if isinstance(small, cst.Import):
-                bindings.update(_import_binding(alias, from_import=False) for alias in small.names)
-            elif isinstance(small, cst.ImportFrom) and not isinstance(small.names, cst.ImportStar):
-                bindings.update(_import_binding(alias, from_import=True) for alias in small.names)
-    return bindings
-
-
-def _statement_bindings(statement: cst.BaseStatement) -> set[str]:
-    direct_name = _member_name(statement)
-    bindings = {direct_name} if direct_name is not None else set()
-    if not isinstance(statement, cst.SimpleStatementLine):
-        return bindings
-    for small in statement.body:
-        if isinstance(small, cst.Import):
-            bindings.update(_import_binding(alias, from_import=False) for alias in small.names)
-        elif isinstance(small, cst.ImportFrom) and not isinstance(small.names, cst.ImportStar):
-            bindings.update(_import_binding(alias, from_import=True) for alias in small.names)
-        elif isinstance(small, cst.Assign):
-            bindings.update(target.target.value for target in small.targets if isinstance(target.target, cst.Name))
-        elif isinstance(small, (cst.AnnAssign, cst.Del)) and isinstance(small.target, cst.Name):
-            bindings.add(small.target.value)
-    return bindings
-
-
-def _unique_binding(bindings: set[str], public_name: str) -> str:
-    candidate = public_name
-    if candidate not in bindings:
-        bindings.add(candidate)
-        return candidate
-    candidate = f"_mcp_pydantic_{public_name.lower()}"
-    suffix = 2
-    while candidate in bindings:
-        candidate = f"_mcp_pydantic_{public_name.lower()}_{suffix}"
-        suffix += 1
-    bindings.add(candidate)
-    return candidate
-
-
 def _pydantic_references(
     module: cst.Module,
     source_class: cst.ClassDef,
@@ -338,7 +276,7 @@ def _pydantic_references(
     for statement in module.body:
         if statement is source_class:
             break
-        bound_names = _statement_bindings(statement)
+        bound_names = statement_bindings(statement)
         for public_name, binding in tuple(reference_bindings.items()):
             if binding in bound_names:
                 references.pop(public_name, None)
@@ -349,7 +287,7 @@ def _pydantic_references(
             if isinstance(small, cst.Import):
                 for alias in small.names:
                     if cst.Module([]).code_for_node(alias.name) == "pydantic":
-                        module_binding = _import_binding(alias, from_import=False)
+                        module_binding = import_alias_binding(alias, from_import=False)
                         for public_name in ("BaseModel", "ConfigDict", "field_validator"):
                             references[public_name] = cst.Attribute(
                                 value=cst.Name(module_binding),
@@ -366,16 +304,20 @@ def _pydantic_references(
                 for alias in small.names:
                     imported_name = cst.Module([]).code_for_node(alias.name)
                     if imported_name in {"BaseModel", "ConfigDict", "field_validator"}:
-                        binding = _import_binding(alias, from_import=True)
+                        binding = import_alias_binding(alias, from_import=True)
                         references[imported_name] = cst.Name(binding)
                         reference_bindings[imported_name] = binding
 
-    bindings = _top_level_bindings(module)
+    bindings = top_level_bindings(module)
     imports: list[cst.ImportAlias] = []
     for public_name in ("BaseModel", "ConfigDict", "field_validator"):
         if public_name in references:
             continue
-        binding = _unique_binding(bindings, public_name)
+        binding = reserve_unique_binding(
+            bindings,
+            public_name,
+            f"_mcp_pydantic_{public_name.lower()}",
+        )
         alias = cst.ImportAlias(name=cst.Name(public_name))
         if binding != public_name:
             alias = alias.with_changes(asname=cst.AsName(name=cst.Name(binding)))
@@ -388,23 +330,6 @@ def _pydantic_references(
         references["field_validator"],
         tuple(imports),
     )
-
-
-def _import_insert_index(body: tuple[cst.BaseStatement, ...]) -> int:
-    index = 1 if body and _is_docstring(body[0]) else 0
-    while index < len(body):
-        statement = body[index]
-        if not isinstance(statement, cst.SimpleStatementLine) or len(statement.body) != 1:
-            break
-        small = statement.body[0]
-        if not (
-            isinstance(small, cst.ImportFrom)
-            and isinstance(small.module, cst.Name)
-            and small.module.value == "__future__"
-        ):
-            break
-        index += 1
-    return index
 
 
 class _ParameterToValueTransformer(cst.CSTTransformer):
@@ -536,7 +461,7 @@ class ConvertToPydanticTransformer(cst.CSTTransformer):
             body=[cst.ImportFrom(module=cst.Name("pydantic"), names=list(self._plan.imports))]
         )
         body = list(updated_node.body)
-        body.insert(_import_insert_index(tuple(body)), statement)
+        body.insert(import_insertion_index(body), statement)
         return updated_node.with_changes(body=body)
 
 
