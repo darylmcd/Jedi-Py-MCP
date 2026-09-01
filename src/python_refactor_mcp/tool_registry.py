@@ -575,6 +575,25 @@ async def move_symbol(
     return result
 
 
+async def split_module(
+    ctx: Context,
+    source_file: str,
+    target_modules: dict[str, list[str]],
+    apply: bool = False,
+) -> RefactorResult:
+    """Partition selected top-level symbols from one module into two or more existing target modules. ``target_modules`` maps each destination file path to its symbol names. Rewrites imports and cross-target references as one coherent operation in an isolated Rope project, then applies the final multi-file edit atomically. Defaults to preview mode. Related: move_symbol, module_to_package."""
+    app = get_current_backends()
+    result = await refactoring.split_module(
+        app.pyright,
+        app.rope,
+        source_file,
+        target_modules,
+        apply,
+    )
+    _LOGGER.debug("split_module edits=%s applied=%s", len(result.edits), result.applied)
+    return result
+
+
 async def apply_code_action(
     ctx: Context,
     file_path: str,
@@ -1653,6 +1672,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(extract_variable, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(inline_variable, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(move_symbol, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(split_module, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(apply_code_action, ADDITIVE_ANNOTATIONS),
     ToolRecord(organize_imports, ADDITIVE_ANNOTATIONS),
     ToolRecord(format_code, ADDITIVE_ANNOTATIONS),

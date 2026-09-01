@@ -181,16 +181,22 @@ async def test_extract_inline_and_move_delegate_correctly() -> None:
     rope.extract_variable.return_value = RefactorResult(edits=[], files_affected=[], description="x", applied=False)
     rope.inline.return_value = RefactorResult(edits=[], files_affected=[], description="x", applied=False)
     rope.move.return_value = RefactorResult(edits=[], files_affected=[], description="x", applied=False)
+    rope.split_module.return_value = RefactorResult(
+        edits=[], files_affected=[], description="x", applied=False
+    )
 
     await refactoring.extract_method(pyright, rope, "/repo/a.py", 0, 0, 1, 1, "m", apply=False)
     await refactoring.extract_variable(pyright, rope, "/repo/a.py", 0, 0, 1, 1, "v", apply=False)
     await refactoring.inline_variable(pyright, rope, "/repo/a.py", 0, 0, apply=False)
     await refactoring.move_symbol(pyright, rope, "/repo/a.py", "Thing", "/repo/b.py", apply=False)
+    targets = {"/repo/b.py": ["Thing"], "/repo/c.py": ["Other"]}
+    await refactoring.split_module(pyright, rope, "/repo/a.py", targets, apply=False)
 
     rope.extract_method.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "m", False, False)
     rope.extract_variable.assert_awaited_once_with("/repo/a.py", 0, 0, 1, 1, "v", False)
     rope.inline.assert_awaited_once_with("/repo/a.py", 0, 0, False)
     rope.move.assert_awaited_once_with("/repo/a.py", "Thing", "/repo/b.py", False)
+    rope.split_module.assert_awaited_once_with("/repo/a.py", targets, False)
 
 
 @pytest.mark.asyncio

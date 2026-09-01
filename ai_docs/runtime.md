@@ -14,7 +14,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Primary language | Python 3.14+ |
 | Build backend | Hatchling (`pyproject.toml`) |
 | Entrypoints | `python -m python_refactor_mcp [workspace_root]`, `python-refactor-mcp [workspace_root]` |
-| Default tool profile | `refactoring` (74 advertised; profile budget is 80) |
+| Default tool profile | `refactoring` (75 advertised; profile budget is 80) |
 | Host OS | Windows-first |
 | Shell | PowerShell |
 | Virtual environment | `.venv` |
@@ -65,7 +65,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 |---|---|---|
 | `workspace_root` | optional CLI arg | Pre-warms that workspace; when omitted, path-bearing tool requests discover project roots dynamically |
 | `PYRIGHT_LANGSERVER` | env var | Overrides the default `pyright-langserver` executable |
-| `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 74) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 107-tool catalog |
+| `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 75) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 108-tool catalog |
 | `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid |
 | `VIRTUAL_ENV` | env var | Interpreter discovery fallback |
 | `pyrightconfig.json` | workspace file | Optional Pyright project config, discovered from the workspace root |

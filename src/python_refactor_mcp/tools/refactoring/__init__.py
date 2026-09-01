@@ -30,6 +30,7 @@ from .structure import (
     move_method,
     move_module,
     move_symbol,
+    split_module,
     use_function,
 )
 from .superclass import extract_superclass
@@ -76,5 +77,6 @@ __all__ = [
     "relatives_to_absolutes",
     "rename_symbol",
     "restructure",
+    "split_module",
     "use_function",
 ]

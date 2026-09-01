@@ -10,7 +10,7 @@ Production-oriented Python MCP server for code analysis and refactoring, combini
 | Jedi | Fallback analysis for dynamic or weakly typed code |
 | rope | Edit generation and refactoring-safe file mutations |
 
-**107-tool catalog** across analysis, navigation, refactoring, search, metrics, history, and utilities. Default `refactoring` profile advertises 74; read-only `analysis` profile advertises 56. Full table: [`docs/tool-reference.md`](docs/tool-reference.md); source map: [`ai_docs/architecture.md`](ai_docs/architecture.md).
+**108-tool catalog** across analysis, navigation, refactoring, search, metrics, history, and utilities. Default `refactoring` profile advertises 75; read-only `analysis` profile advertises 56. Full table: [`docs/tool-reference.md`](docs/tool-reference.md); source map: [`ai_docs/architecture.md`](ai_docs/architecture.md).
 
 ## Documentation
 

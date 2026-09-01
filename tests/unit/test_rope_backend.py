@@ -135,6 +135,67 @@ async def test_rename_rewrites_import_alias_and_usages_in_preview(
 
 
 @pytest.mark.asyncio
+async def test_split_module_is_coherent_in_preview_and_apply(tmp_path: Path) -> None:
+    source = tmp_path / "source.py"
+    alpha = tmp_path / "alpha.py"
+    beta = tmp_path / "beta.py"
+    consumer = tmp_path / "consumer.py"
+    originals = {
+        source: (
+            "class Beta:\n"
+            "    pass\n"
+            "\n"
+            "class Alpha:\n"
+            "    def make(self):\n"
+            "        return Beta()\n"
+        ),
+        alpha: "",
+        beta: "",
+        consumer: "from source import Alpha, Beta\n\na = Alpha()\nb = Beta()\n",
+    }
+    for path, content in originals.items():
+        path.write_text(content, encoding="utf-8")
+
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    targets = {str(alpha): ["Alpha"], str(beta): ["Beta"]}
+
+    preview = await backend.split_module(str(source), targets, apply=False)
+
+    assert preview.applied is False
+    edits = {Path(edit.file_path).resolve(): edit.new_text for edit in preview.edits}
+    assert set(edits) == {source.resolve(), alpha.resolve(), beta.resolve(), consumer.resolve()}
+    assert "import beta" in edits[alpha.resolve()]
+    assert "return beta.Beta()" in edits[alpha.resolve()]
+    assert "class Beta" in edits[beta.resolve()]
+    assert "import alpha" in edits[consumer.resolve()]
+    assert "a = alpha.Alpha()" in edits[consumer.resolve()]
+    assert "b = beta.Beta()" in edits[consumer.resolve()]
+    assert {path: path.read_text(encoding="utf-8") for path in originals} == originals
+
+    applied = await backend.split_module(str(source), targets, apply=True)
+
+    assert applied.applied is True
+    assert source.read_text(encoding="utf-8").strip() == ""
+    assert "return beta.Beta()" in alpha.read_text(encoding="utf-8")
+    assert "class Beta" in beta.read_text(encoding="utf-8")
+    assert "a = alpha.Alpha()" in consumer.read_text(encoding="utf-8")
+
+
+def test_symbol_lookup_rejects_reference_without_definition(tmp_path: Path) -> None:
+    module = tmp_path / "consumer.py"
+    module.write_text("from provider import Missing\n\nprint(Missing)\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    with pytest.raises(RopeError, match="one top-level definition"):
+        backend._find_symbol_offset(  # pyright: ignore[reportPrivateUsage]
+            str(module),
+            "Missing",
+        )
+
+
+@pytest.mark.asyncio
 async def test_extract_method_returns_edits(rope_backend: tuple[RopeBackend, Path]) -> None:
     """Extract method creates changes for a selected range."""
     backend, module = rope_backend

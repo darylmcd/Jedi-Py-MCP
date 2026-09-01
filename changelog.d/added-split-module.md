@@ -1,0 +1,1 @@
+- **Added:** Add preview-first multi-target module splitting with coherent Rope import rewrites and atomic stale-source-guarded apply.
