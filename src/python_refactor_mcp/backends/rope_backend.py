@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ast
+import keyword
 import logging
 import os
-import re
 import threading
 from collections.abc import Callable
 from difflib import SequenceMatcher
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, cast
 
 from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
@@ -45,7 +46,13 @@ from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
-from python_refactor_mcp.util.diff import apply_text_edits, write_atomic, write_bytes_atomic
+from python_refactor_mcp.util.diff import (
+    apply_text_edits,
+    apply_text_edits_atomically,
+    write_atomic,
+    write_bytes_atomic,
+)
+from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
 
@@ -329,19 +336,227 @@ class RopeBackend:
         except SyntaxError as exc:
             raise RopeError(f"Failed to parse source for symbol lookup: {source_file}: {exc}") from exc
 
+        source_lines = content.splitlines()
+        matches: list[tuple[int, int]] = []
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol_name:
-                return self._position_to_offset(source_file, node.lineno - 1, node.col_offset)
+                line = node.lineno - 1
+                character = source_lines[line].find(symbol_name, node.col_offset)
+                if character < 0:
+                    raise RopeError(
+                        f"Cannot anchor top-level definition for symbol '{symbol_name}' in {source_file}"
+                    )
+                matches.append((line, character))
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == symbol_name:
-                        return self._position_to_offset(source_file, target.lineno - 1, target.col_offset)
+                        matches.append((target.lineno - 1, target.col_offset))
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == symbol_name
+            ):
+                matches.append((node.target.lineno - 1, node.target.col_offset))
 
-        # Fallback: word-boundary match avoids matching substrings (e.g. "foo" inside "foobar").
-        match = re.search(r"\b" + re.escape(symbol_name) + r"\b", content)
-        if match is not None:
-            return match.start()
-        raise RopeError(f"Unable to locate symbol '{symbol_name}' in {source_file}")
+        if not matches:
+            raise RopeError(
+                f"Unable to locate one top-level definition for symbol '{symbol_name}' in {source_file}"
+            )
+        if len(matches) > 1:
+            raise RopeError(
+                f"Ambiguous top-level definition for symbol '{symbol_name}' in {source_file}"
+            )
+        line, character = matches[0]
+        return self._position_to_offset(source_file, line, character)
+
+    def _workspace_python_file(self, file_path: str, *, role: str) -> tuple[Path, Path]:
+        """Resolve one existing Python file and its workspace-relative path."""
+        absolute = Path(file_path).resolve()
+        try:
+            relative = absolute.relative_to(self._config.workspace_root.resolve())
+        except ValueError as exc:
+            raise RopeError(f"{role} is outside workspace root: {absolute}") from exc
+        if absolute.suffix.lower() != ".py" or not absolute.is_file():
+            raise RopeError(f"{role} must be an existing Python file: {absolute}")
+        return absolute, relative
+
+    async def split_module(
+        self,
+        source_file: str,
+        target_modules: dict[str, list[str]],
+        apply: bool,
+    ) -> RefactorResult:
+        """Move selected globals into two or more modules as one coherent edit.
+
+        Rope's move primitive is sequential: each move must observe all earlier
+        moves so imports between newly split modules remain correct. Planning in
+        an isolated project provides that evolving state without mutating the
+        caller's workspace during preview. The final workspace edits are still
+        committed as one stale-source-guarded atomic batch.
+        """
+
+        def _work() -> RefactorResult:
+            project = self._require_project()
+            project.validate(project.root)
+            source, source_relative = self._workspace_python_file(
+                source_file,
+                role="split_module source_file",
+            )
+            if len(target_modules) < 2:
+                raise RopeError("split_module requires at least two target modules")
+
+            planned_targets: list[tuple[Path, tuple[str, ...]]] = []
+            seen_targets: set[Path] = set()
+            seen_symbols: set[str] = set()
+            for target_file, symbols in target_modules.items():
+                target, target_relative = self._workspace_python_file(
+                    target_file,
+                    role="split_module target module",
+                )
+                if target == source:
+                    raise RopeError("split_module target modules must differ from source_file")
+                if target_relative in seen_targets:
+                    raise RopeError(f"Duplicate split_module target module: {target}")
+                if not symbols:
+                    raise RopeError(f"split_module target has no symbols: {target}")
+
+                normalized_symbols: list[str] = []
+                for symbol in symbols:
+                    if (
+                        symbol != symbol.strip()
+                        or not symbol.isidentifier()
+                        or keyword.iskeyword(symbol)
+                    ):
+                        raise RopeError(f"Invalid split_module symbol name: {symbol!r}")
+                    if symbol in seen_symbols:
+                        raise RopeError(f"Duplicate split_module symbol: {symbol}")
+                    seen_symbols.add(symbol)
+                    normalized_symbols.append(symbol)
+
+                seen_targets.add(target_relative)
+                planned_targets.append((target_relative, tuple(normalized_symbols)))
+
+            snapshots: dict[Path, bytes] = {}
+            workspace_root = self._config.workspace_root.resolve()
+            for path in python_files(workspace_root):
+                resolved = path.resolve()
+                try:
+                    relative = resolved.relative_to(workspace_root)
+                    snapshots[relative] = resolved.read_bytes()
+                except (OSError, ValueError) as exc:
+                    raise RopeError(f"Cannot snapshot Python workspace file: {resolved}: {exc}") from exc
+
+            required = {source_relative, *(target for target, _symbols in planned_targets)}
+            missing = sorted(str(path) for path in required - snapshots.keys())
+            if missing:
+                raise RopeError(
+                    "split_module files are excluded from workspace Python discovery: "
+                    + ", ".join(missing)
+                )
+
+            with TemporaryDirectory(prefix="python-refactor-split-") as temp_dir:
+                temp_root = Path(temp_dir)
+                for relative, content in snapshots.items():
+                    temp_path = temp_root / relative
+                    temp_path.parent.mkdir(parents=True, exist_ok=True)
+                    temp_path.write_bytes(content)
+
+                temp_project = Project(str(temp_root), **cast(Any, self._config.rope_prefs))
+                try:
+                    for target_relative, planned_symbols in planned_targets:
+                        destination_resource = temp_project.get_resource(
+                            target_relative.as_posix()
+                        )
+                        for symbol in planned_symbols:
+                            temp_source = temp_root / source_relative
+                            source_resource = temp_project.get_resource(
+                                source_relative.as_posix()
+                            )
+                            offset = self._find_symbol_offset(str(temp_source), symbol)
+                            changes = create_move(
+                                temp_project,
+                                source_resource,
+                                offset,
+                            ).get_changes(cast(Any, destination_resource))
+                            temp_project.do(changes)
+                finally:
+                    temp_project.close()
+
+                for relative, expected in snapshots.items():
+                    original_path = workspace_root / relative
+                    try:
+                        current = original_path.read_bytes()
+                    except OSError as exc:
+                        raise RopeError(
+                            f"Cannot verify split_module source snapshot: {original_path}: {exc}"
+                        ) from exc
+                    if current != expected:
+                        raise RopeError(
+                            f"Stale split_module source changed during planning: {original_path}"
+                        )
+
+                unexpected_python = sorted(
+                    path.relative_to(temp_root)
+                    for path in temp_root.rglob("*.py")
+                    if path.relative_to(temp_root) not in snapshots
+                )
+                if unexpected_python:
+                    raise RopeError(
+                        "split_module unexpectedly created Python files: "
+                        + ", ".join(str(path) for path in unexpected_python)
+                    )
+
+                edits: list[TextEdit] = []
+                expected_contents: dict[str, bytes] = {}
+                for relative, original_bytes in snapshots.items():
+                    generated_bytes = (temp_root / relative).read_bytes()
+                    if generated_bytes == original_bytes:
+                        continue
+                    try:
+                        original_text = (
+                            original_bytes.decode("utf-8")
+                            .replace("\r\n", "\n")
+                            .replace("\r", "\n")
+                        )
+                        generated_text = (
+                            generated_bytes.decode("utf-8")
+                            .replace("\r\n", "\n")
+                            .replace("\r", "\n")
+                        )
+                    except UnicodeError as exc:
+                        raise RopeError(
+                            f"split_module produced non-UTF-8 content for {relative}: {exc}"
+                        ) from exc
+                    original_file_path = str((workspace_root / relative).resolve())
+                    edits.append(
+                        TextEdit(
+                            file_path=original_file_path,
+                            range=Range(
+                                start=Position(line=0, character=0),
+                                end=_end_position_for_content(original_text),
+                            ),
+                            new_text=generated_text,
+                        )
+                    )
+                    expected_contents[original_file_path] = original_bytes
+
+            files_affected = sorted(edit.file_path for edit in edits)
+            if apply and edits:
+                apply_text_edits_atomically(edits, expected_contents=expected_contents)
+            return RefactorResult(
+                edits=edits,
+                files_affected=files_affected,
+                description=f"Split module into {len(planned_targets)} target modules",
+                applied=apply and bool(edits),
+            )
+
+        return await run_in_thread(
+            _work,
+            timeout=self._timeout,
+            error_cls=RopeError,
+            op_name="rope.split_module",
+            logger=_LOGGER,
+        )
 
     async def rename(
         self,

@@ -26,6 +26,18 @@ async def move_symbol(
     return await post_apply_diagnostics(pyright, result)
 
 
+async def split_module(
+    pyright: PyrightLSPClient,
+    rope: RopeBackend,
+    source_file: str,
+    target_modules: dict[str, list[str]],
+    apply: bool = False,
+) -> RefactorResult:
+    """Partition selected globals across target modules as one atomic refactor."""
+    result = await rope.split_module(source_file, target_modules, apply)
+    return await post_apply_diagnostics(pyright, result)
+
+
 async def encapsulate_field(
     pyright: PyrightLSPClient,
     rope: RopeBackend,

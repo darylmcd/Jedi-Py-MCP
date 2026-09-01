@@ -86,6 +86,10 @@ Index: `README.md`.
   - Goal: "Run `move_symbol` with `apply=false` and return import-rewrite count at each call site."
   - Validation: "Run `move_symbol` with source == destination path and show the no-op rejection."
   - Chaining: "Preview `move_symbol`, then `organize_imports` on the destination to normalize order."
+- `split_module`:
+  - Goal: "Run `split_module` with `apply=false`; move two related symbols into distinct existing modules and show every rewritten import."
+  - Validation: "Include a reference between the moved symbols and confirm the preview rewrites it to the new target module without touching disk."
+  - Chaining: "Apply `split_module`, then run `get_workspace_diagnostics` across the affected files."
 - `move_method`:
   - Goal: "Run `move_method` to another class with `apply=false` and return self/static conversion summary."
   - Validation: "Run `move_method` to a destination lacking required attributes and show the host-mismatch error."

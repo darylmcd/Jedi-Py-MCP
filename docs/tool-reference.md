@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete 107-tool catalog organized by category. A running server advertises
+Complete 108-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 ## Analysis (19)
@@ -42,7 +42,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
 | `get_module_public_api` | Return the public API surface of a module. | `list[PublicAPIItem]` |
 
-## Refactoring (41)
+## Refactoring (42)
 
 | Tool | Purpose | Returns |
 |---|---|---|
@@ -63,6 +63,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `inline_method` | Inline a method at all call sites. | `RefactorResult` |
 | `inline_parameter` | Inline a parameter and remove it from the signature. | `RefactorResult` |
 | `move_symbol` | Move a symbol between files. | `RefactorResult` |
+| `split_module` | Partition selected top-level symbols into two or more existing modules with coherent import rewrites. | `RefactorResult` |
 | `move_module` | Move a module to a new location. | `RefactorResult` |
 | `move_method` | Move a method to another class. | `RefactorResult` |
 | `introduce_parameter` | Introduce a parameter and update call sites. | `RefactorResult` |
