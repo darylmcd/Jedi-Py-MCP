@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-01T11:20:23Z
+**updated_at:** 2026-09-02T16:36:00Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -57,6 +57,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
+| `bl-0001` | Medium | — | **`dead_code_detection` reports every once-referenced symbol as dead** — references are fetched with `include_declaration=False` but the `same_file_count > 1` threshold assumes the declaration was counted; 306 false positives on this repo's `src/`. [type: bug] [source: refactor-audit-smoke-20260902] | S | items/bl-0001.md |
 
 ## Low
 
