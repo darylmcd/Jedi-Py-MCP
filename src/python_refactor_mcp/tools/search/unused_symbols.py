@@ -11,8 +11,11 @@ decorator name contains ``mcp`` or ``tool``, e.g. ``@mcp.tool``) are skipped to
 avoid false positives, mirroring the rationale behind ``dead_code_detection``'s
 blanket decorator skip.
 
-The sweep may be slow on large codebases: it issues one ``get_references`` call
-per exported symbol. ``limit`` bounds the response size but not the work done.
+Cost: one ``get_references`` call per exported symbol (Pyright serves them one
+at a time). On a directory-wide sweep, names that appear in no other workspace
+file are resolved from a textual occurrence index without a Pyright round-trip
+(see :class:`~python_refactor_mcp.tools.search._helpers.NameOccurrenceIndex`).
+``limit`` bounds the response size but not the work done.
 """
 
 from __future__ import annotations
@@ -25,10 +28,13 @@ from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Range, ScanFailure
 
 from ._helpers import (
+    REFERENCE_SWEEP_CONCURRENCY,
+    NameOccurrenceIndex,
     PyrightSearchBackend,
     resolve_target_files,
     scan_module_level_symbols,
     score_dead_code_confidence,
+    sweep_name_occurrence_index,
 )
 
 
@@ -40,24 +46,28 @@ def _is_externally_registered(decorator_names: tuple[str, ...]) -> bool:
 async def _check_export_symbol(
     pyright: PyrightSearchBackend,
     sem: asyncio.Semaphore,
+    index: NameOccurrenceIndex,
     path: Path,
     name: str,
     kind: str,
     symbol_range: Range,
 ) -> DeadCodeItem | None:
     """Return a dead-code item when an exported symbol has no cross-file references."""
-    async with sem:
-        references = await pyright.get_references(
-            str(path),
-            symbol_range.start.line,
-            symbol_range.start.character,
-            False,
-        )
     resolved_path = str(path.resolve())
-    for ref in references:
-        ref_path = getattr(ref, "file_path", None)
-        if isinstance(ref_path, str) and ref_path != resolved_path:
-            return None
+    # A name that no other workspace file spells cannot be referenced from another
+    # file, so the Pyright round-trip is skipped; any other name is queried.
+    if not index.mentioned_only_in(name, resolved_path):
+        async with sem:
+            references = await pyright.get_references(
+                str(path),
+                symbol_range.start.line,
+                symbol_range.start.character,
+                False,
+            )
+        for ref in references:
+            ref_path = getattr(ref, "file_path", None)
+            if isinstance(ref_path, str) and ref_path != resolved_path:
+                return None
     return DeadCodeItem(
         name=name,
         kind=kind,
@@ -110,9 +120,15 @@ async def unused_symbol_sweep(
                 continue
             symbols_to_check.append((path, name, symbol.kind, symbol.range))
 
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(REFERENCE_SWEEP_CONCURRENCY)
+    index = await sweep_name_occurrence_index(
+        config.workspace_root,
+        resolved.files,
+        {name for _path, name, _kind, _range in symbols_to_check},
+        workspace_scan=file_path is None and file_paths is None,
+    )
     results = await asyncio.gather(
-        *[_check_export_symbol(pyright, sem, p, n, k, r) for p, n, k, r in symbols_to_check],
+        *[_check_export_symbol(pyright, sem, index, p, n, k, r) for p, n, k, r in symbols_to_check],
         return_exceptions=True,
     )
 

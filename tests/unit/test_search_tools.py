@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,8 @@ import pytest
 
 from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
+from python_refactor_mcp.tools.search import _helpers as search_helpers
+from python_refactor_mcp.tools.search._helpers import NameOccurrenceIndex, build_name_occurrence_index
 from tests.helpers import make_config as _config
 
 
@@ -433,3 +436,175 @@ async def test_unused_symbol_sweep_respects_dunder_all(tmp_path: Path) -> None:
 
     names = {item.name for item in result.items}
     assert names == {"exported"}
+
+
+# ── bl-0009: name-occurrence pre-filter for directory-wide sweeps ──
+
+
+def _disable_occurrence_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force every candidate through the reference query (the pre-bl-0009 path)."""
+
+    def _incomplete(*_args: object) -> NameOccurrenceIndex:
+        return NameOccurrenceIndex(occurrences={}, complete=False)
+
+    monkeypatch.setattr(search_helpers, "build_name_occurrence_index", _incomplete)
+
+
+class _TextScanPyright:
+    """Fake Pyright whose references are every whole-word occurrence of the queried name.
+
+    Reads the same ``*.py``/``*.pyi`` files the occurrence index covers, so the
+    pre-filter must agree with it exactly.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self.queried: list[str] = []
+
+    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
+        return []
+
+    async def get_code_actions(
+        self, file_path: str, range_value: Range, diagnostics: list[Diagnostic]
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def workspace_symbol(self, query: str) -> list[SymbolInfo]:
+        return []
+
+    async def get_references(
+        self, file_path: str, line: int, char: int, include_declaration: bool
+    ) -> list[Location]:
+        source_line = Path(file_path).read_text(encoding="utf-8").splitlines()[line]
+        name_match = re.match(r"\w+", source_line[char:])
+        assert name_match is not None
+        name = name_match.group(0)
+        self.queried.append(name)
+        pattern = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)")
+        locations: list[Location] = []
+        for path in sorted([*self._root.rglob("*.py"), *self._root.rglob("*.pyi")]):
+            for index, text in enumerate(path.read_text(encoding="utf-8").splitlines()):
+                for match in pattern.finditer(text):
+                    is_declaration = path.resolve() == Path(file_path).resolve() and (index, match.start()) == (
+                        line,
+                        char,
+                    )
+                    if include_declaration or not is_declaration:
+                        locations.append(_location(path, index, match.start()))
+        return locations
+
+
+def _write_equivalence_workspace(root: Path) -> None:
+    (root / "pkg").mkdir()
+    (root / "pkg" / "core.py").write_text(
+        '__all__ = ["exported_only", "listed_elsewhere", "helper_used_here", "stub_declared"]\n\n'
+        "def exported_only():\n    return 1\n\n"
+        "def listed_elsewhere():\n    return 2\n\n"
+        "def helper_used_here():\n    return 3\n\n"
+        "RESULT = helper_used_here()\n"
+        "# mentions commented_twin — only in a comment\n"
+        "def commented_twin():\n    return 4\n\n"
+        "def stub_declared():\n    return 5\n",
+        encoding="utf-8",
+    )
+    (root / "pkg" / "core.pyi").write_text("def stub_declared() -> int: ...\n", encoding="utf-8")
+    (root / "pkg" / "consumer.py").write_text(
+        "from pkg.core import listed_elsewhere\n\n"
+        "def consumer_entry():\n    return listed_elsewhere()\n\n"
+        "ORPHAN_CONSTANT = 7\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_match_always_query_results(
+    tool_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-filter returns exactly the results of querying every candidate."""
+    _write_equivalence_workspace(tmp_path)
+    tool = getattr(search, tool_name)
+
+    filtered_backend = _TextScanPyright(tmp_path)
+    filtered = await tool(filtered_backend, _config(tmp_path), root_path=str(tmp_path))
+    _disable_occurrence_index(monkeypatch)
+    baseline_backend = _TextScanPyright(tmp_path)
+    baseline = await tool(baseline_backend, _config(tmp_path), root_path=str(tmp_path))
+
+    assert filtered.model_dump() == baseline.model_dump()
+    assert filtered.items, "fixture must produce dead candidates"
+    assert len(filtered_backend.queried) < len(baseline_backend.queried)
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_skips_lookup_for_sole_declaration(tmp_path: Path) -> None:
+    """A name spelled only at its declaration is dead without a reference query."""
+    _write_equivalence_workspace(tmp_path)
+    backend = _TextScanPyright(tmp_path)
+
+    result = await search.dead_code_detection(backend, _config(tmp_path), root_path=str(tmp_path))
+
+    dead = {item.name for item in result.items}
+    assert {"consumer_entry", "ORPHAN_CONSTANT"} <= dead
+    assert "consumer_entry" not in backend.queried
+    assert "ORPHAN_CONSTANT" not in backend.queried
+    # Mentioned elsewhere (call site, __all__ string, comment, .pyi stub): always queried.
+    assert {"helper_used_here", "exported_only", "commented_twin", "stub_declared"} <= set(backend.queried)
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_skips_lookup_for_names_absent_elsewhere(tmp_path: Path) -> None:
+    """An export no other file spells is unused without a reference query."""
+    _write_equivalence_workspace(tmp_path)
+    backend = _TextScanPyright(tmp_path)
+
+    result = await search.unused_symbol_sweep(backend, _config(tmp_path), root_path=str(tmp_path))
+
+    assert "exported_only" in {item.name for item in result.items}
+    assert "exported_only" not in backend.queried
+    assert "helper_used_here" not in backend.queried
+    # Spelled in consumer.py / core.pyi: queried, and the fake finds the cross-file uses.
+    assert {"listed_elsewhere", "stub_declared"} <= set(backend.queried)
+    assert "listed_elsewhere" not in {item.name for item in result.items}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_of_explicit_files_query_every_candidate(tool_name: str, tmp_path: Path) -> None:
+    """Explicit file targets skip the workspace-wide index and query every candidate."""
+    _write_equivalence_workspace(tmp_path)
+    backend = _TextScanPyright(tmp_path)
+
+    await getattr(search, tool_name)(backend, _config(tmp_path), str(tmp_path / "pkg" / "consumer.py"))
+
+    assert "consumer_entry" in backend.queried
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_query_every_candidate_when_a_file_is_unreadable(
+    tool_name: str, tmp_path: Path
+) -> None:
+    """A workspace file the index cannot decode disables every shortcut."""
+    _write_equivalence_workspace(tmp_path)
+    (tmp_path / "legacy.py").write_bytes(b"# \xff not utf-8\n")
+    backend = _TextScanPyright(tmp_path)
+
+    await getattr(search, tool_name)(backend, _config(tmp_path), root_path=str(tmp_path / "pkg"))
+
+    assert "consumer_entry" in backend.queried
+
+
+def test_name_occurrence_index_counts_non_ascii_and_nfkc_spellings(tmp_path: Path) -> None:
+    """Tokens glued to non-ASCII text and NFKC-equivalent spellings are still counted."""
+    declared = tmp_path / "declared.py"
+    declared.write_text("value = 1\nother = 2\n", encoding="utf-8")
+    (tmp_path / "user.py").write_text("x = ﬁle\n# value—\n", encoding="utf-8")
+
+    index = build_name_occurrence_index(tmp_path, [declared], {"value", "file", "other"})
+
+    assert index.complete is True
+    resolved = str(declared.resolve())
+    assert not index.mentioned_only_in("value", resolved)
+    assert set(index.occurrences["file"]) == {str((tmp_path / "user.py").resolve())}
+    assert index.mentioned_only_at_declaration("other", resolved)

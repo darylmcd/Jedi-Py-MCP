@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 from mcp.client.session import ClientSession
 from mcp.types import CallToolResult, TextContent
+
+from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+from python_refactor_mcp.config import discover_config
+from python_refactor_mcp.tools import search
+from python_refactor_mcp.tools.search import _helpers as search_helpers
+from python_refactor_mcp.tools.search._helpers import NameOccurrenceIndex
 
 
 def _unwrap_result_payload(payload: object) -> object:
@@ -916,3 +923,43 @@ async def test_create_type_stubs_writes_real_stubs_and_rejects_unknown_imports(
         text = " ".join(block.text for block in failed.content if isinstance(block, TextContent))
         assert "[INVALID_INPUT]" in text, text
         assert "package_name" in text, text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_dead_code_sweep_prefilter_matches_always_query_on_real_pyright(
+    tool_name: str,
+    sample_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """bl-0009: the name-occurrence pre-filter returns exactly the query-every-candidate results."""
+    if os.environ.get("RUN_MCP_INTEGRATION") != "1":
+        pytest.skip("Set RUN_MCP_INTEGRATION=1 to run Pyright-backed integration tests.")
+    scripts_dir = Path(__file__).resolve().parents[2] / ".venv" / "Scripts"
+    candidates = [scripts_dir / "pyright-langserver.cmd", scripts_dir / "pyright-langserver.exe"]
+    pyright_path = next((path for path in candidates if path.exists()), None)
+    if pyright_path is None:
+        pytest.skip("pyright-langserver is unavailable for integration tests.")
+    monkeypatch.setenv("PYRIGHT_LANGSERVER", str(pyright_path))
+    monkeypatch.setenv("PYRIGHT_REQUEST_TIMEOUT_SECONDS", "30")
+
+    config = discover_config(sample_workspace)
+    backend = PyrightLSPClient(config)
+    await backend.start()
+    try:
+        tool = getattr(search, tool_name)
+        # Warm-up: open and analyze every target so both measured runs see the same program.
+        await tool(backend, config, root_path=str(sample_workspace))
+        filtered = await tool(backend, config, root_path=str(sample_workspace))
+
+        def _incomplete(*_args: object) -> NameOccurrenceIndex:
+            return NameOccurrenceIndex(occurrences={}, complete=False)
+
+        monkeypatch.setattr(search_helpers, "build_name_occurrence_index", _incomplete)
+        baseline = await tool(backend, config, root_path=str(sample_workspace))
+    finally:
+        await backend.shutdown()
+
+    assert filtered.scan_failures == []
+    assert filtered.items, "sample_project must yield dead candidates"
+    assert filtered.model_dump() == baseline.model_dump()

@@ -17,10 +17,13 @@ from python_refactor_mcp.models import (
 
 from ._helpers import (
     DIAGNOSTIC_TAG_UNNECESSARY,
+    REFERENCE_SWEEP_CONCURRENCY,
+    NameOccurrenceIndex,
     PyrightSearchBackend,
     iter_module_level_symbols,
     resolve_target_files,
     score_dead_code_confidence,
+    sweep_name_occurrence_index,
 )
 
 
@@ -50,36 +53,40 @@ def _dead_item_from_diagnostic(diagnostic: Diagnostic) -> DeadCodeItem:
 async def _check_symbol(
     pyright: PyrightSearchBackend,
     sem: asyncio.Semaphore,
+    index: NameOccurrenceIndex,
     path: Path,
     name: str,
     kind: str,
     symbol_range: Range,
 ) -> DeadCodeItem | None:
     """Return a dead-code item when the symbol has no references anywhere."""
-    # include_declaration=False: every returned location is a use, so ONE reference
-    # (same file or not) keeps the symbol alive. The threshold below depends on this
-    # flag; change them together. A location at the declaration itself is skipped in
-    # case the backend still echoes it.
-    async with sem:
-        references = await pyright.get_references(
-            str(path),
-            symbol_range.start.line,
-            symbol_range.start.character,
-            False,
-        )
     resolved_path = str(path.resolve())
-    for ref in references:
-        ref_path = getattr(ref, "file_path", None)
-        if not isinstance(ref_path, str):
-            continue
-        ref_start = ref.range.start
-        is_declaration = (
-            ref_path == resolved_path
-            and ref_start.line == symbol_range.start.line
-            and ref_start.character == symbol_range.start.character
-        )
-        if not is_declaration:
-            return None
+    # A name whose only textual occurrence in the workspace is this declaration cannot
+    # have a reference, so the Pyright round-trip is skipped; any other name is queried.
+    if not index.mentioned_only_at_declaration(name, resolved_path):
+        # include_declaration=False: every returned location is a use, so ONE reference
+        # (same file or not) keeps the symbol alive. The threshold below depends on this
+        # flag; change them together. A location at the declaration itself is skipped in
+        # case the backend still echoes it.
+        async with sem:
+            references = await pyright.get_references(
+                str(path),
+                symbol_range.start.line,
+                symbol_range.start.character,
+                False,
+            )
+        for ref in references:
+            ref_path = getattr(ref, "file_path", None)
+            if not isinstance(ref_path, str):
+                continue
+            ref_start = ref.range.start
+            is_declaration = (
+                ref_path == resolved_path
+                and ref_start.line == symbol_range.start.line
+                and ref_start.character == symbol_range.start.character
+            )
+            if not is_declaration:
+                return None
     reason = "no references"
     return DeadCodeItem(
         name=name,
@@ -111,7 +118,7 @@ async def dead_code_detection(
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
     # Phase 1: Collect diagnostics per target file with bounded concurrency.
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(REFERENCE_SWEEP_CONCURRENCY)
 
     async def _fetch_diags(path: Path) -> list[Diagnostic]:
         async with sem:
@@ -161,8 +168,14 @@ async def dead_code_detection(
                 continue
             symbols_to_check.append((path, name, kind, symbol_range))
 
+    index = await sweep_name_occurrence_index(
+        config.workspace_root,
+        target_files,
+        {name for _path, name, _kind, _range in symbols_to_check},
+        workspace_scan=file_path is None and file_paths is None,
+    )
     ref_results = await asyncio.gather(
-        *[_check_symbol(pyright, sem, p, n, k, r) for p, n, k, r in symbols_to_check],
+        *[_check_symbol(pyright, sem, index, p, n, k, r) for p, n, k, r in symbols_to_check],
         return_exceptions=True,
     )
     for (path, name, _kind, _symbol_range), ref_result in zip(

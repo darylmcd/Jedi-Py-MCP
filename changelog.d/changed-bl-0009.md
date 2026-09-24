@@ -1,0 +1,1 @@
+- **Changed:** `dead_code_detection` and `unused_symbol_sweep` directory-wide sweeps skip the Pyright reference lookup for symbols whose name appears nowhere else in the workspace, returning identical results with fewer Pyright round-trips.

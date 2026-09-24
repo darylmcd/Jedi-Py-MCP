@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import re
+import unicodedata
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -20,6 +25,13 @@ from python_refactor_mcp.models import (
 from python_refactor_mcp.util.file_filter import python_files as _filtered_python_files
 
 DIAGNOSTIC_TAG_UNNECESSARY = 1
+
+REFERENCE_SWEEP_CONCURRENCY = 10
+"""Maximum in-flight Pyright requests per workspace sweep.
+
+Pyright serves requests one at a time, so this bounds queue depth (and memory),
+not throughput.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +130,147 @@ def is_test_file(path: Path) -> bool:
     """Return whether *path* follows a conventional Python test filename."""
     name = path.name
     return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
+
+
+# Whitespace plus every ASCII punctuation character except ``_``. An identifier token in
+# valid Python source is always bounded by these (or by the start/end of the text).
+_TOKEN_SEPARATORS = re.compile(r"[\s!-/:-@\[-\^`{-~]+")
+_NON_ASCII_RUNS = re.compile(r"[^\x00-\x7f]+")
+_INDEXED_SUFFIXES = (".py", ".pyi")
+
+
+def _identifier_runs(piece: str) -> list[str]:
+    """Split *piece* on every character that cannot continue a Python identifier."""
+    runs: list[str] = []
+    current: list[str] = []
+    for char in piece:
+        if ("a" + char).isidentifier():
+            current.append(char)
+        elif current:
+            runs.append("".join(current))
+            current = []
+    if current:
+        runs.append("".join(current))
+    return runs
+
+
+def _non_ascii_piece_names(piece: str) -> Counter[str]:
+    """Count the names a tokenizer could read out of one piece containing non-ASCII text.
+
+    Each candidate tokenization is counted separately and the per-name maximum is
+    kept, so the result never undercounts any single tokenization: the raw piece,
+    its runs of identifier characters, the NFKC-normalized forms of both (Python
+    normalizes identifiers to NFKC, and ``ast`` reports normalized names), and the
+    ASCII runs between non-ASCII characters.
+    """
+    runs = _identifier_runs(piece)
+    tokenizations: list[list[str]] = [
+        [piece],
+        [unicodedata.normalize("NFKC", piece)],
+        runs,
+        [unicodedata.normalize("NFKC", run) for run in runs],
+        [part for part in _NON_ASCII_RUNS.split(piece) if part],
+    ]
+    names: Counter[str] = Counter()
+    for tokens in tokenizations:
+        names |= Counter(tokens)
+    return names
+
+
+@dataclass(frozen=True, slots=True)
+class NameOccurrenceIndex:
+    """Per-file textual occurrence counts of candidate symbol names.
+
+    Counts are a conservative superset of Pyright references: every reference
+    Pyright can report is a token spelled with the symbol's name in some indexed
+    file, so a name with no textual occurrence has no reference. The index only
+    ever proves *absence*; any doubt falls back to a real reference query.
+
+    Coverage limits (the index is only as complete as its file set):
+
+    - Files are the ``*.py``/``*.pyi`` files under the workspace root, pruned by
+      :func:`python_refactor_mcp.util.file_filter.python_files`' default directory
+      exclusions (``.venv``, ``build``, ``dist``, ...), plus the scanned target files.
+      A directory excluded there but included in the user's Pyright configuration
+      (or a Pyright ``extraPaths`` entry outside the root) is not indexed, so a
+      reference that exists only there is missed.
+    - Contents are read from disk; a Pyright buffer holding unsaved edits that differ
+      from disk is not seen.
+    - Token boundaries assume valid Python source. Unreadable or non-UTF-8 files make
+      the index ``complete=False``, which disables every shortcut.
+    """
+
+    occurrences: Mapping[str, Mapping[str, int]]
+    complete: bool
+
+    def mentioned_only_at_declaration(self, name: str, file_path: str) -> bool:
+        """Return True when *name* occurs exactly once anywhere: its own declaration."""
+        if not self.complete:
+            return False
+        return dict(self.occurrences.get(name, {})) == {file_path: 1}
+
+    def mentioned_only_in(self, name: str, file_path: str) -> bool:
+        """Return True when *name* occurs in *file_path* and in no other indexed file."""
+        if not self.complete:
+            return False
+        return set(self.occurrences.get(name, {})) == {file_path}
+
+
+def build_name_occurrence_index(
+    workspace_root: Path,
+    target_files: Iterable[Path],
+    names: Iterable[str],
+) -> NameOccurrenceIndex:
+    """Count occurrences of *names* in every workspace Python file plus *target_files*.
+
+    Blocking file I/O: call through ``asyncio.to_thread`` from async code. Files are
+    keyed by ``str(path.resolve())``, matching the keys the sweeps use for the
+    declaring file; a spelling mismatch only makes the index more conservative.
+    """
+    wanted = frozenset(names)
+    occurrences: dict[str, dict[str, int]] = {}
+    if not workspace_root.is_dir():
+        return NameOccurrenceIndex(occurrences=occurrences, complete=False)
+    files = {
+        str(path.resolve()): path
+        for path in [*_filtered_python_files(workspace_root, suffixes=_INDEXED_SUFFIXES), *target_files]
+    }
+    for key, path in files.items():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return NameOccurrenceIndex(occurrences={}, complete=False)
+        file_counts: Counter[str] = Counter()
+        for piece, count in Counter(_TOKEN_SEPARATORS.split(text)).items():
+            if piece.isascii():
+                if piece in wanted:
+                    file_counts[piece] += count
+                continue
+            for name, name_count in _non_ascii_piece_names(piece).items():
+                if name in wanted:
+                    file_counts[name] += name_count * count
+        for name, count in file_counts.items():
+            occurrences.setdefault(name, {})[key] = count
+    return NameOccurrenceIndex(occurrences=occurrences, complete=True)
+
+
+async def sweep_name_occurrence_index(
+    workspace_root: Path,
+    target_files: list[Path],
+    names: set[str],
+    *,
+    workspace_scan: bool,
+) -> NameOccurrenceIndex:
+    """Build the occurrence index off the event loop for a directory-wide sweep.
+
+    The index reads every workspace file, a fixed cost that only pays for itself when
+    the sweep has many candidates. A scan of explicit ``file_path``/``file_paths``
+    targets (or one with no candidates) gets an incomplete index, which disables
+    every shortcut, so each candidate is queried exactly as before.
+    """
+    if not workspace_scan or not names:
+        return NameOccurrenceIndex(occurrences={}, complete=False)
+    return await asyncio.to_thread(build_name_occurrence_index, workspace_root, target_files, names)
 
 
 @dataclass(frozen=True, slots=True)

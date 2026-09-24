@@ -26,12 +26,15 @@ _DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
 def python_files(
     root: Path,
     exclude_dirs: set[str] | None = None,
+    *,
+    suffixes: tuple[str, ...] = (".py",),
 ) -> list[Path]:
     """Return Python files below *root* in stable order, skipping excluded directories.
 
     Uses ``os.walk`` with top-down pruning so excluded subtrees are never
     entered.  Falls back to ``_DEFAULT_EXCLUDE_DIRS`` when *exclude_dirs* is
-    ``None``.
+    ``None``. *suffixes* selects the file extensions to return (``.py`` only by
+    default; pass ``(".py", ".pyi")`` to include stubs).
     """
     effective = exclude_dirs if exclude_dirs is not None else _DEFAULT_EXCLUDE_DIRS
     results: list[Path] = []
@@ -39,7 +42,7 @@ def python_files(
         # Prune excluded directories in-place so os.walk skips them.
         dirnames[:] = [d for d in dirnames if d not in effective]
         for filename in filenames:
-            if filename.endswith(".py"):
+            if filename.endswith(suffixes):
                 full_path = Path(dirpath) / filename
                 if full_path.is_file():
                     results.append(full_path)
