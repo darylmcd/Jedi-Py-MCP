@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T20:38:07Z
+**updated_at:** 2026-09-24T21:08:22Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -59,7 +59,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0009` | Medium | bl-0001 | **Dead-code sweeps exceed 30 s on a 137-file repo** — batch or bound-concurrently run the per-symbol reference lookups in `dead_code_detection` and `unused_symbol_sweep`; target < 10 s on this repo. [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
+| `bl-0009` | Medium | bl-0001 | **Dead-code sweeps exceed 30 s cold** — bound or remove the per-file 2 s diagnostics wait in `dead_code_detection` Phase 1 and re-measure cold time (request count is not the lever — see profile). [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
 | `bl-0025` | Medium | — | **Unhandled-method replies still read as empty results** — route the 5 remaining unhandled-method `return []` branches through `LspFeatureUnsupportedError` (bl-0005's pattern). [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0025.md |
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
 | `bl-0037` | Medium | — | **Search/analysis caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in structural, search helpers, diagnostics and type_users to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0037.md |
