@@ -1,0 +1,1 @@
+- **Fixed:** `dead_code_detection` no longer reports every once-referenced symbol as dead; the reference threshold now matches the declaration-excluded reference query.
