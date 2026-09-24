@@ -17,22 +17,32 @@
       "backlogRowsClosed": [
         "bl-0002"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 5,
+      "productionFiles": [
+        "src/python_refactor_mcp/errors.py",
+        "src/python_refactor_mcp/tool_runtime.py",
+        "src/python_refactor_mcp/util/shared.py",
+        "src/python_refactor_mcp/tools/analysis/type_stubs.py",
+        "src/python_refactor_mcp/tools/refactoring/code_actions.py"
+      ],
+      "testFilesAdded": 3,
+      "testFiles": [
+        "tests/unit/test_error_boundary.py",
+        "tests/unit/test_refactoring_tools.py",
+        "tests/unit/test_type_stub_freshness.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 55000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 5,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
@@ -48,18 +58,23 @@
       "backlogRowsClosed": [
         "bl-0004"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/pyright_lsp.py"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_pyright_lsp.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -79,22 +94,29 @@
       "backlogRowsClosed": [
         "bl-0005"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/errors.py",
+        "src/python_refactor_mcp/backends/pyright_lsp.py"
+      ],
+      "testFilesAdded": 3,
+      "testFiles": [
+        "tests/unit/test_pyright_lsp.py",
+        "tests/unit/test_refactoring_tools.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 40000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
@@ -110,18 +132,22 @@
       "backlogRowsClosed": [
         "bl-0006"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/rope_backend.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_rope_backend.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -141,24 +167,36 @@
       "backlogRowsClosed": [
         "bl-0007"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 4,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/analysis/type_stubs.py",
+        "src/python_refactor_mcp/tool_registry.py",
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/backends/pyright_lsp.py"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_create_type_stubs.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [
+        "docs/tool-reference.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 55000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 4,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
-      "dependsOn": [],
+      "dependsOn": [
+        "bl-0002"
+      ],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
@@ -172,18 +210,22 @@
       "backlogRowsClosed": [
         "bl-0001"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/search/dead_code.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_search_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -203,18 +245,22 @@
       "backlogRowsClosed": [
         "bl-0008"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/__main__.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_main.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -234,22 +280,37 @@
       "backlogRowsClosed": [
         "bl-0010"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 6,
+      "productionFiles": [
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/tools/navigation/outline.py",
+        "src/python_refactor_mcp/server.py",
+        "src/python_refactor_mcp/tool_registry.py",
+        "src/python_refactor_mcp/tools/metrics/complexity.py",
+        "src/python_refactor_mcp/tools/metrics/dependencies.py"
+      ],
+      "testFilesAdded": 4,
+      "testFiles": [
+        "tests/unit/test_navigation_tools.py",
+        "tests/unit/test_metrics_tools.py",
+        "tests/contract/test_mcp_protocol.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [
+        "docs/tool-reference.md",
+        "ai_docs/domains/python-refactor/reference.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 60000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 6,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
@@ -265,18 +326,23 @@
       "backlogRowsClosed": [
         "bl-0011"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/metrics/architecture.py",
+        "src/python_refactor_mcp/models.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_metrics_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 35000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -296,24 +362,34 @@
       "backlogRowsClosed": [
         "bl-0012"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/rope_backend.py",
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/server.py"
+      ],
+      "testFilesAdded": 3,
+      "testFiles": [
+        "tests/unit/test_rope_backend.py",
+        "tests/unit/test_models.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 45000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
-      "dependsOn": [],
+      "dependsOn": [
+        "bl-0002"
+      ],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
@@ -327,22 +403,28 @@
       "backlogRowsClosed": [
         "bl-0013"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/backends/rope_backend.py"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_rope_backend.py",
+        "tests/unit/test_models.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 40000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
@@ -358,24 +440,37 @@
       "backlogRowsClosed": [
         "bl-0014"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 6,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/search/_helpers.py",
+        "src/python_refactor_mcp/tools/search/dead_code.py",
+        "src/python_refactor_mcp/tools/search/unused_symbols.py",
+        "src/python_refactor_mcp/tools/navigation/outline.py",
+        "src/python_refactor_mcp/tools/metrics/coverage.py",
+        "src/python_refactor_mcp/models.py"
+      ],
+      "testFilesAdded": 3,
+      "testFiles": [
+        "tests/unit/test_search_tools.py",
+        "tests/unit/test_navigation_tools.py",
+        "tests/unit/test_metrics_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 45000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 6,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
         "ruleOneBundleResolved": null
       },
-      "dependsOn": [],
+      "dependsOn": [
+        "bl-0002"
+      ],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
@@ -389,22 +484,31 @@
       "backlogRowsClosed": [
         "bl-0015"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "manifest.json",
+        "pyproject.toml",
+        "uv.lock"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_manifest.py",
+        "tests/unit/data/mcpb-manifest-v0.3.schema.json"
+      ],
+      "docFiles": [
+        "ai_docs/runtime.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 35000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
@@ -420,55 +524,32 @@
       "backlogRowsClosed": [
         "bl-0016"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
-      "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
-      "scheduleHint": null,
-      "fanoutEstimate": null,
-      "fanoutOversize": false,
-      "deepenerStatus": "pending",
-      "deepenerFlags": {
-        "judgmentHeavy": false,
-        "anchorStale": false,
-        "ruleOneBundleResolved": null
-      },
-      "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": null
-    },
-    {
-      "id": "bl-0017",
-      "order": 15,
-      "status": "pending",
-      "backlogRowsClosed": [
-        "bl-0017"
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/server.py",
+        "src/python_refactor_mcp/tool_registry.py"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/contract/test_mcp_protocol.py",
+        "tests/unit/test_server.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 40000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
-      "dependsOn": [],
+      "dependsOn": [
+        "bl-0007"
+      ],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
@@ -505,6 +586,16 @@
       {
         "id": "rope-python314-deprecations",
         "reason": "defer-band"
+      }
+    ],
+    "splits": [
+      {
+        "parent": "bl-0017",
+        "children": [
+          "bl-0020",
+          "bl-0021",
+          "bl-0022"
+        ]
       }
     ]
   }
