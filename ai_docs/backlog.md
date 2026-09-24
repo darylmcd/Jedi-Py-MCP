@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T13:06:33Z
+**updated_at:** 2026-09-24T13:19:31Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -78,9 +78,11 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0017` | Low | — | **Tool schemas under-specified** — add per-parameter descriptions, `enum` for the 8 closed-set strings, `minimum: 0` on positions, a typed `refactor_transaction` step model and `additionalProperties: false`. [type: docs] [source: mcp-surface-audit-20260923] | M | items/bl-0017.md |
 | `bl-0018` | Low | bl-0003 | **Numeric bounds inconsistent across tools** — apply one validation rule for `limit`/`offset`/`depth`/`max_items`/`count` (≥1 or ≥0) uniformly, and reject `undo`/`redo` `count < 1`. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0018.md |
 | `bl-0019` | Low | — | **Whole-file rewriters marked non-destructive** — move `format_code`, `apply_lint_fixes`, the import rewriters, `apply_code_action` and `apply_type_annotations` to `DESTRUCTIVE_ANNOTATIONS`. [type: bug] [source: mcp-surface-audit-20260923] | S | items/bl-0019.md |
+| `bl-0020` | Low | — | **Tool parameters carry no schema descriptions** — add `Annotated[..., Field(description=...)]` to every parameterized tool in `tool_registry.py`/`server.py`; contract test asserts each advertises ≥1 described parameter. [type: docs] [source: bl-0017] | M | items/bl-0020.md |
+| `bl-0021` | Low | bl-0020 | **Closed-set tool params expose no enum or bounds** — type `direction`/`style`/`kind`/`severity_filter`/`source`/`language`/`SignatureOperation.op` as `Literal`, add `ge=0` to line/character positions; contract test checks the schema. [type: bug] [source: bl-0017] | M | items/bl-0021.md |
+| `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
 
 ## Defer
 
