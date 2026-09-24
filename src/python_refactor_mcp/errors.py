@@ -41,6 +41,21 @@ class PyrightError(BackendError):
     caller_summary = "Type-analysis backend failed; check server_status and retry."
 
 
+class LspFeatureUnsupportedError(PyrightError):
+    """Raised when the running Pyright does not implement a requested LSP feature.
+
+    Covers both an advertised-capability miss recorded at ``initialize`` and a
+    ``-32601 Unhandled method`` reply, so the caller sees an explicit
+    unsupported error instead of a silent empty result.
+    """
+
+    code = "LSP_UNSUPPORTED"
+    caller_summary = (
+        "The running Pyright language server does not implement this LSP feature, "
+        "so no data is available; do not retry with the same server version."
+    )
+
+
 class JediError(BackendError):
     """Raised when Jedi backend operations fail."""
 

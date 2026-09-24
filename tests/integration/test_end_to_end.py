@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from mcp.client.session import ClientSession
+from mcp.types import CallToolResult, TextContent
 
 
 def _unwrap_result_payload(payload: object) -> object:
@@ -14,6 +15,22 @@ def _unwrap_result_payload(payload: object) -> object:
     if isinstance(payload, dict) and "result" in payload:
         return payload["result"]
     return payload
+
+
+def _assert_data_or_unsupported(result: CallToolResult) -> None:
+    """Assert an LSP-feature tool returned real data or an explicit LSP_UNSUPPORTED error.
+
+    A bare empty list is the silent-false-negative shape this guards against.
+    """
+    if result.is_error is True:
+        text = " ".join(
+            block.text for block in result.content if isinstance(block, TextContent)
+        )
+        assert "[LSP_UNSUPPORTED]" in text, text
+        return
+    payload = _unwrap_result_payload(result.structured_content)
+    assert isinstance(payload, list)
+    assert payload, "expected a non-empty payload or an [LSP_UNSUPPORTED] error"
 
 
 def _find_position(file_path: Path, token: str) -> tuple[int, int]:
@@ -415,7 +432,7 @@ async def test_inlay_and_semantic_tokens(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure inlay hints and semantic token tools return structured arrays."""
+    """Ensure inlay hints and semantic tokens return data or an explicit unsupported error."""
     service_path = sample_workspace / "src" / "service.py"
 
     inlay = await mcp_session.call_tool(
@@ -427,12 +444,8 @@ async def test_inlay_and_semantic_tokens(
         {"file_path": str(service_path)},
     )
 
-    assert inlay.is_error is not True
-    assert semantic.is_error is not True
-    inlay_payload = _unwrap_result_payload(inlay.structured_content)
-    semantic_payload = _unwrap_result_payload(semantic.structured_content)
-    assert isinstance(inlay_payload, list)
-    assert isinstance(semantic_payload, list)
+    _assert_data_or_unsupported(inlay)
+    _assert_data_or_unsupported(semantic)
 
 
 @pytest.mark.asyncio
@@ -513,11 +526,9 @@ async def test_type_hierarchy_and_selection_range_tools(
     )
 
     assert type_result.is_error is not True
-    assert selection_result.is_error is not True
     type_payload = type_result.structured_content
-    selection_payload = _unwrap_result_payload(selection_result.structured_content)
     assert isinstance(type_payload, dict)
-    assert isinstance(selection_payload, list)
+    _assert_data_or_unsupported(selection_result)
 
 
 @pytest.mark.asyncio

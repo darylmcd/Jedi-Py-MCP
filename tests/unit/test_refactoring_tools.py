@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import BackendError, RopeError, ToolInputError
+from python_refactor_mcp.errors import (
+    BackendError,
+    LspFeatureUnsupportedError,
+    RopeError,
+    ToolInputError,
+)
 from python_refactor_mcp.models import (
     Diagnostic,
     InlayHint,
@@ -1032,6 +1037,22 @@ async def test_apply_type_annotations_no_hints_returns_empty(tmp_path: Path) -> 
     assert result.edits == []
     assert result.files_affected == []
     assert "No inferable" in result.description
+
+
+@pytest.mark.asyncio
+async def test_apply_type_annotations_propagates_unsupported_inlay_hints(tmp_path: Path) -> None:
+    """An inlay-hint-less Pyright surfaces LSP_UNSUPPORTED, not "No inferable" hints."""
+    target = tmp_path / "m.py"
+    target.write_text("def f(x):\n    return x\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_inlay_hints.side_effect = LspFeatureUnsupportedError("inlayHint unsupported")
+
+    with pytest.raises(LspFeatureUnsupportedError) as raised:
+        await refactoring.apply_type_annotations(pyright, str(target), apply=True)
+
+    assert raised.value.code == "LSP_UNSUPPORTED"
+    assert target.read_text(encoding="utf-8") == "def f(x):\n    return x\n"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,1 @@
+- **Fixed:** `selection_range`, `get_inlay_hints`, `get_semantic_tokens` and `apply_type_annotations` return an explicit `[LSP_UNSUPPORTED]` error when the running Pyright does not implement the LSP method, instead of a silent empty result; the client now records Pyright's advertised capabilities.
