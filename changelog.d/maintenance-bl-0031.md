@@ -1,0 +1,1 @@
+- **Maintenance:** `.worktrees/` is gitignored so worktree-based workflows keep the primary checkout clean.
