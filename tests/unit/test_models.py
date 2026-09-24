@@ -151,3 +151,14 @@ def test_signature_operation_rejects_negative_index() -> None:
     assert "index" in str(exc_info.value)
     assert SignatureOperation(op="inline_default", index=0).index == 0
     assert SignatureOperation(op="normalize").index is None
+
+
+def test_signature_operation_rejects_negative_new_order_entry() -> None:
+    """A negative reorder index fails validation instead of being silently dropped."""
+    with pytest.raises(ValidationError) as exc_info:
+        SignatureOperation(op="reorder", new_order=[1, -1, 0])
+    errors = exc_info.value.errors()
+    assert [error["loc"] for error in errors] == [("new_order", 1)]
+    assert "new_order" in str(exc_info.value)
+    assert SignatureOperation(op="reorder", new_order=[1, 0]).new_order == [1, 0]
+    assert SignatureOperation(op="normalize").new_order is None
