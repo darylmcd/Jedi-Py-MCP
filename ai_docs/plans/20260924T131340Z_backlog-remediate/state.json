@@ -479,24 +479,26 @@
       "backlogRowsClosed": [
         "bl-0012"
       ],
-      "productionFilesTouched": 3,
+      "productionFilesTouched": 4,
       "productionFiles": [
         "src/python_refactor_mcp/backends/rope_backend.py",
         "src/python_refactor_mcp/models.py",
-        "src/python_refactor_mcp/server.py"
+        "src/python_refactor_mcp/server.py",
+        "src/python_refactor_mcp/backends/_threading.py"
       ],
-      "testFilesAdded": 3,
+      "testFilesAdded": 4,
       "testFiles": [
         "tests/unit/test_rope_backend.py",
         "tests/unit/test_models.py",
-        "tests/integration/test_end_to_end.py"
+        "tests/integration/test_end_to_end.py",
+        "tests/unit/test__threading.py"
       ],
       "docFiles": [],
       "rowsClosedCount": 1,
       "estimatedContextTokens": 45000,
       "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": 3,
+      "fanoutEstimate": 4,
       "fanoutOversize": false,
       "deepenerStatus": "ok",
       "deepenerFlags": {
@@ -513,8 +515,17 @@
       "mergedAt": null,
       "notes": null,
       "fileSetHash": "83c28ae37110cc6c53217bc48d65b5fb2748f2c9dde1825e7599c7e97a08d81e",
-      "stanzaHash": "f83313446de400e6b9c89fe3299f89caf783e36642a0b0ffd78af1996545cf10",
-      "reviewedStanzaHash": "f83313446de400e6b9c89fe3299f89caf783e36642a0b0ffd78af1996545cf10"
+      "stanzaHash": "13655381bcf6e935f9ccd59ee38dd50b6a952db7c8e644b3e8952b1ac79a89a3",
+      "reviewedStanzaHash": "13655381bcf6e935f9ccd59ee38dd50b6a952db7c8e644b3e8952b1ac79a89a3",
+      "amendments": [
+        {
+          "at": "2026-09-24T16:54:09.616Z",
+          "finding": "implementation-review spec scope-overshoot (irreducible): _threading.py + test__threading.py outside Scope",
+          "reason": "run_in_thread rewraps ToolInputError as RopeError (rope_backend.py:168 -> _threading.py:50 -> tool_runtime.py:281 redaction); companion cited as defect-forced-companion",
+          "previousStanzaHash": "f83313446de400e6b9c89fe3299f89caf783e36642a0b0ffd78af1996545cf10",
+          "stanzaHash": "13655381bcf6e935f9ccd59ee38dd50b6a952db7c8e644b3e8952b1ac79a89a3"
+        }
+      ]
     },
     {
       "id": "bl-0013",
@@ -1088,8 +1099,8 @@
     }
   ],
   "conflictGraphInputHash": "c3ee0efb484e0f42b42a20d13088cdd9e2e883937c095f03e6f3e04227849b89",
-  "planHash": "7529f45dca0538aa1e90bfb71912881f4c7b49ed087e8bc85b206fe042cd0a10",
+  "planHash": "757dfe9af4d369290f8301bab23d6f3a1a7ac30abdcd4c0b00b9ee3fb94036c3",
   "backlogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7",
-  "reviewedPlanHash": "7529f45dca0538aa1e90bfb71912881f4c7b49ed087e8bc85b206fe042cd0a10",
+  "reviewedPlanHash": "757dfe9af4d369290f8301bab23d6f3a1a7ac30abdcd4c0b00b9ee3fb94036c3",
   "reviewedBacklogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7"
 }
