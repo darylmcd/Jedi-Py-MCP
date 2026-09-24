@@ -1,12 +1,12 @@
 {
   "schemaVersion": 4,
   "generatedAt": "2026-09-24T18:30:12.020Z",
-  "backlogSnapshot": "2026-09-24T18:09:20Z",
+  "backlogSnapshot": "2026-09-24T22:38:49Z",
   "addendaLoaded": true,
   "phase": "complete",
   "cycleCount": 1,
   "maxCycles": 2,
-  "completed": false,
+  "completed": true,
   "reviewStatus": "failed-after-remediation",
   "readyForExecute": false,
   "initiatives": [
@@ -373,7 +373,7 @@
     {
       "id": "bl-0020",
       "order": 9,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0020"
       ],
@@ -401,10 +401,10 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0020",
+      "worktreePath": ".worktrees/bl-0020",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/148",
+      "mergedAt": "2026-09-24T22:37:14Z",
       "notes": null,
       "fileSetHash": "b2608697c0150cbda59d159b7b1ff1ecdca72a1cb1ca7fc6dcaa316522632345",
       "stanzaHash": "3bbf7d9f93d6c55ecd98847d80edd9533da82baa8463105c45c43758a42f87c2",
@@ -417,7 +417,19 @@
           "previousStanzaHash": "7f1fb7af3914bb903792502a1e556142380770969c43d77372839eaba8b4a873",
           "stanzaHash": "3bbf7d9f93d6c55ecd98847d80edd9533da82baa8463105c45c43758a42f87c2"
         }
-      ]
+      ],
+      "chainGate": {
+        "predecessor": null,
+        "baseOid": "5ed85908f9ec5d84095a508e4c411cc28175d14c",
+        "sourceOid": "a092bee232dd363c0ee3fa0d6a9ea289f5fe431b",
+        "headOid": "a092bee232dd363c0ee3fa0d6a9ea289f5fe431b",
+        "gatedTree": "ed2946d67e7c7484a11e5e48c225a9b4e884d5c0",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/8dc5ad20-d812-4d51-9510-6f27f268b856/scratchpad/gatelogs/chain-bl-0020-20260924T223040219Z-54796-a1.log",
+        "gatedAt": "2026-09-24T22:36:46.300Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0024",
@@ -906,5 +918,6 @@
   "planHash": "64e80116079dab799e04e2ea3692afda5fd68ba3bf68f538d4558f18ac0b7230",
   "backlogSnapshotHash": "237073c30029f28e1431b21cd4c8ca4eb11c6696928d93e25090a61ae2ce2cab",
   "reviewedPlanHash": "64e80116079dab799e04e2ea3692afda5fd68ba3bf68f538d4558f18ac0b7230",
-  "reviewedBacklogSnapshotHash": "237073c30029f28e1431b21cd4c8ca4eb11c6696928d93e25090a61ae2ce2cab"
+  "reviewedBacklogSnapshotHash": "237073c30029f28e1431b21cd4c8ca4eb11c6696928d93e25090a61ae2ce2cab",
+  "completedAt": "2026-09-24T22:39:14.611Z"
 }

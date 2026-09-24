@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T22:07:17Z
+**updated_at:** 2026-09-24T22:38:49Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -64,15 +64,19 @@
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
 | `bl-0037` | Medium | — | **Search/analysis caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in structural, search helpers, diagnostics and type_users to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0037.md |
 | `bl-0038` | Medium | — | **Navigation/rename/server caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in hierarchy, outline, rename and server to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0038.md |
+| `bl-0039` | Medium | — | **Pyright restart-retry leaks a raw TimeoutError** — wrap the post-restart `wait_for` retry in `_request` so its timeout raises `PyrightError` like the first attempt; add a unit test. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0039.md |
 
 ## Low
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `bl-0018` | Low | bl-0035 | **Numeric bounds inconsistent across tools** — apply one validation rule for `limit`/`offset`/`depth`/`max_items`/`count` (≥1 or ≥0) uniformly, and reject `undo`/`redo` `count < 1`. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0018.md |
-| `bl-0020` | Low | — | **Tool parameters carry no schema descriptions** — add `Annotated[..., Field(description=...)]` to every parameterized tool in `tool_registry.py`/`server.py`; contract test asserts each advertises ≥1 described parameter. [type: docs] [source: bl-0017] | M | items/bl-0020.md |
 | `bl-0021` | Low | bl-0020 | **Closed-set tool params expose no enum or bounds** — type `direction`/`style`/`kind`/`severity_filter`/`source`/`language`/`SignatureOperation.op` as `Literal`, add `ge=0` to line/character positions; contract test checks the schema. [type: bug] [source: bl-0017] | M | items/bl-0021.md |
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
+| `bl-0040` | Low | — | **`_validate_position` rejects valid UTF-16 end-of-line columns** — bound `character` by the line's UTF-16 length using bl-0033's helpers. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0040.md |
+| `bl-0041` | Low | — | **Relative path params resolve against the server cwd** — decide workspace-relative vs reject for relative `file_path`/`root_path` in `validate_workspace_path` and pin it with a test. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0041.md |
+| `bl-0042` | Low | bl-0041 | **Workspace-relative directory resolution duplicated** — share one `util/shared.py` helper between `tool_runtime` DIR_PARAMS and `type_stubs._resolve_stub_root`. [type: refactor] [source: backlog-remediate-20260924T183010Z] | M | items/bl-0042.md |
+| `bl-0043` | Low | — | **`.ai-doc-audit.md` stale consumption path and `private` note** — say the servers are registered user-scope in `~/.claude.json` and drop the `private` block wording. [type: docs] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0043.md |
 
 ## Defer
 
