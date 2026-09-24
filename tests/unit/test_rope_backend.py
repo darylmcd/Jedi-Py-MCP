@@ -460,6 +460,21 @@ async def test_generate_code_module_and_package_apply_creates_resource(
 
 
 @pytest.mark.asyncio
+async def test_generate_code_module_apply_keeps_existing_resource(tmp_path: Path) -> None:
+    """A module that already exists is refused without touching it or the usage file."""
+    source = "helpers.run()\n"
+    backend, module = _generate_fixture(tmp_path, source)
+    existing = tmp_path / "helpers.py"
+    existing.write_text("KEEP = 1\n", encoding="utf-8")
+
+    with pytest.raises(RopeError):
+        await backend.generate_code(str(module), 0, 0, "module", apply=True)
+
+    assert existing.read_text(encoding="utf-8") == "KEEP = 1\n"
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
 async def test_generate_code_rejects_unknown_kind(tmp_path: Path) -> None:
     backend, module = _generate_fixture(tmp_path, "value = thing\n")
 

@@ -6,7 +6,6 @@ import ast
 import keyword
 import logging
 import os
-import shutil
 import threading
 from collections.abc import Callable
 from difflib import SequenceMatcher
@@ -303,29 +302,22 @@ class RopeBackend:
         return changed_files
 
     def _do_with_resource_changes(self, project: Project, changes: ChangeSet, description: str) -> RefactorResult:
-        """Apply a change set that creates resources through rope, restoring edited files on failure."""
+        """Apply a change set that creates resources through rope.
+
+        rope's ``ChangeSet.do`` undoes every change it completed when a later one
+        fails, so no manual rollback is layered on top (a manual one could delete a
+        resource that already existed before this call).
+        """
         edits = self._changes_to_edits(changes)
-        originals = {edit.file_path: Path(edit.file_path).read_bytes() for edit in edits}
         created = [
             _absolute_path(str(self._config.workspace_root / change.resource.path))
             for change in changes.changes
             if not isinstance(change, ChangeContents)
         ]
-        try:
-            project.do(changes)
-        except Exception:
-            for file_path, original in originals.items():
-                write_bytes_atomic(file_path, original)
-            for created_path in reversed(created):
-                target = Path(created_path)
-                if target.is_dir():
-                    shutil.rmtree(target)
-                elif target.exists():
-                    target.unlink()
-            raise
+        project.do(changes)
         return RefactorResult(
             edits=edits,
-            files_affected=sorted({*originals, *created}),
+            files_affected=sorted({*(edit.file_path for edit in edits), *created}),
             description=description,
             applied=True,
         )
