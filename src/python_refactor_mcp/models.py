@@ -630,6 +630,11 @@ class LayerViolation(BaseModel):
 class LayerViolationResult(ScanResult[LayerViolation]):
     """Layer violations plus partial-scan metadata."""
 
+    unmatched_layer_patterns: list[str] = Field(
+        default_factory=list,
+        description="Declared layer patterns that matched no scanned source module, in declaration order.",
+    )
+
 
 class StaticError(BaseModel):
     """A static analysis error from rope's finderrors."""
