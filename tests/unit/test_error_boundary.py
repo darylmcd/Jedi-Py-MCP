@@ -23,6 +23,7 @@ from python_refactor_mcp.errors import (
     JediError,
     PyrightError,
     RopeError,
+    ToolInputError,
     WorkspaceResolutionError,
 )
 from python_refactor_mcp.tool_runtime import (
@@ -443,7 +444,7 @@ async def test_wrapper_validates_path_against_resolved_workspace(tmp_path: Path)
         return "ok"
 
     # get_backends returns the ws-rooted backends, but the path is elsewhere.
-    with pytest.raises(ValueError, match="outside the workspace root"):
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
         await tool(ctx, file_path=str(tmp_path / "elsewhere" / "mod.py"))
     assert called is False
 
@@ -477,5 +478,71 @@ async def test_wrapper_validates_identifier_without_backends() -> None:
         return "ok"
 
     # No ctx -> backends is None, but identifier validation still applies.
-    with pytest.raises(ValueError, match="not a valid Python identifier"):
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] '1bad' is not a valid Python identifier"):
         await tool(new_name="1bad")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_name", ["   ", "class"])
+async def test_wrapper_surfaces_invalid_identifier_verbatim_without_error_log(
+    caplog: pytest.LogCaptureFixture,
+    bad_name: str,
+) -> None:
+    """Caller-input rejections name the parameter and are not logged as server failures."""
+
+    @tool_error_boundary
+    async def tool(new_name: str) -> str:
+        return "unreachable"
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="python_refactor_mcp.server"),
+        pytest.raises(ToolError) as raised,
+    ):
+        await tool(new_name=bad_name)
+
+    message = str(raised.value)
+    assert message.startswith("[INVALID_INPUT] ")
+    assert "(parameter: new_name)" in message
+    assert "Failure ID" not in message
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+    record = next(record for record in caplog.records if getattr(record, "event", None) == "tool_input_error")
+    assert record.levelno == logging.DEBUG
+    assert record.tool_name == "tool"
+    assert record.error_code == "INVALID_INPUT"
+    assert record.exc_info is None
+
+
+@pytest.mark.asyncio
+async def test_wrapper_surfaces_tool_input_error_raised_by_tool(tmp_path: Path) -> None:
+    """A ToolInputError raised inside a tool body is surfaced verbatim, not redacted."""
+    root = tmp_path / "ws"
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(return_value=backends)
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        raise ToolInputError("stub_file must point to a .pyi file")
+
+    with pytest.raises(ToolError) as raised:
+        await tool(ctx, file_path=str(root / "mod.py"))
+
+    assert str(raised.value) == "[INVALID_INPUT] stub_file must point to a .pyi file"
+
+
+@pytest.mark.asyncio
+async def test_wrapper_leaves_unanticipated_exceptions_untranslated(tmp_path: Path) -> None:
+    """Only ToolInputError and BackendError are translated; other exceptions stay opaque."""
+    root = tmp_path / "ws"
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(return_value=backends)
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        raise ValueError("internal invariant")
+
+    with pytest.raises(ValueError, match="internal invariant"):
+        await tool(ctx, file_path=str(root / "mod.py"))

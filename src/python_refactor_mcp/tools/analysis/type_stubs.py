@@ -8,6 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Protocol
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import TypeStubFreshnessResult, TypeStubSignatureDrift
 
 
@@ -149,13 +150,16 @@ def check_type_stub_freshness(
     source_path = Path(source_file).expanduser().resolve()
     stub_path = Path(stub_file).expanduser().resolve() if stub_file else source_path.with_suffix(".pyi")
     if source_path.suffix != ".py":
-        raise ValueError("source_file must point to a .py file")
+        raise ToolInputError("source_file must point to a .py file")
     if stub_path.suffix != ".pyi":
-        raise ValueError("stub_file must point to a .pyi file")
+        raise ToolInputError("stub_file must point to a .pyi file")
     if not source_path.is_file():
-        raise FileNotFoundError(f"Source file does not exist: {source_path}")
+        raise ToolInputError(f"Source file not found: {source_path} (parameter: source_file)")
     if not stub_path.is_file():
-        raise FileNotFoundError(f"Stub file does not exist: {stub_path}")
+        raise ToolInputError(
+            f"Stub file not found: {stub_path} (parameter: stub_file; when omitted it defaults to "
+            "the .pyi file adjacent to source_file)"
+        )
 
     source_signatures, source_overloads, source_protocols = _collect_signatures(_parse_module(source_path))
     stub_signatures, stub_overloads, stub_protocols = _collect_signatures(_parse_module(stub_path))

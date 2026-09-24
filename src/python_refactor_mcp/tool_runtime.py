@@ -16,7 +16,7 @@ from typing import Any
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
@@ -163,7 +163,7 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
         values = kwargs.get(param_name)
         if isinstance(values, list):
             if not all(isinstance(value, str) for value in values):
-                raise ValueError(f"{param_name} must contain only strings")
+                raise ToolInputError(f"{param_name} must contain only strings")
             kwargs[param_name] = [validate_workspace_path(value, workspace_root) for value in values]
 
     for args in _transaction_step_args(kwargs):
@@ -186,7 +186,7 @@ def _validate_identifiers(kwargs: dict[str, Any]) -> None:
         values = kwargs.get(param_name)
         if isinstance(values, list):
             if not all(isinstance(value, str) for value in values):
-                raise ValueError(f"{param_name} must contain only strings")
+                raise ToolInputError(f"{param_name} must contain only strings")
             for value in values:
                 validate_identifier(value, param_name)
 
@@ -234,10 +234,30 @@ def _translate_backend_error(exc: BackendError, tool_name: str) -> ToolError:
     return ToolError(f"[{exc.code}] {exc.caller_summary} Failure ID: {failure_id}.")
 
 
+def _translate_input_error(exc: ToolInputError, tool_name: str) -> ToolError:
+    """Build the caller-facing error for a rejected caller input.
+
+    The message is caller-safe by contract (see ``ToolInputError``), so it is
+    surfaced verbatim. A rejected input is not a server failure: it is logged at
+    DEBUG without a traceback or failure id.
+    """
+    _LOGGER.debug(
+        "Rejected tool input tool=%s code=%s",
+        tool_name,
+        exc.code,
+        extra={
+            "event": "tool_input_error",
+            "tool_name": tool_name,
+            "error_code": exc.code,
+        },
+    )
+    return ToolError(f"[{exc.code}] {exc}")
+
+
 def tool_error_boundary(
     func: Callable[..., Awaitable[Any]],
 ) -> Callable[..., Awaitable[Any]]:
-    """Resolve request backends and translate anticipated backend failures."""
+    """Resolve request backends and translate anticipated caller-input and backend failures."""
 
     @wraps(func)
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -256,6 +276,8 @@ def tool_error_boundary(
                     _validate_identifiers(step_args)
 
             return await func(*args, **kwargs)
+        except ToolInputError as exc:
+            raise _translate_input_error(exc, func.__name__) from None
         except BackendError as exc:
             raise _translate_backend_error(exc, func.__name__) from None
         finally:

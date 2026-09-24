@@ -17,6 +17,23 @@ class BackendError(Exception):
     )
 
 
+class ToolInputError(ValueError):
+    """Raised when a tool call is rejected because of the caller's own input.
+
+    Unlike ``BackendError``, the message IS the caller-facing contract: the MCP
+    boundary surfaces it verbatim as ``[INVALID_INPUT] <message>``. Messages must
+    name the offending parameter and the reason, and may only echo values the
+    caller supplied or user-facing choices (e.g. available code-action titles) —
+    never raw provider output, tracebacks, or server-internal state.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` handlers keep
+    working; it deliberately does not subclass ``BackendError`` so the backend
+    redaction contract is unchanged.
+    """
+
+    code: ClassVar[str] = "INVALID_INPUT"
+
+
 class PyrightError(BackendError):
     """Raised when Pyright backend operations fail."""
 

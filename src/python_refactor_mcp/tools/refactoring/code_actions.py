@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
 
 from .helpers import (
@@ -19,9 +20,10 @@ if TYPE_CHECKING:
 
 
 def _pick_code_action(actions: list[dict[str, object]], action_title: str | None = None) -> dict[str, object]:
-    """Select a code action by title or fall back to the first available action."""
-    if not actions:
-        raise ValueError("No code actions were available for the requested location.")
+    """Select a code action by title or fall back to the first available action.
+
+    *actions* must be non-empty; callers handle the no-actions case themselves.
+    """
     if action_title is None:
         return actions[0]
 
@@ -34,7 +36,11 @@ def _pick_code_action(actions: list[dict[str, object]], action_title: str | None
         title = action.get("title")
         if isinstance(title, str) and lowered_title in title.strip().lower():
             return action
-    raise ValueError(f"Unable to find code action matching '{action_title}'.")
+    available = [title for action in actions if isinstance(title := action.get("title"), str)]
+    raise ToolInputError(
+        f"No code action matches action_title '{action_title}'. "
+        f"Available titles: {', '.join(repr(title) for title in available) or 'none'}."
+    )
 
 
 async def apply_code_action(
@@ -57,12 +63,22 @@ async def apply_code_action(
         end=Position(line=line, character=character),
     )
     actions = await pyright.get_code_actions(file_path, request_range, selected_diagnostics)
+    if not actions:
+        return RefactorResult(
+            edits=[],
+            files_affected=[],
+            description="No code actions available at the requested position",
+            applied=False,
+        )
     selected = _pick_code_action(actions, action_title)
     title = selected.get("title")
     description = title if isinstance(title, str) and title else "Applied code action"
     edits = workspace_edit_to_text_edits(selected.get("edit"))
     if not edits:
-        raise ValueError("Selected code action does not provide editable workspace changes.")
+        raise ToolInputError(
+            f"Code action '{description}' does not provide editable workspace changes; "
+            "choose a different action_title."
+        )
     result = result_from_text_edits(edits, description, apply)
     return await post_apply_diagnostics(pyright, result)
 
