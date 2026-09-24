@@ -630,7 +630,7 @@ async def organize_imports(
     apply: bool = False,
     file_paths: list[str] | None = None,
 ) -> RefactorResult:
-    """Sort and group imports according to PEP 8 conventions. Use to clean up messy import sections or as a post-refactoring step. Non-destructive — only reorders, never removes needed imports. Defaults to preview mode. Related: apply_code_action, get_diagnostics."""
+    """Sort and group imports according to PEP 8 conventions. Use to clean up messy import sections or as a post-refactoring step. Only reorders and regroups; never removes needed imports. Defaults to preview mode. Related: apply_code_action, get_diagnostics."""
     app = get_current_backends()
     result = await refactoring.organize_imports(app.pyright, file_path, apply, file_paths)
     _LOGGER.debug("organize_imports edits=%s applied=%s", len(result.edits), result.applied)
@@ -1695,15 +1695,15 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(inline_variable, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(move_symbol, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(split_module, DESTRUCTIVE_ANNOTATIONS),
-    ToolRecord(apply_code_action, ADDITIVE_ANNOTATIONS),
-    ToolRecord(organize_imports, ADDITIVE_ANNOTATIONS),
-    ToolRecord(format_code, ADDITIVE_ANNOTATIONS),
-    ToolRecord(apply_lint_fixes, ADDITIVE_ANNOTATIONS),
-    ToolRecord(apply_type_annotations, ADDITIVE_ANNOTATIONS),
-    ToolRecord(expand_star_imports, ADDITIVE_ANNOTATIONS),
-    ToolRecord(relatives_to_absolutes, ADDITIVE_ANNOTATIONS),
-    ToolRecord(froms_to_imports, ADDITIVE_ANNOTATIONS),
-    ToolRecord(handle_long_imports, ADDITIVE_ANNOTATIONS),
+    ToolRecord(apply_code_action, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(organize_imports, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(format_code, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(apply_lint_fixes, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(apply_type_annotations, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(expand_star_imports, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(relatives_to_absolutes, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(froms_to_imports, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(handle_long_imports, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(autoimport_search, READ_ONLY_ANNOTATIONS),
     ToolRecord(prepare_rename, READ_ONLY_ANNOTATIONS),
     ToolRecord(introduce_parameter, DESTRUCTIVE_ANNOTATIONS),
