@@ -1,0 +1,39 @@
+"""Detail the oversized outline and the empty layer check on the repo copy."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+from harness_common import SCRATCH, session
+
+WR = SCRATCH / "ws_repo"
+SRC = WR / "src" / "python_refactor_mcp"
+
+
+def count(items: list, depth: int = 0) -> tuple[int, int]:
+    n, d = 0, depth
+    for it in items:
+        n += 1
+        c, cd = count(it.get("children") or [], depth + 1)
+        n += c
+        d = max(d, cd)
+    return n, d
+
+
+async def main() -> None:
+    async with session("analysis", WR) as (s, _):
+        r = await s.call_tool("get_symbol_outline", {"root_path": str(SRC)})
+        items = r.structured_content["result"]
+        total, depth = count(items)
+        one = json.dumps(items[0])
+        print("outline top-level:", len(items), "total nodes:", total, "max depth:", depth, "first item chars:", len(one))
+        print("first item keys:", list(items[0].keys()))
+        print(one[:600])
+        r = await s.call_tool("check_layer_violations", {"layers": [["python_refactor_mcp.server"], ["python_refactor_mcp.tools"], ["python_refactor_mcp.backends"]]})
+        print("layers:", json.dumps(r.structured_content))
+        r = await s.call_tool("check_layer_violations", {"layers": [["backends"], ["tools"]]})
+        print("layers inverted (tools import backends => expect violations):", json.dumps(r.structured_content)[:400])
+
+
+asyncio.run(main())

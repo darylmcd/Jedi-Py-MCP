@@ -1,0 +1,47 @@
+"""Phase §3: enumerate tools/resources/prompts for both profiles over raw stdio."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+
+from harness_common import RAW, session
+
+
+async def dump(profile: str) -> None:
+    t0 = time.perf_counter()
+    async with session(profile) as (s, init):
+        startup = time.perf_counter() - t0
+        out: dict = {
+            "profile": profile,
+            "startup_seconds": round(startup, 2),
+            "initialize": init.model_dump(mode="json", by_alias=True, exclude_none=True),
+        }
+        tools = await s.list_tools()
+        out["tools"] = [t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools.tools]
+        out["tools_next_cursor"] = tools.next_cursor
+        for key, fn in (
+            ("resources", s.list_resources),
+            ("resource_templates", s.list_resource_templates),
+            ("prompts", s.list_prompts),
+        ):
+            try:
+                res = await fn()
+                out[key] = res.model_dump(mode="json", by_alias=True, exclude_none=True)
+            except Exception as exc:  # record the protocol error verbatim
+                out[key] = {"error": f"{type(exc).__name__}: {exc}"}
+    (RAW / f"inventory_{profile}.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+    print(profile, "tools", len(out["tools"]), "startup", out["startup_seconds"])
+    for k in ("resources", "resource_templates", "prompts"):
+        print(" ", k, json.dumps(out[k])[:300])
+    print("  caps", json.dumps(out["initialize"].get("capabilities")))
+    print("  serverInfo", json.dumps(out["initialize"].get("serverInfo")))
+
+
+async def main() -> None:
+    for p in ("refactoring", "analysis"):
+        await dump(p)
+
+
+asyncio.run(main())

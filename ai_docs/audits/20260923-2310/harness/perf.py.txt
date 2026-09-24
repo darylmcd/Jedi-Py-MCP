@@ -1,0 +1,74 @@
+"""Workspace-scale timing pass (>30 s = perf finding) against a scratch copy of this repo."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from pathlib import Path
+
+from harness_common import RAW, SCRATCH, session
+
+WR = SCRATCH / "ws_repo"
+SRC = WR / "src" / "python_refactor_mcp"
+MODELS = str(SRC / "models.py")
+
+
+def pos(path: str, needle: str, delta: int = 0) -> dict[str, int]:
+    for i, ln in enumerate(Path(path).read_text(encoding="utf-8").splitlines()):
+        c = ln.find(needle)
+        if c != -1:
+            return {"line": i, "character": c + delta}
+    raise KeyError(needle)
+
+
+CALLS = [
+    ("refactoring", "server_status", {}),
+    ("refactoring", "dead_code_detection", {"root_path": str(WR)}),
+    ("analysis", "unused_symbol_sweep", {"root_path": str(SRC)}),
+    ("refactoring", "get_workspace_diagnostics", {"root_path": str(WR)}),
+    ("refactoring", "get_module_dependencies", {}),
+    ("analysis", "get_coupling_metrics", {}),
+    ("analysis", "check_layer_violations", {"layers": [["python_refactor_mcp.server"], ["python_refactor_mcp.tools"], ["python_refactor_mcp.backends"]]}),
+    ("refactoring", "search_symbols", {"query": "Result"}),
+    ("analysis", "find_constructors", {"class_name": "RefactorResult"}),
+    ("refactoring", "find_references", {"file_path": MODELS, **pos(MODELS, "class RefactorResult", 6)}),
+    ("analysis", "find_type_users", {"file_path": MODELS, **pos(MODELS, "class RefactorResult", 6)}),
+    ("analysis", "get_test_coverage_map", {"file_path": MODELS}),
+    ("analysis", "call_hierarchy", {"file_path": str(SRC / "util" / "shared.py"), **pos(str(SRC / "util" / "shared.py"), "def apply_limit", 4), "depth": 3}),
+    ("refactoring", "test_impact_select", {"symbols": [{"file_path": str(SRC / "util" / "shared.py"), **pos(str(SRC / "util" / "shared.py"), "def apply_limit", 4)}]}),
+    ("analysis", "find_duplicated_code", {"file_path": MODELS, "file_paths": [str(p) for p in SRC.rglob("*.py")]}),
+    ("analysis", "code_metrics", {"file_path": MODELS, "file_paths": [str(p) for p in SRC.rglob("*.py")]}),
+    ("refactoring", "get_symbol_outline", {"root_path": str(SRC)}),
+    ("refactoring", "fix_circular_imports", {}),
+    ("refactoring", "fix_module_names", {}),
+    ("refactoring", "rename_symbol", {"file_path": MODELS, **pos(MODELS, "class RefactorResult", 6), "new_name": "RefactorOutcome"}),
+    ("refactoring", "security_scan", {"file_paths": [str(p) for p in SRC.rglob("*.py")]}),
+    ("analysis", "project_search", {"query": "RefactorResult"}),
+]
+
+
+async def main() -> None:
+    out = []
+    for prof in ("refactoring", "analysis"):
+        t0 = time.perf_counter()
+        async with session(prof, WR) as (s, _):
+            out.append({"profile": prof, "tool": "<startup+prewarm>", "seconds": round(time.perf_counter() - t0, 2)})
+            for p, tool, args in CALLS:
+                if p != prof:
+                    continue
+                t = time.perf_counter()
+                try:
+                    r = await asyncio.wait_for(s.call_tool(tool, args, read_timeout_seconds=600), 610)
+                    txt = " ".join(getattr(c, "text", "") for c in r.content or [])
+                    outcome, size = ("error" if r.is_error else "ok"), len(txt)
+                    detail = txt[:200] if r.is_error else ""
+                except Exception as exc:
+                    outcome, size, detail = type(exc).__name__, 0, str(exc)[:200]
+                sec = round(time.perf_counter() - t, 2)
+                out.append({"profile": prof, "tool": tool, "seconds": sec, "outcome": outcome, "response_chars": size, "detail": detail})
+                print(f"{sec:8.2f}s {prof[:3]} {tool:28s} {outcome:6s} {size:>9} chars {detail[:120]}", flush=True)
+    (RAW / "perf_calls.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+
+
+asyncio.run(main())

@@ -1,0 +1,48 @@
+"""Raw Pyright LSP probe through the server's own backend (scratch workspace only)."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+REPO = Path("<repo>")
+sys.path.insert(0, str(REPO / "src"))
+os.environ["PYRIGHT_LANGSERVER"] = str(REPO / ".venv" / "Scripts" / "pyright-langserver.exe")
+
+from python_refactor_mcp.util.paths import path_to_uri  # noqa: E402
+from python_refactor_mcp.workspace_registry import WorkspaceRegistry  # noqa: E402
+
+WS = Path(__file__).resolve().parent / "ws"
+A = str(WS / "src" / "audit.py")
+M = str(WS / "src" / "models.py")
+
+
+async def main() -> None:
+    reg = WorkspaceRegistry(max_workspaces=1)
+    await reg.set_roots([WS])
+    wb = await reg.get_backends(A)
+    py = wb.pyright
+    caps = getattr(py, "_server_capabilities", None)
+    print("stored server capabilities attr:", type(caps).__name__ if caps is not None else None)
+    await py.ensure_file_open(M)
+    await py.ensure_file_open(A)
+    r = await py._request("textDocument/prepareRename", {"textDocument": {"uri": path_to_uri(M)}, "position": {"line": 12, "character": 6}})
+    print("prepareRename raw:", json.dumps(r)[:300])
+    print("prepare_rename() ->", await py.prepare_rename(M, 12, 6))
+    for method, params in (
+        ("textDocument/selectionRange", {"textDocument": {"uri": path_to_uri(A)}, "positions": [{"line": 19, "character": 8}]}),
+        ("textDocument/inlayHint", {"textDocument": {"uri": path_to_uri(A)}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 110, "character": 0}}}),
+        ("textDocument/semanticTokens/full", {"textDocument": {"uri": path_to_uri(A)}}),
+    ):
+        r = await py._request(method, params)
+        print(method, "->", json.dumps(r)[:240])
+    for args in (["parso"], [path_to_uri(str(WS)), "parso"], [str(WS), "parso"]):
+        r = await py._request("workspace/executeCommand", {"command": "pyright.createtypestub", "arguments": args})
+        print("createtypestub", args, "->", json.dumps(r)[:200], "| typings exists:", (WS / "typings").exists())
+    await reg.shutdown_all()
+
+
+asyncio.run(main())

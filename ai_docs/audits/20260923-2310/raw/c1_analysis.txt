@@ -1,0 +1,274 @@
+total 1655 Counter({'error_result': 1272, 'ok': 383})
+
+== VALID calls ==
+  0.75 call_hierarchy               ok             idem=True  item={'name': 'helper', 'kind': 'function', 'file_,callers=1,callees=0,truncated=False
+  0.01 check_layer_violations       ok             idem=True  items=0,files_scanned=11,scan_failures=0
+  0.01 check_type_stub_freshness    error_result              Error executing tool check_type_stub_freshness
+  0.01 code_metrics                 ok             idem=True  
+  0.70 deep_type_inference          ok             idem=True  result=1
+  0.01 extract_protocol             ok             idem=True  protocol_name='AreaLike',source_code='class AreaLike(Protocol):\n    def ar,methods=1
+  0.02 find_constructors            ok             idem=True  items=5,files_scanned=11,scan_failures=0,total_count=5,truncated=False
+  0.01 find_duplicated_code         ok             idem=True  items=0,files_scanned=1,scan_failures=0
+  0.01 find_implementations         ok             idem=True  result=0
+  0.03 find_type_users              ok             idem=True  
+  0.06 get_all_names                ok             idem=True  
+  0.02 get_completions              ok             idem=True  result=29
+  0.01 get_context                  ok             idem=True  result={'name': 'area', 'kind': 'function', 'file_
+  0.02 get_coupling_metrics         ok             idem=True  items=11,files_scanned=11,scan_failures=0
+  0.01 get_declaration              ok             idem=True  result=1
+  0.01 get_document_highlights      ok             idem=True  result=2
+  0.01 get_documentation            ok             idem=True  file_path='<local-path>,line=52,character=8,entries=1
+  0.01 get_folding_ranges           ok             idem=True  result=28
+  0.01 get_inlay_hints              ok             idem=True  result=0
+  0.01 get_keyword_help             ok             idem=True  file_path='<local-path>,line=48,character=4,entries=1
+  0.02 get_module_public_api        ok             idem=True  result=17
+  0.01 get_semantic_tokens          ok             idem=True  result=0
+  0.01 get_signature_help           ok             idem=True  result={'label': '(a: int, b: int = 2) -> int', 'p
+  0.01 get_sub_definitions          ok             idem=True  result=3
+  0.01 get_test_coverage_map        ok             idem=True  entries=5,total_symbols=5,covered_count=1,coverage_pct=20.0,files_scanned=1
+  0.01 get_type_coverage            ok             idem=True  file_path='<local-path>,total_functions=20,annotated_return=19,annotated_params=13,total_params=15
+  0.01 get_type_definition          ok             idem=True  result=1
+  0.01 get_type_hint_string         ok             idem=True  result=1
+  0.01 interface_conformance        ok             idem=True  classes=2,common_methods=1,unique_methods={'Shape': ['__init__', 'describe']},signature_mismatches=0
+  0.02 project_search               ok             idem=True  result=3
+  0.01 simulate_execution           ok             idem=True  result=1
+  0.01 type_hierarchy               ok             idem=True  item={'name': 'Shape', 'kind': 'class', 'file_path,supertypes=0,subtypes=0,truncated=False
+  0.04 unused_symbol_sweep          ok             idem=True  
+  0.67 apply_code_action            error_result              Error executing tool apply_code_action
+  0.39 apply_lint_fixes             ok                        edits=1,files_affected=1,description='Applied ruff lint fixes to 1 file(s)',applied=False,diagnostics_after=None
+  0.01 apply_type_annotations       ok                        edits=0,files_affected=0,description='No inferable type annotations found',applied=False,diagnostics_after=None
+  0.07 argument_default_inliner     ok                        edits=1,files_affected=1,description='Changed function signature',applied=False,diagnostics_after=None
+  0.05 argument_normalizer          ok                        edits=1,files_affected=1,description='Changed function signature',applied=False,diagnostics_after=None
+  0.01 autoimport_search            ok             idem=True  result=1
+  0.05 change_signature             ok                        edits=1,files_affected=1,description='Changed function signature',applied=False,diagnostics_after=None
+  0.42 convert_function_to_method   ok                        edits=1,files_affected=1,description='Converted function config_url to Conf,applied=False,diagnostics_after=None
+  0.05 convert_method_to_function   ok                        edits=1,files_affected=1,description='Converted method Shape.describe to fu,applied=False,diagnostics_after=None
+  0.04 convert_to_dataclass         ok                        edits=1,files_affected=1,description='Converted Config to a dataclass with ,applied=False,diagnostics_after=None
+  0.06 convert_to_pydantic          ok                        edits=1,files_affected=1,description='Converted Account to a Pydantic v2 mo,applied=False,diagnostics_after=None
+  0.04 convert_to_typeddict         ok                        edits=1,files_affected=1,description='Converted make_record return dictiona,applied=False,diagnostics_after=None
+  0.64 create_type_stubs            ok                        result=True
+  0.07 dead_code_detection          ok             idem=True  
+  0.00 diff_preview                 ok             idem=True  result=1
+  0.03 docstring_sync               ok                        edits=1,files_affected=1,description='Synchronized 2 parameter(s) in a goog,applied=False,diagnostics_after=None
+  0.01 encapsulate_field            ok                        edits=1,files_affected=1,description='Encapsulated field',applied=False,diagnostics_after=None
+  0.05 expand_star_imports          ok                        edits=0,files_affected=0,description='Expanded star imports',applied=False,diagnostics_after=None
+  0.02 extract_class                ok                        edits=1,files_affected=1,description='Extracted 2 member(s) from Config int,applied=False,diagnostics_after=None
+  0.02 extract_method               ok                        edits=1,files_affected=1,description="Extracted method 'compute_area'",applied=False,diagnostics_after=None
+  0.02 extract_superclass           ok                        edits=1,files_affected=1,description='Extracted superclass BaseShape from S,applied=False,diagnostics_after=None
+  0.02 extract_variable             ok                        edits=1,files_affected=1,description="Extracted variable 'base'",applied=False,diagnostics_after=None
+  0.24 find_errors_static           ok             idem=True  result=4
+  0.03 find_references              ok             idem=True  symbol='<local-path>,definition=None,references=12,total_count=12,source='pyright'
+  0.01 find_unused_imports          ok             idem=True  items=1,files_scanned=1,scan_failures=0
+  0.02 fix_circular_imports         ok                        edits=0,files_affected=0,description='Moved 0 annotation-only circular impo,applied=False,diagnostics_after=None
+  0.02 fix_module_names             ok                        edits=0,files_affected=0,description='Fixed module names to PEP 8 conventio,applied=False,diagnostics_after=None
+  0.03 format_code                  ok                        edits=0,files_affected=0,description='All files already formatted',applied=False,diagnostics_after=None
+  0.04 froms_to_imports             ok                        edits=1,files_affected=1,description='Converted from-imports to import stat,applied=False,diagnostics_after=None
+  0.01 generate_code                error_result              Error executing tool generate_code: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: bf4adf434fb2.
+  0.01 get_diagnostics              ok             idem=True  result=1
+  0.02 get_module_dependencies      ok             idem=True  
+  0.00 get_refactoring_history      ok             idem=True  result=0
+  0.03 get_symbol_outline           ok             idem=True  
+  0.01 get_syntax_errors            ok             idem=True  result=0
+  0.01 get_type_info                ok             idem=True  expression='<local-path>,type_string='(variable) x: int',documentation='(variable) x: int',source='pyright'
+  0.02 get_workspace_diagnostics    ok             idem=True  items=2,total_count=2,offset=0,truncated=False
+  0.01 goto_definition              ok             idem=True  result=1
+  0.02 handle_long_imports          ok                        edits=0,files_affected=0,description='Handled long imports',applied=False,diagnostics_after=None
+  0.19 inline_method                ok                        edits=1,files_affected=1,description='Inlined method',applied=False,diagnostics_after=None
+  0.03 inline_parameter             ok                        edits=1,files_affected=1,description='Inlined parameter',applied=False,diagnostics_after=None
+  0.18 inline_variable              ok                        edits=1,files_affected=1,description='Inlined symbol',applied=False,diagnostics_after=None
+  0.03 introduce_factory            ok                        edits=1,files_affected=1,description='Introduced factory',applied=False,diagnostics_after=None
+  0.02 introduce_parameter          ok                        edits=1,files_affected=1,description="Introduced parameter 'scale_default'",applied=False,diagnostics_after=None
+  0.47 list_environments            ok             idem=True  result=2
+  0.03 local_to_field               ok                        edits=1,files_affected=1,description='Promoted local to field',applied=False,diagnostics_after=None
+  0.02 method_object                ok                        edits=1,files_affected=1,description='Extracted method object',applied=False,diagnostics_after=None
+  0.04 module_to_package            ok                        edits=1,files_affected=1,description='Converted module to package',applied=False,diagnostics_after=None
+  0.03 move_method                  ok                        edits=1,files_affected=1,description="Moved method to 'engine'",applied=False,diagnostics_after=None
+  0.04 move_module                  ok                        edits=0,files_affected=0,description="Moved module '<home>\\AppDa,applied=False,diagnostics_after=None
+  0.09 move_symbol                  ok                        edits=2,files_affected=2,description="Moved symbol 'compute' to <home>
+  0.04 multi_project_rename         ok                        
+  0.01 organize_imports             ok                        edits=0,files_affected=0,description='Imports already organized',applied=False,diagnostics_after=None
+  0.01 prepare_rename               ok             idem=True  result=None
+  0.02 relatives_to_absolutes       ok                        edits=1,files_affected=1,description='Converted relative imports to absolut,applied=False,diagnostics_after=None
+  0.04 rename_symbol                ok                        
+  0.02 restructure                  ok                        edits=1,files_affected=1,description='Applied structural replacement',applied=False,diagnostics_after=None
+  0.09 search_symbols               ok             idem=True  items=12,total_count=12,truncated=False,backend_failures=0
+  0.02 security_autofix             ok                        edits=1,files_affected=1,description='Rewrote 1 yaml.load() -> yaml.safe_lo,applied=False,diagnostics_after=None
+  0.01 security_scan                ok             idem=True  findings=3,files_scanned=1,total_findings=3,scan_failures=0
+  0.01 selection_range              ok             idem=True  result=0
+  0.01 server_status                ok             idem=True  version='0.5.0',cli_workspace_root='<local-path>,known_roots=1,active_workspaces=1,degraded=False
+  0.54 split_module                 ok                        edits=3,files_affected=3,description='Split module into 2 target modules',applied=False,diagnostics_after=None
+  0.03 structural_replace           ok                        edits=1,files_affected=1,description='Rewrote 1 match(es) across 1 file(s)',applied=False,diagnostics_after=None
+  0.03 structural_search            ok             idem=True  matches=1,files_scanned=1,scan_failures=0
+  0.01 suggest_imports              ok             idem=True  result=0
+  0.01 test_impact_select           ok             idem=True  entries=1,total_affected_tests=1,truncated=False
+  0.03 use_function                 ok                        edits=1,files_affected=1,description='Replaced duplicated code with functio,applied=False,diagnostics_after=None
+  1.27 restart_server               ok                        result='Pyright server restarted successfully'
+
+== non-idempotent RO == []
+== ws_changed == []
+== protocol/timeout/schema/runtime ==
+== slow (>5s) == []
+== traceback in client text == []
+
+== error code distribution == Counter({'PYDANTIC': 430, 'WORKSPACE_RESOLUTION': 332, 'ROPE_BACKEND': 150, 'PYRIGHT_BACKEND': 134, 'OPAQUE': 111, 'BACKEND': 58, 'JEDI_BACKEND': 55, 'OTHER': 2})
+
+== OPAQUE errors (message swallowed) == 33 tools
+   apply_code_action ['valid', 'extra_unknown_arg', 'neg:line', 'huge:line', 'neg:character', 'huge:character']
+   call_hierarchy ['neg:depth']
+   check_type_stub_freshness ['valid', 'extra_unknown_arg', 'str:source_file:missing', 'str:source_file:unicode_missing', 'str:source_file:dir']
+   convert_function_to_method ['str:function_name:empty', 'str:function_name:unicode', 'str:function_name:ws', 'str:function_name:punct']
+   convert_method_to_function ['str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   convert_to_dataclass ['str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   convert_to_pydantic ['str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   convert_to_typeddict ['str:function_name:empty', 'str:function_name:unicode', 'str:function_name:ws', 'str:function_name:punct']
+   extract_class ['str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   extract_method ['str:method_name:empty', 'str:method_name:unicode', 'str:method_name:ws', 'str:method_name:punct']
+   extract_protocol ['str:file_path:missing', 'str:file_path:unicode_missing', 'str:file_path:dir', 'str:protocol_name:empty', 'str:protocol_name:unicode', 'str:protocol_name:ws', 'str:protocol_name:punct']
+   extract_superclass ['str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   extract_variable ['str:variable_name:empty', 'str:variable_name:unicode', 'str:variable_name:ws', 'str:variable_name:punct']
+   find_constructors ['neg:limit', 'str:class_name:empty', 'str:class_name:unicode', 'str:class_name:ws', 'str:class_name:punct']
+   find_references ['neg:limit']
+   find_type_users ['neg:limit']
+   get_completions ['neg:limit']
+   get_diagnostics ['neg:limit']
+   get_module_public_api ['str:file_path:missing', 'str:file_path:unicode_missing', 'str:file_path:dir']
+   get_symbol_outline ['neg:limit']
+   interface_conformance ['str:file_path:missing', 'str:file_path:unicode_missing', 'str:file_path:dir']
+   introduce_parameter ['str:parameter_name:empty', 'str:parameter_name:unicode', 'str:parameter_name:ws', 'str:parameter_name:punct']
+   move_method ['str:destination_attr:empty', 'str:destination_attr:unicode', 'str:destination_attr:ws', 'str:destination_attr:punct']
+   move_module ['str:destination_package:empty', 'str:destination_package:relative', 'str:destination_package:outside_ws', 'str:destination_package:long']
+   move_symbol ['str:symbol_name:empty', 'str:symbol_name:unicode', 'str:symbol_name:ws', 'str:symbol_name:punct']
+   multi_project_rename ['str:new_name:empty', 'str:new_name:unicode', 'str:new_name:ws', 'str:new_name:punct']
+   rename_symbol ['str:new_name:empty', 'str:new_name:unicode', 'str:new_name:ws', 'str:new_name:punct']
+   search_symbols ['neg:limit']
+   selection_range ['emptylist:positions']
+   structural_replace ['str:pattern:empty', 'str:pattern:unicode', 'str:pattern:long', 'str:pattern:ws', 'str:pattern:punct', 'str:replacement:empty']
+   structural_search ['neg:limit', 'str:pattern:empty', 'str:pattern:unicode', 'str:pattern:long', 'str:pattern:ws', 'str:pattern:punct']
+   test_impact_select ['neg:depth']
+   type_hierarchy ['neg:depth']
+
+== backend-failure code returned for caller-input variants ==
+   emptylist:members 2 ['extract_class', 'extract_superclass']
+   extra_unknown_arg:extra_unknown_arg 1 ['generate_code']
+   huge:character 37 ['argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'find_implementations', 'find_references', 'find_type_users', 'generate_code', 'get_completions', 'get_context', 'get_declaration', 'get_document_highlights', 'get_documentation', 'get_keyword_help', 'get_signature_help', 'get_sub_definitions', 'get_type_definition', 'get_type_hint_string', 'get_type_info', 'goto_definition', 'inline_method', 'inline_parameter', 'inline_variable', 'introduce_factory', 'introduce_parameter', 'local_to_field', 'method_object', 'move_method', 'multi_project_rename', 'prepare_rename', 'rename_symbol', 'simulate_execution', 'type_hierarchy', 'use_function']
+   huge:line 37 ['argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'find_implementations', 'find_references', 'find_type_users', 'generate_code', 'get_completions', 'get_context', 'get_declaration', 'get_document_highlights', 'get_documentation', 'get_keyword_help', 'get_signature_help', 'get_sub_definitions', 'get_type_definition', 'get_type_hint_string', 'get_type_info', 'goto_definition', 'inline_method', 'inline_parameter', 'inline_variable', 'introduce_factory', 'introduce_parameter', 'local_to_field', 'method_object', 'move_method', 'multi_project_rename', 'prepare_rename', 'rename_symbol', 'simulate_execution', 'type_hierarchy', 'use_function']
+   huge:start_line 2 ['extract_method', 'extract_variable']
+   neg:character 37 ['argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'find_implementations', 'find_references', 'find_type_users', 'generate_code', 'get_completions', 'get_context', 'get_declaration', 'get_document_highlights', 'get_documentation', 'get_keyword_help', 'get_signature_help', 'get_sub_definitions', 'get_type_definition', 'get_type_hint_string', 'get_type_info', 'goto_definition', 'inline_method', 'inline_parameter', 'inline_variable', 'introduce_factory', 'introduce_parameter', 'local_to_field', 'method_object', 'move_method', 'multi_project_rename', 'prepare_rename', 'rename_symbol', 'simulate_execution', 'type_hierarchy', 'use_function']
+   neg:end_line 2 ['extract_method', 'extract_variable']
+   neg:line 37 ['argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'find_implementations', 'find_references', 'find_type_users', 'generate_code', 'get_completions', 'get_context', 'get_declaration', 'get_document_highlights', 'get_documentation', 'get_keyword_help', 'get_signature_help', 'get_sub_definitions', 'get_type_definition', 'get_type_hint_string', 'get_type_info', 'goto_definition', 'inline_method', 'inline_parameter', 'inline_variable', 'introduce_factory', 'introduce_parameter', 'local_to_field', 'method_object', 'move_method', 'multi_project_rename', 'prepare_rename', 'rename_symbol', 'simulate_execution', 'type_hierarchy', 'use_function']
+   neg:start_line 2 ['extract_method', 'extract_variable']
+   seq:apply_in_args 1 ['refactor_transaction']
+   seq:begin_twice 1 ['begin_change_stack']
+   seq:commit_without_begin 1 ['commit_change_stack']
+   seq:empty_steps 1 ['refactor_transaction']
+   seq:malformed_step 1 ['refactor_transaction']
+   seq:redo_empty_history 1 ['redo_refactoring']
+   seq:rollback_twice 1 ['rollback_change_stack']
+   seq:rollback_without_begin 1 ['rollback_change_stack']
+   seq:step_missing_file_path 1 ['refactor_transaction']
+   seq:undo_empty_history 1 ['undo_refactoring']
+   seq:unsupported_tool 1 ['refactor_transaction']
+   str:dir 67 ['apply_code_action', 'apply_lint_fixes', 'apply_type_annotations', 'argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'convert_function_to_method', 'convert_method_to_function', 'convert_to_dataclass', 'convert_to_pydantic', 'convert_to_typeddict', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'expand_star_imports', 'extract_class', 'extract_method', 'extract_superclass', 'extract_variable', 'find_implementations', 'find_references', 'find_type_users', 'format_code', 'froms_to_imports', 'generate_code', 'get_all_names', 'get_completions', 'get_context', 'get_declaration', 'get_diagnostics', 'get_document_highlights', 'get_documentation', 'get_folding_ranges', 'get_inlay_hints', 'get_keyword_help', 'get_semantic_tokens', 'get_signature_help', 'get_sub_definitions', 'get_syntax_errors']
+   str:empty 2 ['generate_code', 'restructure']
+   str:long 10 ['convert_function_to_method', 'convert_method_to_function', 'convert_to_dataclass', 'convert_to_pydantic', 'convert_to_typeddict', 'extract_class', 'extract_superclass', 'generate_code', 'move_method', 'move_symbol']
+   str:missing 70 ['apply_code_action', 'apply_lint_fixes', 'apply_type_annotations', 'argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'convert_function_to_method', 'convert_method_to_function', 'convert_to_dataclass', 'convert_to_pydantic', 'convert_to_typeddict', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'expand_star_imports', 'extract_class', 'extract_method', 'extract_superclass', 'extract_variable', 'find_errors_static', 'find_implementations', 'find_references', 'find_type_users', 'format_code', 'froms_to_imports', 'generate_code', 'get_all_names', 'get_completions', 'get_context', 'get_declaration', 'get_diagnostics', 'get_document_highlights', 'get_documentation', 'get_folding_ranges', 'get_inlay_hints', 'get_keyword_help', 'get_semantic_tokens', 'get_signature_help', 'get_sub_definitions']
+   str:punct 3 ['generate_code', 'restructure', 'structural_replace']
+   str:unicode 3 ['generate_code', 'restructure', 'structural_replace']
+   str:unicode_missing 70 ['apply_code_action', 'apply_lint_fixes', 'apply_type_annotations', 'argument_default_inliner', 'argument_normalizer', 'call_hierarchy', 'change_signature', 'convert_function_to_method', 'convert_method_to_function', 'convert_to_dataclass', 'convert_to_pydantic', 'convert_to_typeddict', 'deep_type_inference', 'docstring_sync', 'encapsulate_field', 'expand_star_imports', 'extract_class', 'extract_method', 'extract_superclass', 'extract_variable', 'find_errors_static', 'find_implementations', 'find_references', 'find_type_users', 'format_code', 'froms_to_imports', 'generate_code', 'get_all_names', 'get_completions', 'get_context', 'get_declaration', 'get_diagnostics', 'get_document_highlights', 'get_documentation', 'get_folding_ranges', 'get_inlay_hints', 'get_keyword_help', 'get_semantic_tokens', 'get_signature_help', 'get_sub_definitions']
+   str:ws 3 ['generate_code', 'restructure', 'structural_replace']
+
+== bad input ACCEPTED (ok) ==
+   emptylist:additional_roots ['multi_project_rename']
+   emptylist:class_names ['extract_protocol', 'interface_conformance']
+   emptylist:edits ['diff_preview']
+   emptylist:layers ['check_layer_violations']
+   emptylist:operations ['change_signature']
+   emptylist:symbols ['test_impact_select']
+   huge:depth ['call_hierarchy', 'test_impact_select', 'type_hierarchy']
+   huge:limit ['dead_code_detection', 'find_constructors', 'find_references', 'find_type_users', 'get_completions', 'get_diagnostics', 'get_semantic_tokens', 'get_symbol_outline', 'get_workspace_diagnostics', 'search_symbols', 'structural_search', 'unused_symbol_sweep']
+   huge:offset ['dead_code_detection', 'get_symbol_outline', 'get_workspace_diagnostics', 'unused_symbol_sweep']
+   huge:start_line ['get_inlay_hints']
+   neg:end_line ['get_inlay_hints']
+   neg:index ['argument_default_inliner']
+   neg:limit ['dead_code_detection', 'get_semantic_tokens', 'get_workspace_diagnostics', 'unused_symbol_sweep']
+   neg:max_items ['call_hierarchy', 'test_impact_select', 'type_hierarchy']
+   neg:min_lines ['find_duplicated_code']
+   neg:offset ['dead_code_detection', 'get_symbol_outline', 'get_workspace_diagnostics', 'unused_symbol_sweep']
+   neg:start_line ['get_inlay_hints']
+   str:class_name:long ['find_constructors']
+   str:destination_package:dir ['move_module']
+   str:file_path:dir ['code_metrics', 'find_duplicated_code', 'find_errors_static', 'find_unused_imports', 'get_symbol_outline', 'get_test_coverage_map', 'get_type_coverage', 'security_scan', 'structural_search']
+   str:file_path:missing ['code_metrics', 'find_duplicated_code', 'find_unused_imports', 'get_symbol_outline', 'get_test_coverage_map', 'get_type_coverage', 'security_scan', 'structural_search']
+   str:file_path:unicode_missing ['code_metrics', 'find_duplicated_code', 'find_unused_imports', 'get_symbol_outline', 'get_test_coverage_map', 'get_type_coverage', 'security_scan', 'structural_search']
+   str:goal:empty ['restructure']
+   str:goal:long ['restructure']
+   str:goal:punct ['restructure']
+   str:goal:ws ['restructure']
+   str:method_name:long ['extract_method']
+   str:name:empty ['autoimport_search']
+   str:name:long ['autoimport_search']
+   str:name:punct ['autoimport_search']
+   str:name:ws ['autoimport_search']
+   str:new_name:long ['multi_project_rename', 'rename_symbol']
+   str:output_dir:dir ['create_type_stubs']
+   str:output_dir:empty ['create_type_stubs']
+   str:output_dir:long ['create_type_stubs']
+   str:output_dir:missing ['create_type_stubs']
+   str:output_dir:unicode_missing ['create_type_stubs']
+   str:package_name:empty ['create_type_stubs']
+   str:package_name:long ['create_type_stubs']
+   str:package_name:punct ['create_type_stubs']
+   str:package_name:ws ['create_type_stubs']
+   str:parameter_name:long ['introduce_parameter']
+   str:pattern:long ['restructure']
+   str:protocol_name:long ['extract_protocol']
+   str:query:empty ['project_search', 'search_symbols']
+   str:query:long ['project_search', 'search_symbols']
+   str:query:punct ['project_search', 'search_symbols']
+   str:query:ws ['project_search', 'search_symbols']
+   str:replacement:long ['structural_replace']
+   str:root_path:dir ['dead_code_detection', 'unused_symbol_sweep']
+   str:root_path:missing ['dead_code_detection', 'unused_symbol_sweep']
+   str:root_path:unicode_missing ['dead_code_detection', 'unused_symbol_sweep']
+   str:source_path:dir ['move_module']
+   str:symbol:empty ['suggest_imports']
+   str:symbol:long ['suggest_imports']
+   str:symbol:punct ['suggest_imports']
+   str:symbol:ws ['suggest_imports']
+   str:variable_name:long ['extract_variable']
+
+== OTHER-coded error texts (sample) ==
+   call_hierarchy seq:profile_gated | Unknown tool: call_hierarchy
+   no_such_tool seq:unknown_tool | Unknown tool: no_such_tool
+
+== extra_unknown_arg accepted == 98 / 101
+
+== seq ==
+  get_refactoring_history  seq:empty_history                ok             ''
+  undo_refactoring         seq:undo_empty_history           error_result   'Error executing tool undo_refactoring: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: afa2e7d70a2b.'
+  redo_refactoring         seq:redo_empty_history           error_result   'Error executing tool redo_refactoring: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: f07e919db9c0.'
+  undo_refactoring         seq:undo_count_0                 ok             '{\n  "edits": [],\n  "files_affected": [],\n  "description": "Undid 0 operation(s)",\n  "applied": true,\n  "diagnostics_after": null,\n  "diffs": null\n}'
+  undo_refactoring         seq:undo_count_neg               ok             '{\n  "edits": [],\n  "files_affected": [],\n  "description": "Undid -1 operation(s)",\n  "applied": true,\n  "diagnostics_after": null,\n  "diffs": null\n}'
+  undo_refactoring         wrongtype:count                  error_result   "Error executing tool undo_refactoring: 1 validation error for undo_refactoringArguments\ncount\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='abc', input_type=str]\n    For fu"
+  commit_change_stack      seq:commit_without_begin         error_result   'Error executing tool commit_change_stack: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 57e8876feb83.'
+  rollback_change_stack    seq:rollback_without_begin       error_result   'Error executing tool rollback_change_stack: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 85e5e5427f0b.'
+  begin_change_stack       seq:begin                        ok             'Change stack started'
+  begin_change_stack       seq:begin_twice                  error_result   'Error executing tool begin_change_stack: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: f986fab6b38c.'
+  rename_symbol            seq:preview_inside_stack         ok             '{\n  "edits": [\n    {\n      "file_path": "<scratch>\\\\ws\\\\src\\\\service.py",\n      "range": {\n        "start": {\n       '
+  rollback_change_stack    seq:rollback                     ok             'Change stack rolled back'
+  rollback_change_stack    seq:rollback_twice               error_result   'Error executing tool rollback_change_stack: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 5a64783517f3.'
+  begin_change_stack       seq:begin_then_empty_commit      ok             'Change stack started'
+  commit_change_stack      seq:commit_empty_stack           ok             '{\n  "edits": [],\n  "files_affected": [],\n  "description": "Change stack committed",\n  "applied": true,\n  "diagnostics_after": null,\n  "diffs": null\n}'
+  refactor_transaction     missing_all_required             error_result   'Error executing tool refactor_transaction: 1 validation error for refactor_transactionArguments\nsteps\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2'
+  refactor_transaction     seq:empty_steps                  error_result   'Error executing tool refactor_transaction: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 6d1cd13eda55.'
+  refactor_transaction     seq:malformed_step               error_result   'Error executing tool refactor_transaction: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: f42b310f3775.'
+  refactor_transaction     seq:unsupported_tool             error_result   'Error executing tool refactor_transaction: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 0dedd949eb75.'
+  refactor_transaction     seq:step_missing_file_path       error_result   'Error executing tool refactor_transaction: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 83512914c79a.'
+  refactor_transaction     seq:apply_in_args                error_result   'Error executing tool refactor_transaction: [ROPE_BACKEND] Refactoring backend failed; inspect server diagnostics before retrying. Failure ID: 391b6645325e.'
+  refactor_transaction     wrongtype:steps                  error_result   "Error executing tool refactor_transaction: 1 validation error for refactor_transactionArguments\nsteps\n  Input should be a valid list [type=list_type, input_value='x', input_type=str]\n    For further information visit https://error"
+  refactor_transaction     null:steps                       error_result   'Error executing tool refactor_transaction: 1 validation error for refactor_transactionArguments\nsteps\n  Input should be a valid list [type=list_type, input_value=None, input_type=NoneType]\n    For further information visit https:/'
+  restart_server           valid                            ok             'Pyright server restarted successfully'
+  server_status            seq:after_restart                ok             '{\n  "version": "0.5.0",\n  "cli_workspace_root": "<scratch>\\\\ws",\n  "known_roots": [\n    "<local-path>'
+  get_type_info            seq:after_restart                ok             '{\n  "expression": "<scratch>\\\\ws\\\\src\\\\audit.py:52:4",\n  "type_string": "(variable) x: int",\n  "documentation": "(var'
+  call_hierarchy           seq:profile_gated                error_result   'Unknown tool: call_hierarchy'
+  no_such_tool             seq:unknown_tool                 error_result   'Unknown tool: no_such_tool'

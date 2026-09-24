@@ -1,0 +1,38 @@
+"""C6: public impl functions in tools/** and backend methods not reachable from any registered tool."""
+
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+SRC = Path("<repo>/src/python_refactor_mcp")
+registry_text = (SRC / "tool_registry.py").read_text(encoding="utf-8") + (SRC / "server.py").read_text(encoding="utf-8")
+all_src = {p: p.read_text(encoding="utf-8") for p in SRC.rglob("*.py")}
+
+
+def used_elsewhere(name: str, owner: Path) -> list[str]:
+    pat = re.compile(rf"\b{re.escape(name)}\b")
+    return [str(p.relative_to(SRC)) for p, t in all_src.items() if p != owner and pat.search(t)]
+
+
+print("== public tools/** functions not referenced by tool_registry/server ==")
+for p in sorted((SRC / "tools").rglob("*.py")):
+    if p.name == "__init__.py":
+        continue
+    tree = ast.parse(all_src[p])
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and not node.name.startswith("_"):
+            if not re.search(rf"\b{node.name}\b", registry_text):
+                users = [u for u in used_elsewhere(node.name, p) if not u.endswith("__init__.py")]
+                print(f"{p.relative_to(SRC)}:{node.lineno} {node.name}  used_by={users[:4]}")
+
+print("\n== backend public methods never referenced outside backends/ ==")
+for p in sorted((SRC / "backends").rglob("*.py")):
+    tree = ast.parse(all_src[p])
+    for cls in [n for n in tree.body if isinstance(n, ast.ClassDef)]:
+        for node in cls.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and not node.name.startswith("_"):
+                users = [u for u in used_elsewhere(node.name, p) if not u.startswith("backends")]
+                if not users:
+                    print(f"{p.relative_to(SRC)}:{node.lineno} {cls.name}.{node.name}")

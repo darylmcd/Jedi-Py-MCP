@@ -1,0 +1,28 @@
+"""Per profile: tool names referenced in descriptions/instructions that the profile does not advertise."""
+
+from __future__ import annotations
+
+import json
+import re
+
+from harness_common import RAW
+
+catalog: set[str] = set()
+inv = {}
+for prof in ("refactoring", "analysis"):
+    inv[prof] = json.loads((RAW / f"inventory_{prof}.json").read_text(encoding="utf-8"))
+    catalog |= {t["name"] for t in inv[prof]["tools"]}
+word = re.compile(r"\b[a-z][a-z0-9_]+\b")
+for prof, data in inv.items():
+    names = {t["name"] for t in data["tools"]}
+    instr = data["initialize"].get("instructions", "")
+    miss_i = sorted({w for w in word.findall(instr) if w in catalog and w not in names})
+    print(f"[{prof}] instructions reference unadvertised tools: {miss_i}")
+    dangling = {}
+    for t in data["tools"]:
+        refs = {w for w in word.findall(t["description"]) if w in catalog and w not in names and w != t["name"]}
+        if refs:
+            dangling[t["name"]] = sorted(refs)
+    print(f"[{prof}] {len(dangling)} tool descriptions reference unadvertised tools")
+    for k, v in sorted(dangling.items()):
+        print("   ", k, "->", v)
