@@ -1,0 +1,383 @@
+"""C1 tool-surface matrix: valid / missing / wrong-type / edge calls for every tool, raw stdio.
+
+Read-only invariant: `apply` is never sent as anything but absent/False; write-only tools
+(refactor_transaction success path, commit on a populated stack) are exercised on error paths only.
+Every call is followed by a workspace hash diff so a preview that writes is caught.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import hashlib
+import json
+import shutil
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from harness_common import RAW, SCRATCH, WS, session
+
+WS2 = SCRATCH / "ws2"
+PRISTINE = SCRATCH / "ws_pristine"
+A = str(WS / "src" / "audit.py")
+M = str(WS / "src" / "models.py")
+S = str(WS / "src" / "service.py")
+U = str(WS / "src" / "utils.py")
+REL = str(WS / "src" / "sub" / "rel.py")
+TIMEOUT = 90.0
+
+
+def P(path: str, needle: str, delta: int = 0, nth: int = 1) -> dict[str, int]:
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    seen = 0
+    for i, ln in enumerate(lines):
+        c = ln.find(needle)
+        while c != -1:
+            seen += 1
+            if seen == nth:
+                return {"line": i, "character": c + delta}
+            c = ln.find(needle, c + 1)
+    raise KeyError(needle)
+
+
+def span(path: str, needle: str) -> dict[str, int]:
+    p = P(path, needle)
+    return {"start_line": p["line"], "start_character": p["character"], "end_line": p["line"],
+            "end_character": p["character"] + len(needle)}
+
+
+def fa(path: str, needle: str, delta: int = 0, **kw: Any) -> dict[str, Any]:
+    return {"file_path": path, **P(path, needle, delta), **kw}
+
+
+def valid_args() -> dict[str, dict[str, Any] | None]:
+    area_start = P(A, "scale = 1.0")
+    area_end = P(A, "result = self.width * self.height * scale")
+    return {
+        "apply_code_action": fa(A, "untyped(p"),
+        "apply_lint_fixes": {"file_path": A},
+        "apply_type_annotations": {"file_path": A},
+        "argument_default_inliner": fa(A, "helper(a", index=1),
+        "argument_normalizer": fa(A, "helper(a"),
+        "autoimport_search": {"name": "User"},
+        "call_hierarchy": fa(A, "helper(a"),
+        "change_signature": fa(A, "helper(a", operations=[{"op": "normalize"}]),
+        "check_layer_violations": {"layers": [["src.service"], ["src.models"]]},
+        "check_type_stub_freshness": {"source_file": A},
+        "code_metrics": {"file_path": A},
+        "convert_function_to_method": {"file_path": A, "function_name": "config_url", "class_name": "Config"},
+        "convert_method_to_function": {"file_path": A, "class_name": "Shape", "method_name": "describe"},
+        "convert_to_dataclass": {"file_path": A, "class_name": "Config"},
+        "convert_to_pydantic": {"file_path": A, "class_name": "Account"},
+        "convert_to_typeddict": {"file_path": A, "function_name": "make_record", "typed_dict_name": "Record"},
+        "create_type_stubs": {"package_name": "parso", "output_dir": str(SCRATCH / "stubs_out")},
+        "dead_code_detection": {"root_path": str(WS)},
+        "deep_type_inference": fa(A, "u.name"),
+        "diff_preview": {"edits": [{"file_path": A, "range": {"start": {"line": 0, "character": 0},
+                                                              "end": {"line": 0, "character": 0}},
+                                    "new_text": "# audit\n"}]},
+        "docstring_sync": fa(A, "helper(a"),
+        "encapsulate_field": fa(M, "encapsulate_me"),
+        "expand_star_imports": {"file_path": A},
+        "extract_class": {"file_path": A, "class_name": "Config", "new_class_name": "Endpoint",
+                          "members": ["host", "port"], "collaborator_attribute": "endpoint"},
+        "extract_method": {"file_path": A, "start_line": area_start["line"], "start_character": area_start["character"],
+                           "end_line": area_end["line"],
+                           "end_character": area_end["character"] + len("result = self.width * self.height * scale"),
+                           "method_name": "compute_area"},
+        "extract_protocol": {"file_path": A, "class_names": ["Shape", "Square"], "protocol_name": "AreaLike"},
+        "extract_superclass": {"file_path": A, "class_name": "Shape", "base_class_name": "BaseShape",
+                               "members": ["describe"]},
+        "extract_variable": {"file_path": A, **span(A, "self.width * self.height"), "variable_name": "base"},
+        "find_constructors": {"class_name": "User"},
+        "find_duplicated_code": {"file_path": A},
+        "find_errors_static": {"file_path": A},
+        "find_implementations": fa(A, "area(self) -> float: ..."),
+        "find_references": fa(M, "class User", 6),
+        "find_type_users": fa(M, "class User", 6),
+        "find_unused_imports": {"file_path": A},
+        "fix_circular_imports": {},
+        "fix_module_names": {},
+        "format_code": {"file_path": A},
+        "froms_to_imports": {"file_path": S},
+        "generate_code": fa(A, "missing_helper", kind="function"),
+        "get_all_names": {"file_path": A},
+        "get_completions": fa(A, "u.name", 2),
+        "get_context": fa(A, "scale = 1.0"),
+        "get_coupling_metrics": {},
+        "get_declaration": fa(S, "User(user_id=1"),
+        "get_diagnostics": {"file_path": S},
+        "get_document_highlights": fa(A, "scale = 1.0"),
+        "get_documentation": fa(A, "helper(1)"),
+        "get_folding_ranges": {"file_path": A},
+        "get_inlay_hints": {"file_path": A},
+        "get_keyword_help": fa(A, "return a + b"),
+        "get_module_dependencies": {},
+        "get_module_public_api": {"file_path": A},
+        "get_refactoring_history": {},
+        "get_semantic_tokens": {"file_path": A, "limit": 20},
+        "get_signature_help": fa(A, "helper(1)", 7),
+        "get_sub_definitions": fa(A, "class Shape", 6),
+        "get_symbol_outline": {"file_path": A},
+        "get_syntax_errors": {"file_path": A},
+        "get_test_coverage_map": {"file_path": M},
+        "get_type_coverage": {"file_path": A},
+        "get_type_definition": fa(A, "u.name"),
+        "get_type_hint_string": fa(A, "x = helper"),
+        "get_type_info": fa(A, "x = helper"),
+        "get_workspace_diagnostics": {},
+        "goto_definition": fa(S, "User(user_id=1"),
+        "handle_long_imports": {"file_path": S},
+        "inline_method": fa(A, "helper(a"),
+        "inline_parameter": fa(A, "b: int = 2"),
+        "inline_variable": fa(A, "result = self"),
+        "interface_conformance": {"file_path": A, "class_names": ["Shape", "Square"]},
+        "introduce_factory": fa(A, "class Config", 6),
+        "introduce_parameter": fa(A, "1.0", parameter_name="scale_default"),
+        "list_environments": {},
+        "local_to_field": fa(A, "scale = 1.0"),
+        "method_object": fa(A, "def area", 4),
+        "module_to_package": {"file_path": U},
+        "move_method": fa(A, "def engine_rpm", 4, destination_attr="engine"),
+        "move_module": {"source_path": U, "destination_package": str(WS / "src" / "sub")},
+        "move_symbol": {"source_file": U, "symbol_name": "compute", "destination_file": str(WS / "src" / "sub" / "target.py")},
+        "multi_project_rename": {"additional_roots": [str(WS2)], **fa(M, "class User", 6), "new_name": "Member"},
+        "organize_imports": {"file_path": A},
+        "prepare_rename": fa(M, "class User", 6),
+        "project_search": {"query": "User"},
+        "relatives_to_absolutes": {"file_path": REL},
+        "rename_symbol": {**fa(M, "class User", 6), "new_name": "Member"},
+        "restructure": {"pattern": "eval(${x})", "goal": "ast.literal_eval(${x})", "file_path": A},
+        "search_symbols": {"query": "User"},
+        "security_autofix": {"file_path": A},
+        "security_scan": {"file_path": A},
+        "selection_range": {"file_path": A, "positions": [P(A, "scale = 1.0")]},
+        "server_status": {},
+        "simulate_execution": fa(A, "helper(1)"),
+        "split_module": {"source_file": A, "target_modules": {str(WS / "src" / "split_a.py"): ["Engine"],
+                                                              str(WS / "src" / "split_b.py"): ["Car"]}},
+        "structural_replace": {"pattern": "m.Call(func=m.Name('eval'), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])",
+                               "replacement": "ast.literal_eval($a)", "file_path": A},
+        "structural_search": {"pattern": "m.Call(func=m.Name('eval'))", "file_path": A},
+        "suggest_imports": {"symbol": "dataclass", "file_path": A},
+        "test_impact_select": {"symbols": [{"file_path": M, **P(M, "class User", 6)}]},
+        "type_hierarchy": fa(A, "class Shape", 6),
+        "unused_symbol_sweep": {"root_path": str(WS)},
+        "use_function": fa(A, "def helper", 4),
+        # Stateful / write-only tools: error-path or ordered-sequence only (see SEQUENCE).
+        "begin_change_stack": None, "commit_change_stack": None, "rollback_change_stack": None,
+        "undo_refactoring": None, "redo_refactoring": None, "restart_server": None, "refactor_transaction": None,
+    }
+
+
+# ── variant generation ─────────────────────────────────────────────────────
+INT_EDGE_KEYS = ("line", "character", "limit", "offset", "depth", "index", "min_lines", "max_items", "count",
+                 "start_line", "end_line")
+STR_EDGE = {"empty": "", "unicode": "ünï_名前_🐍", "long": "x" * 5000, "ws": "   ", "punct": "not an identifier!!"}
+PATH_EDGE = {"empty": "", "missing": str(WS / "src" / "does_not_exist.py"), "relative": "src/audit.py",
+             "unicode_missing": str(WS / "src" / "ünï_文件.py"), "dir": str(WS / "src"),
+             "outside_ws": "C:/Windows/win.ini", "long": "C:/" + "a" * 5000 + ".py"}
+
+
+def base_type(prop: dict) -> str:
+    if "anyOf" in prop:
+        ts = [x.get("type") for x in prop["anyOf"] if x.get("type") != "null"]
+        return ts[0] if ts else "?"
+    return prop.get("type", "?")
+
+
+def variants(name: str, schema: dict, valid: dict | None) -> list[tuple[str, dict]]:
+    out: list[tuple[str, dict]] = []
+    props = schema.get("properties", {})
+    req = [r for r in schema.get("required", [])]
+    base = valid if valid is not None else {}
+    if req:
+        out.append(("missing_all_required", {}))
+        if valid is not None and len(req) > 1:
+            v = dict(base); v.pop(req[0], None); out.append((f"missing:{req[0]}", v))
+        v = dict(base); v[req[0]] = None; out.append((f"null:{req[0]}", v))
+    if valid is None:
+        return out
+    # wrong-type: first int, first str, first array, first bool (never `apply`)
+    done = set()
+    for k, p in props.items():
+        t = base_type(p)
+        if k == "apply" or t in done:
+            continue
+        bad = {"integer": "abc", "string": 12345, "array": "not-a-list", "boolean": "maybe", "object": [1, 2]}.get(t)
+        if bad is None:
+            continue
+        v = dict(base); v[k] = bad; out.append((f"wrongtype:{k}", v)); done.add(t)
+    v = dict(base); v["__unknown_extra__"] = 1; out.append(("extra_unknown_arg", v))
+    for k in INT_EDGE_KEYS:
+        if k in props and base_type(props[k]) == "integer":
+            v = dict(base); v[k] = -1; out.append((f"neg:{k}", v))
+            if k in ("line", "start_line", "character", "limit", "depth", "count", "offset"):
+                v = dict(base); v[k] = 10**9; out.append((f"huge:{k}", v))
+    str_keys = [k for k, p in props.items() if base_type(p) == "string" and k in base]
+    for k in str_keys[:2]:
+        table = PATH_EDGE if ("path" in k or "file" in k or k in ("source_file", "destination_package", "root_path", "output_dir")) else STR_EDGE
+        for tag, val in table.items():
+            v = dict(base); v[k] = val; out.append((f"str:{k}:{tag}", v))
+    arr_keys = [k for k, p in props.items() if base_type(p) == "array" and k in base]
+    for k in arr_keys[:1]:
+        v = dict(base); v[k] = []; out.append((f"emptylist:{k}", v))
+        nested: Any = ["x"]
+        for _ in range(60):
+            nested = [nested]
+        v = dict(base); v[k] = nested; out.append((f"deepnest:{k}", v))
+    return out
+
+
+# ── workspace side-effect detection ────────────────────────────────────────
+def ws_hash(root: Path = WS) -> dict[str, str]:
+    h = {}
+    for f in root.rglob("*"):
+        if f.is_file() and ".ropeproject" not in f.parts and "__pycache__" not in f.parts:
+            h[str(f.relative_to(root))] = hashlib.sha1(f.read_bytes()).hexdigest()
+    return h
+
+
+def restore() -> None:
+    for f in list(WS.iterdir()):
+        if f.name == ".ropeproject":
+            continue
+        shutil.rmtree(f) if f.is_dir() else f.unlink()
+    for f in PRISTINE.iterdir():
+        if f.name == ".ropeproject":
+            continue
+        (shutil.copytree(f, WS / f.name) if f.is_dir() else shutil.copy2(f, WS / f.name))
+
+
+def summarize(res: Any) -> dict[str, Any]:
+    text = " ".join(getattr(c, "text", "") for c in (res.content or []))
+    sc = res.structured_content
+    return {"is_error": bool(res.is_error), "text": text[:600], "text_len": len(text),
+            "has_traceback": "Traceback (most recent call last)" in text,
+            "structured": sc}
+
+
+class Runner:
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+        self.pristine_hash = ws_hash()
+
+    async def call(self, s: Any, profile: str, tool: str, variant: str, args: dict) -> dict[str, Any]:
+        rec: dict[str, Any] = {"profile": profile, "tool": tool, "variant": variant,
+                               "args": _trim(args)}
+        before = ws_hash()
+        t0 = time.perf_counter()
+        try:
+            res = await asyncio.wait_for(s.call_tool(tool, args, read_timeout_seconds=TIMEOUT), TIMEOUT + 5)
+            rec.update(outcome="error_result" if res.is_error else "ok", **summarize(res))
+        except TimeoutError:
+            rec.update(outcome="timeout")
+        except RuntimeError as exc:
+            msg = str(exc)
+            rec.update(outcome="output_schema_violation" if "structured content" in msg or "output schema" in msg
+                       else "runtime_error", text=msg[:800])
+        except Exception as exc:  # JSON-RPC error or transport death
+            rec.update(outcome="protocol_error", exc_type=type(exc).__name__, text=str(exc)[:800],
+                       has_traceback="Traceback" in str(exc))
+        rec["seconds"] = round(time.perf_counter() - t0, 3)
+        after = ws_hash()
+        if after != before:
+            changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+            rec["ws_changed"] = changed
+            restore()
+        if rec.get("structured") is not None:
+            blob = json.dumps(rec["structured"], default=str)
+            rec["structured_len"] = len(blob)
+            rec["structured"] = json.loads(blob) if len(blob) < 4000 else blob[:4000]
+        self.records.append(rec)
+        flag = rec["outcome"] + (" WS_CHANGED" if "ws_changed" in rec else "")
+        print(f"{rec['seconds']:7.2f}s {profile[:3]} {tool:28s} {variant:34s} {flag}", flush=True)
+        return rec
+
+
+def _trim(obj: Any) -> Any:
+    s = json.dumps(obj, default=str)
+    return obj if len(s) < 600 else s[:600] + "…"
+
+
+async def run_profile(profile: str, names: list[str], schemas: dict, valid: dict, runner: Runner) -> None:
+    async with session(profile) as (s, _):
+        await s.list_tools()
+        for name in names:
+            v = valid.get(name)
+            if v is not None:
+                r1 = await runner.call(s, profile, name, "valid", v)
+                if schemas[name].get("annotations", {}).get("readOnlyHint") and r1["outcome"] == "ok":
+                    r2 = await runner.call(s, profile, name, "valid_repeat", v)
+                    r1["idempotent"] = r1.get("structured") == r2.get("structured")
+            for tag, args in variants(name, schemas[name]["inputSchema"], v):
+                await runner.call(s, profile, name, tag, args)
+
+
+async def run_sequence(runner: Runner) -> None:
+    """Stateful / write-only tools on error paths and a non-writing ordered sequence."""
+    async with session("refactoring") as (s, _):
+        await s.list_tools()
+        c = runner.call
+        await c(s, "refactoring", "get_refactoring_history", "seq:empty_history", {})
+        await c(s, "refactoring", "undo_refactoring", "seq:undo_empty_history", {})
+        await c(s, "refactoring", "redo_refactoring", "seq:redo_empty_history", {})
+        await c(s, "refactoring", "undo_refactoring", "seq:undo_count_0", {"count": 0})
+        await c(s, "refactoring", "undo_refactoring", "seq:undo_count_neg", {"count": -1})
+        await c(s, "refactoring", "undo_refactoring", "wrongtype:count", {"count": "abc"})
+        await c(s, "refactoring", "commit_change_stack", "seq:commit_without_begin", {})
+        await c(s, "refactoring", "rollback_change_stack", "seq:rollback_without_begin", {})
+        await c(s, "refactoring", "begin_change_stack", "seq:begin", {})
+        await c(s, "refactoring", "begin_change_stack", "seq:begin_twice", {})
+        await c(s, "refactoring", "rename_symbol", "seq:preview_inside_stack",
+                {**fa(M, "class User", 6), "new_name": "Member"})
+        await c(s, "refactoring", "rollback_change_stack", "seq:rollback", {})
+        await c(s, "refactoring", "rollback_change_stack", "seq:rollback_twice", {})
+        await c(s, "refactoring", "begin_change_stack", "seq:begin_then_empty_commit", {})
+        await c(s, "refactoring", "commit_change_stack", "seq:commit_empty_stack", {})
+        rt = "refactor_transaction"
+        await c(s, "refactoring", rt, "missing_all_required", {})
+        await c(s, "refactoring", rt, "seq:empty_steps", {"steps": []})
+        await c(s, "refactoring", rt, "seq:malformed_step", {"steps": [{}]})
+        await c(s, "refactoring", rt, "seq:unsupported_tool", {"steps": [{"tool": "format_code", "args": {"file_path": A}}]})
+        await c(s, "refactoring", rt, "seq:step_missing_file_path", {"steps": [{"tool": "rename_symbol", "args": {"line": 0, "character": 0, "new_name": "q"}}]})
+        await c(s, "refactoring", rt, "seq:apply_in_args", {"steps": [{"tool": "rename_symbol", "args": {**fa(M, "class User", 6), "new_name": "Q", "apply": True}}, {"tool": "nope", "args": {}}]})
+        await c(s, "refactoring", rt, "wrongtype:steps", {"steps": "x"})
+        await c(s, "refactoring", rt, "null:steps", {"steps": None})
+        await c(s, "refactoring", "restart_server", "valid", {})
+        await c(s, "refactoring", "server_status", "seq:after_restart", {})
+        await c(s, "refactoring", "get_type_info", "seq:after_restart", fa(A, "x = helper"))
+        # profile gating: analysis-only tool must be unknown on refactoring profile
+        await c(s, "refactoring", "call_hierarchy", "seq:profile_gated", fa(A, "helper(a"))
+        await c(s, "refactoring", "no_such_tool", "seq:unknown_tool", {})
+
+
+async def main() -> None:
+    schemas: dict[str, dict] = {}
+    prof_of: dict[str, list[str]] = {}
+    for prof in ("refactoring", "analysis"):
+        for t in json.loads((RAW / f"inventory_{prof}.json").read_text(encoding="utf-8"))["tools"]:
+            schemas.setdefault(t["name"], t)
+            prof_of.setdefault(t["name"], []).append(prof)
+    valid = valid_args()
+    missing = set(schemas) - set(valid)
+    assert not missing, missing
+    only = set(sys.argv[1:])
+    runner = Runner()
+    seq_tools = {k for k, v in valid.items() if v is None}
+    ref = sorted(n for n in schemas if "refactoring" in prof_of[n] and n not in seq_tools and (not only or n in only))
+    ana = sorted(n for n in schemas if prof_of[n] == ["analysis"] and (not only or n in only))
+    await run_profile("analysis", ana, schemas, valid, runner)
+    await run_profile("refactoring", ref, schemas, valid, runner)
+    if not only:
+        await run_sequence(runner)
+    final = ws_hash()
+    out = RAW / ("c1_calls.json" if not only else "c1_calls_partial.json")
+    out.write_text(json.dumps({"records": runner.records, "ws_final_matches_pristine": final == runner.pristine_hash},
+                              indent=1, default=str), encoding="utf-8")
+    print("records", len(runner.records), "final ws pristine:", final == runner.pristine_hash)
+
+
+asyncio.run(main())

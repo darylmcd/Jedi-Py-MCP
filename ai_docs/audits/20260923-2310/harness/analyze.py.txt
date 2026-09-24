@@ -1,0 +1,72 @@
+"""Classify C1 records into finding buckets."""
+
+from __future__ import annotations
+
+import json
+import re
+from collections import Counter, defaultdict
+
+from harness_common import RAW
+
+recs = json.loads((RAW / "c1_calls.json").read_text(encoding="utf-8"))["records"]
+print("total", len(recs), Counter(r["outcome"] for r in recs))
+
+print("\n== VALID calls ==")
+for r in recs:
+    if r["variant"] == "valid":
+        sc = r.get("structured")
+        brief = ""
+        if isinstance(sc, dict):
+            brief = ",".join(f"{k}={(len(v) if isinstance(v, list) else v)!r}"[:50] for k, v in list(sc.items())[:5])
+        print(f"{r['seconds']:6.2f} {r['tool']:28s} {r['outcome']:14s} {'idem=' + str(r.get('idempotent')) if 'idempotent' in r else '':10s} "
+              f"{brief[:170] if r['outcome'] == 'ok' else (r.get('text') or '')[:170]!s}")
+
+print("\n== non-idempotent RO ==", [r["tool"] for r in recs if r.get("idempotent") is False])
+print("== ws_changed ==", [(r["tool"], r["variant"], r["ws_changed"]) for r in recs if r.get("ws_changed")])
+print("== protocol/timeout/schema/runtime ==")
+for r in recs:
+    if r["outcome"] in ("protocol_error", "timeout", "output_schema_violation", "runtime_error"):
+        print("  ", r["tool"], r["variant"], r["outcome"], (r.get("text") or "")[:300])
+print("== slow (>5s) ==", [(r["tool"], r["variant"], r["seconds"]) for r in recs if r["seconds"] > 5])
+print("== traceback in client text ==", [(r["tool"], r["variant"]) for r in recs if r.get("has_traceback")])
+
+opaque = defaultdict(list)
+backend_on_input = defaultdict(list)
+accepted_bad = defaultdict(list)
+codes = Counter()
+for r in recs:
+    t = (r.get("text") or "").strip()
+    if r["outcome"] == "error_result":
+        m = re.search(r"\[([A-Z_]+)\]", t)
+        codes[m.group(1) if m else ("OPAQUE" if t == f"Error executing tool {r['tool']}" else "PYDANTIC" if "validation error" in t else "OTHER")] += 1
+        if t == f"Error executing tool {r['tool']}":
+            opaque[r["tool"]].append(r["variant"])
+        elif re.search(r"\[(PYRIGHT_BACKEND|BACKEND|ROPE_BACKEND|JEDI_BACKEND)\]", t) and r["variant"] not in ("valid",):
+            backend_on_input[r["variant"].split(":")[0] + ":" + (r["variant"].split(":")[-1])].append(r["tool"])
+    if r["outcome"] == "ok" and re.match(r"(neg|huge|str:.*:(empty|missing|dir|unicode_missing|ws|punct|long)|null|emptylist|deepnest|missing)", r["variant"]):
+        accepted_bad[r["variant"]].append(r["tool"])
+print("\n== error code distribution ==", codes)
+print("\n== OPAQUE errors (message swallowed) ==", len(opaque), "tools")
+for k, v in sorted(opaque.items()):
+    print("  ", k, v)
+print("\n== backend-failure code returned for caller-input variants ==")
+for k, v in sorted(backend_on_input.items()):
+    print("  ", k, len(v), sorted(set(v))[:40])
+print("\n== bad input ACCEPTED (ok) ==")
+for k, v in sorted(accepted_bad.items()):
+    print("  ", k, sorted(set(v)))
+print("\n== OTHER-coded error texts (sample) ==")
+seen = set()
+for r in recs:
+    t = (r.get("text") or "").strip()
+    if r["outcome"] == "error_result" and not re.search(r"\[([A-Z_]+)\]", t) and "validation error" not in t and t != f"Error executing tool {r['tool']}":
+        key = t[:90]
+        if key not in seen:
+            seen.add(key)
+            print("  ", r["tool"], r["variant"], "|", t[:220])
+print("\n== extra_unknown_arg accepted ==", sum(1 for r in recs if r["variant"] == "extra_unknown_arg" and r["outcome"] == "ok"),
+      "/", sum(1 for r in recs if r["variant"] == "extra_unknown_arg"))
+print("\n== seq ==")
+for r in recs:
+    if r["variant"].startswith("seq:") or r["tool"] in ("refactor_transaction", "restart_server", "undo_refactoring"):
+        print(f"  {r['tool']:24s} {r['variant']:32s} {r['outcome']:14s} {(r.get('text') or '')[:230]!r}")

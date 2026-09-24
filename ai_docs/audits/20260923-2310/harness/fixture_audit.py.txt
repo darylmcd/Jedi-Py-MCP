@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from typing import Protocol
+
+import yaml
+
+from src.models import User
+
+
+class Shape:
+    """Base shape."""
+
+    def __init__(self, width: float, height: float) -> None:
+        self.width = width
+        self.height = height
+
+    def area(self) -> float:
+        scale = 1.0
+        result = self.width * self.height * scale
+        return result
+
+    def describe(self, prefix: str = "shape") -> str:
+        return f"{prefix}: {self.area()}"
+
+
+class Square(Shape):
+    def area(self) -> float:
+        return self.width * self.width
+
+
+class HasArea(Protocol):
+    def area(self) -> float: ...
+
+
+class Config:
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+
+
+def helper(a: int, b: int = 2) -> int:
+    """Add two numbers.
+
+    Args:
+        a: first.
+    """
+    return a + b
+
+
+def caller() -> int:
+    x = helper(1)
+    y = helper(b=3, a=4)
+    return x + y
+
+
+def risky(cmd: str) -> object:
+    subprocess.call(cmd, shell=True)
+    return eval(cmd)
+
+
+def load_cfg(text: str) -> object:
+    return yaml.load(text)
+
+
+def use_user() -> str:
+    u = User(user_id=5, name="z")
+    return u.name
+
+
+def untyped(p, q):
+    return p + q
+
+
+def config_url(cfg: Config) -> str:
+    return f"{cfg.host}:{cfg.port}"
+
+
+def use_config() -> str:
+    return config_url(Config("h", 1))
+
+
+def make_record(n: int) -> dict[str, int]:
+    return {"count": n, "total": n * 2}
+
+
+class Account:
+    def __init__(self, *, owner: str, balance: int) -> None:
+        if balance < 0:
+            raise ValueError("negative")
+        self.owner = owner
+        self.balance = balance
+
+
+class Engine:
+    def rpm(self) -> int:
+        return 1
+
+
+class Car:
+    def __init__(self) -> None:
+        self.engine = Engine()
+
+    def engine_rpm(self) -> int:
+        return self.engine.rpm()
+
+
+def needs_gen() -> int:
+    return missing_helper(1)

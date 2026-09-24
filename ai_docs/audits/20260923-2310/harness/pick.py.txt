@@ -1,0 +1,19 @@
+"""Print full structured result for tool/variant pairs: python pick.py tool:variant ..."""
+
+from __future__ import annotations
+
+import json
+import sys
+
+from harness_common import RAW
+
+recs = json.loads((RAW / "c1_calls.json").read_text(encoding="utf-8"))["records"]
+for arg in sys.argv[1:]:
+    tool, variant = arg.split(":", 1)
+    for r in recs:
+        if r["tool"] == tool and r["variant"] == variant:
+            body = r.get("structured") if r.get("structured") is not None else r.get("text")
+            s = json.dumps(body, ensure_ascii=False) if not isinstance(body, str) else body
+            s = s.replace("<scratch>\\\\", "<S>/")
+            s = s.replace("<scratch>\\", "<S>/")
+            print(f"### {tool} {variant} [{r['outcome']}] args={json.dumps(r['args'])[:200]}\n{s[:1400]}\n")

@@ -1,0 +1,60 @@
+"""Shared stdio session helper for the MCP surface audit (raw protocol, no host fast path)."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+
+REPO = Path("<repo>")
+SCRATCH = Path(__file__).resolve().parent
+WS = SCRATCH / "ws"
+REPORTS = REPO / "ai_docs" / "audits" / "20260923-2310"
+RAW = REPORTS / "raw"
+PY = REPO / ".venv" / "Scripts" / "python.exe"
+
+
+def server_params(profile: str, workspace: Path | None) -> StdioServerParameters:
+    scripts = PY.parent
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(REPO / "src"),
+        "PYTHON_REFACTOR_MCP_TOOL_PROFILE": profile,
+        "PYRIGHT_LANGSERVER": str(scripts / "pyright-langserver.exe"),
+        "PATH": str(scripts) + os.pathsep + os.environ.get("PATH", ""),
+        "PYTHONUTF8": "1",
+    }
+    args = ["-m", "python_refactor_mcp"]
+    if workspace is not None:
+        args.append(str(workspace))
+    return StdioServerParameters(command=str(PY), args=args, cwd=str(SCRATCH), env=env)
+
+
+@asynccontextmanager
+async def session(profile: str, workspace: Path | None = WS) -> AsyncIterator[tuple[ClientSession, object]]:
+    ready: asyncio.Future = asyncio.get_running_loop().create_future()
+    stop = asyncio.Event()
+
+    async def own() -> None:
+        try:
+            async with stdio_client(server_params(profile, workspace)) as (r, w), ClientSession(r, w) as s:
+                init = await s.initialize()
+                ready.set_result((s, init))
+                await stop.wait()
+        except BaseException as exc:
+            if not ready.done():
+                ready.set_exception(exc)
+                return
+            raise
+
+    task = asyncio.create_task(own())
+    try:
+        yield await ready
+    finally:
+        stop.set()
+        await task

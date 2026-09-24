@@ -1,0 +1,50 @@
+"""Compact schema summary of the union catalog."""
+
+from __future__ import annotations
+
+import json
+
+from harness_common import RAW, SCRATCH
+
+
+def typ(p: dict) -> str:
+    if "anyOf" in p:
+        return "|".join(typ(x) for x in p["anyOf"])
+    if "$ref" in p:
+        return p["$ref"].split("/")[-1]
+    t = p.get("type", "?")
+    if t == "array":
+        return f"list[{typ(p.get('items', {}))}]"
+    if "enum" in p:
+        return "enum" + json.dumps(p["enum"])
+    return str(t)
+
+
+tools: dict[str, dict] = {}
+profiles: dict[str, list[str]] = {}
+for prof in ("refactoring", "analysis"):
+    inv = json.loads((RAW / f"inventory_{prof}.json").read_text(encoding="utf-8"))
+    for t in inv["tools"]:
+        tools.setdefault(t["name"], t)
+        profiles.setdefault(t["name"], []).append(prof[0])
+        if tools[t["name"]] != t:
+            print("PROFILE SCHEMA DIFF", t["name"])
+
+lines = []
+for name in sorted(tools):
+    t = tools[name]
+    s = t["inputSchema"]
+    req = set(s.get("required", []))
+    params = []
+    for k, p in s.get("properties", {}).items():
+        d = f"={json.dumps(p['default'])}" if "default" in p else ""
+        params.append(f"{'*' if k in req else ''}{k}:{typ(p)}{d}")
+    ann = t.get("annotations", {})
+    flags = "RO" if ann.get("readOnlyHint") else ("DESTR" if ann.get("destructiveHint") else "ADD")
+    osch = t.get("outputSchema")
+    otitle = osch.get("title", "?") if osch else "NONE"
+    lines.append(f"{name} [{''.join(profiles[name])}] {flags} -> {otitle}\n    " + ", ".join(params))
+    if s.get("$defs"):
+        lines.append("    defs: " + ", ".join(s["$defs"]))
+(SCRATCH / "schema_summary.txt").write_text("\n".join(lines), encoding="utf-8")
+print(len(tools), "unique tools")

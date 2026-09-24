@@ -1,0 +1,67 @@
+"""C4 static schema checks over the live tools/list payload (both profiles)."""
+
+from __future__ import annotations
+
+import json
+import re
+
+from jsonschema.validators import validator_for
+
+from harness_common import RAW
+
+tools: dict[str, dict] = {}
+for prof in ("refactoring", "analysis"):
+    for t in json.loads((RAW / f"inventory_{prof}.json").read_text(encoding="utf-8"))["tools"]:
+        tools.setdefault(t["name"], t)
+
+out = {"invalid_input_schema": [], "invalid_output_schema": [], "empty_description": [], "no_param_descriptions": [],
+       "param_desc_coverage": {}, "bad_name": [], "no_title": [], "enumlike_str": [], "untyped_object": [],
+       "positional_without_0based_note": [], "desc_len": {}, "missing_annotations": [], "no_output_schema": []}
+ENUMLIKE = {"direction", "style", "kind", "severity_filter", "language", "source", "op"}
+for name, t in sorted(tools.items()):
+    s = t["inputSchema"]
+    try:
+        validator_for(s).check_schema(s)
+    except Exception as e:
+        out["invalid_input_schema"].append(f"{name}: {e}")
+    if t.get("outputSchema"):
+        try:
+            validator_for(t["outputSchema"]).check_schema(t["outputSchema"])
+        except Exception as e:
+            out["invalid_output_schema"].append(f"{name}: {e}")
+    else:
+        out["no_output_schema"].append(name)
+    d = (t.get("description") or "").strip()
+    out["desc_len"][name] = len(d)
+    if not d:
+        out["empty_description"].append(name)
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+        out["bad_name"].append(name)
+    if not t.get("annotations"):
+        out["missing_annotations"].append(name)
+    props = s.get("properties", {})
+    if props:
+        described = [k for k, p in props.items() if p.get("description")]
+        out["param_desc_coverage"][name] = f"{len(described)}/{len(props)}"
+        if not described:
+            out["no_param_descriptions"].append(name)
+    for k, p in props.items():
+        flat = json.dumps(p)
+        if k in ENUMLIKE and '"enum"' not in flat:
+            out["enumlike_str"].append(f"{name}.{k} default={p.get('default')!r} desc_mentions_values={bool(re.search(k, d))}")
+        if (p.get("type") == "object" and "properties" not in p) or '"items": {"type": "object"}' in flat or ('"additionalProperties": true' in flat):
+            out["untyped_object"].append(f"{name}.{k}: {flat[:160]}")
+    for dn, dd in s.get("$defs", {}).items():
+        for k, p in dd.get("properties", {}).items():
+            if k in ENUMLIKE and '"enum"' not in json.dumps(p):
+                out["enumlike_str"].append(f"{name}.$defs.{dn}.{k}")
+    if {"line", "character"} <= set(props) and "0-based" not in d:
+        out["positional_without_0based_note"].append(name)
+
+print(json.dumps({k: v for k, v in out.items() if k not in ("desc_len", "param_desc_coverage")}, indent=1))
+lens = sorted(out["desc_len"].items(), key=lambda kv: kv[1])
+print("shortest desc", lens[:8])
+print("longest desc", lens[-5:])
+cov = out["param_desc_coverage"]
+print("tools with any param desc:", sum(1 for v in cov.values() if not v.startswith("0/")), "/", len(cov))
+(RAW / "schema_audit.json").write_text(json.dumps(out, indent=1), encoding="utf-8")

@@ -1,0 +1,77 @@
+"""Emit the generated tables for 01_inventory_mcp.md and 02_mcp_tools.md (appendix sections)."""
+
+from __future__ import annotations
+
+import json
+import re
+from collections import defaultdict
+
+from harness_common import RAW, SCRATCH
+
+tools: dict[str, dict] = {}
+prof: dict[str, list[str]] = defaultdict(list)
+for p in ("refactoring", "analysis"):
+    for t in json.loads((RAW / f"inventory_{p}.json").read_text(encoding="utf-8"))["tools"]:
+        tools.setdefault(t["name"], t)
+        prof[t["name"]].append(p[0].upper())
+
+
+def ptype(p: dict) -> str:
+    if "anyOf" in p:
+        return "|".join(ptype(x) for x in p["anyOf"])
+    if "$ref" in p:
+        return p["$ref"].rsplit("/", 1)[-1]
+    if p.get("type") == "array":
+        return f"list[{ptype(p.get('items', {}))}]"
+    return p.get("type", "?")
+
+
+rows = ["| Tool name | Profiles | Hints | Description (first sentence) | Input schema fields (* = required) | Output shape |",
+        "|---|---|---|---|---|---|"]
+for n in sorted(tools):
+    t = tools[n]
+    s = t["inputSchema"]
+    req = set(s.get("required", []))
+    fields = ", ".join(f"{'*' if k in req else ''}`{k}`:{ptype(v)}" for k, v in s.get("properties", {}).items()) or "—"
+    a = t.get("annotations", {})
+    hint = "RO" if a.get("readOnlyHint") else ("destructive" if a.get("destructiveHint") else "additive")
+    first = re.split(r"(?<=[.])\s", t["description"].strip(), maxsplit=1)[0].replace("|", "\\|")
+    out = t.get("outputSchema", {})
+    oshape = out.get("title", "?")
+    if oshape.endswith("Output") and "result" in out.get("properties", {}):
+        oshape = "{result: " + ptype(out["properties"]["result"]) + "}"
+    rows.append(f"| `{n}` | {'+'.join(prof[n])} | {hint} | {first} | {fields.replace('|', '\\|')} | {oshape.replace('|', '\\|')} |")
+(SCRATCH / "tbl_inventory.md").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+recs = json.loads((RAW / "c1_calls.json").read_text(encoding="utf-8"))["records"]
+per: dict[str, dict] = defaultdict(lambda: defaultdict(int))
+for r in recs:
+    d = per[r["tool"]]
+    d["calls"] += 1
+    d["max_s"] = max(d["max_s"], r["seconds"])
+    t = (r.get("text") or "").strip()
+    if r["variant"] == "valid":
+        d["valid"] = r["outcome"] + (f" ({r['seconds']}s)")
+    if r["outcome"] == "error_result":
+        if t == f"Error executing tool {r['tool']}":
+            d["opaque"] += 1
+        elif re.search(r"\[(PYRIGHT_BACKEND|BACKEND|ROPE_BACKEND|JEDI_BACKEND)\]", t):
+            d["backend_code"] += 1
+        else:
+            d["clear_error"] += 1
+    elif r["variant"] not in ("valid", "valid_repeat", "extra_unknown_arg") and not r["variant"].startswith("seq:"):
+        d["accepted_edge"] += 1
+    if r["variant"] == "extra_unknown_arg" and r["outcome"] == "ok":
+        d["extra_ignored"] = 1
+    if "idempotent" in r:
+        d["idem"] = "yes" if r["idempotent"] else "NO"
+    if r.get("ws_changed"):
+        d["ws_changed"] += 1
+rows = ["| Tool | Valid call | Calls | Clear errors | Opaque errors | `*_BACKEND` on bad input | Edge inputs accepted | Unknown arg ignored | Idempotent (RO) | Max s | Disk writes in preview |",
+        "|---|---|---|---|---|---|---|---|---|---|---|"]
+for n in sorted(per):
+    d = per[n]
+    rows.append(f"| `{n}` | {d.get('valid', 'error-path only')} | {d['calls']} | {d['clear_error']} | {d['opaque']} | {d['backend_code']} | "
+                f"{d['accepted_edge']} | {'yes' if d.get('extra_ignored') else 'no'} | {d.get('idem', '—')} | {d['max_s']:.2f} | {d['ws_changed']} |")
+(SCRATCH / "tbl_tools.md").write_text("\n".join(rows) + "\n", encoding="utf-8")
+print(len(tools), len(per))

@@ -1,0 +1,21 @@
+"""Tabulate C1 records: python show.py <file> [tool-filter] [--full]."""
+
+from __future__ import annotations
+
+import json
+import sys
+
+from harness_common import RAW
+
+data = json.loads((RAW / sys.argv[1]).read_text(encoding="utf-8"))
+flt = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else None
+full = "--full" in sys.argv
+for r in data["records"]:
+    if flt and flt not in r["tool"]:
+        continue
+    extra = ""
+    if r.get("structured") is not None and full:
+        extra = " SC=" + json.dumps(r["structured"])[:700]
+    print(f"{r['seconds']:6.2f} {r['tool']:26s} {r['variant']:32s} {r['outcome']:22s} "
+          f"{'WS!' + str(r['ws_changed']) if r.get('ws_changed') else ''} "
+          f"{'idem=' + str(r['idempotent']) if 'idempotent' in r else ''} | {(r.get('text') or '')[:260]!r}{extra}")

@@ -1,0 +1,188 @@
+[
+ {
+  "profile": "refactoring",
+  "tool": "<startup+prewarm>",
+  "seconds": 8.95
+ },
+ {
+  "profile": "refactoring",
+  "tool": "server_status",
+  "seconds": 0.5,
+  "outcome": "ok",
+  "response_chars": 874,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "dead_code_detection",
+  "seconds": 30.39,
+  "outcome": "ok",
+  "response_chars": 165648,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "get_workspace_diagnostics",
+  "seconds": 1.66,
+  "outcome": "ok",
+  "response_chars": 4971,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "get_module_dependencies",
+  "seconds": 2.39,
+  "outcome": "ok",
+  "response_chars": 651814,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "search_symbols",
+  "seconds": 1.61,
+  "outcome": "ok",
+  "response_chars": 125074,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "find_references",
+  "seconds": 1.76,
+  "outcome": "ok",
+  "response_chars": 98302,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "test_impact_select",
+  "seconds": 0.74,
+  "outcome": "ok",
+  "response_chars": 3688,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "get_symbol_outline",
+  "seconds": 7.1,
+  "outcome": "ok",
+  "response_chars": 7527317,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "fix_circular_imports",
+  "seconds": 8.49,
+  "outcome": "ok",
+  "response_chars": 248,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "fix_module_names",
+  "seconds": 0.03,
+  "outcome": "ok",
+  "response_chars": 166,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "rename_symbol",
+  "seconds": 15.43,
+  "outcome": "ok",
+  "response_chars": 20958,
+  "detail": ""
+ },
+ {
+  "profile": "refactoring",
+  "tool": "security_scan",
+  "seconds": 3.16,
+  "outcome": "ok",
+  "response_chars": 564,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "<startup+prewarm>",
+  "seconds": 6.17
+ },
+ {
+  "profile": "analysis",
+  "tool": "unused_symbol_sweep",
+  "seconds": 39.72,
+  "outcome": "ok",
+  "response_chars": 75216,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "get_coupling_metrics",
+  "seconds": 3.05,
+  "outcome": "ok",
+  "response_chars": 40978,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "check_layer_violations",
+  "seconds": 0.93,
+  "outcome": "ok",
+  "response_chars": 64,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "find_constructors",
+  "seconds": 1.82,
+  "outcome": "ok",
+  "response_chars": 4252,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "find_type_users",
+  "seconds": 6.96,
+  "outcome": "ok",
+  "response_chars": 118225,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "get_test_coverage_map",
+  "seconds": 2.48,
+  "outcome": "ok",
+  "response_chars": 26954,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "call_hierarchy",
+  "seconds": 0.37,
+  "outcome": "ok",
+  "response_chars": 6088,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "find_duplicated_code",
+  "seconds": 3.1,
+  "outcome": "ok",
+  "response_chars": 5130,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "code_metrics",
+  "seconds": 2.25,
+  "outcome": "ok",
+  "response_chars": 339207,
+  "detail": ""
+ },
+ {
+  "profile": "analysis",
+  "tool": "project_search",
+  "seconds": 2.57,
+  "outcome": "ok",
+  "response_chars": 425,
+  "detail": ""
+ }
+]

@@ -1,0 +1,44 @@
+"""Surface the redacted exception behind generate_code's ROPE_BACKEND failure (preview only)."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+import traceback
+from pathlib import Path
+
+REPO = Path("<repo>")
+sys.path.insert(0, str(REPO / "src"))
+os.environ["PYRIGHT_LANGSERVER"] = str(REPO / ".venv" / "Scripts" / "pyright-langserver.exe")
+
+from python_refactor_mcp.workspace_registry import WorkspaceRegistry  # noqa: E402
+
+WS = Path(__file__).resolve().parent / "ws"
+A = WS / "src" / "audit.py"
+
+
+async def main() -> None:
+    reg = WorkspaceRegistry(max_workspaces=1)
+    await reg.set_roots([WS])
+    wb = await reg.get_backends(str(A))
+    lines = A.read_text(encoding="utf-8").splitlines()
+    ln = next(i for i, t in enumerate(lines) if "missing_helper" in t)
+    ch = lines[ln].index("missing_helper")
+    for kind in ("function", "variable", "bogus"):
+        try:
+            r = await wb.rope.generate_code(str(A), ln, ch, kind, False)
+            print(kind, "OK edits", len(r.edits))
+        except Exception as exc:  # show the full chain the MCP boundary redacts
+            chain = []
+            e: BaseException | None = exc
+            while e is not None:
+                chain.append(f"{type(e).__name__}: {e}")
+                e = e.__cause__ or e.__context__
+            print(kind, "FAILED ->", " <- ".join(chain)[:500])
+            if kind == "function":
+                traceback.print_exception(exc, limit=-4)
+    await reg.shutdown_all()
+
+
+asyncio.run(main())
