@@ -1,0 +1,1 @@
+- **Added:** Tool input schemas now describe their parameters (`file_path`, `line`, `character`, `apply`, `limit`, ...) from one shared `Annotated` source in `tool_params.py`; every parameterized tool advertises at least one described parameter.

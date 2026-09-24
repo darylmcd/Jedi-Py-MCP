@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 
 from python_refactor_mcp import server
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
+from python_refactor_mcp.tool_params import PARAM_DESCRIPTIONS
 from python_refactor_mcp.tool_registry import (
     MAX_TOOLS_PER_PROFILE,
     TOOL_RECORDS,
@@ -269,3 +270,32 @@ async def test_identifier_params_are_validated() -> None:
         "variable_name",
     }
     assert expected == set(IDENTIFIER_PARAMS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", TOOL_PROFILES)
+async def test_parameterized_tools_describe_parameters(profile: ToolProfile) -> None:
+    """Every parameterized tool advertises at least one described parameter."""
+    tools = await _profile_tools(profile)
+    parameterized = [tool for tool in tools if tool.input_schema.get("properties")]
+    assert parameterized, "expected parameterized tools in every profile"
+    undescribed = sorted(
+        tool.name
+        for tool in parameterized
+        if not any(prop.get("description") for prop in tool.input_schema["properties"].values())
+    )
+    assert not undescribed, f"tools without any described parameter: {undescribed}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", TOOL_PROFILES)
+async def test_shared_parameter_names_carry_descriptions(profile: ToolProfile) -> None:
+    """A parameter named after a shared description key is always described."""
+    tools = await _profile_tools(profile)
+    missing = sorted(
+        (tool.name, name)
+        for tool in tools
+        for name, prop in tool.input_schema.get("properties", {}).items()
+        if name in PARAM_DESCRIPTIONS and not prop.get("description")
+    )
+    assert not missing, f"shared parameters missing a description: {missing}"
