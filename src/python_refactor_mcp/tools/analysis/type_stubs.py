@@ -3,28 +3,129 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import shutil
+import sys
+import tempfile
 import tokenize
 from collections import defaultdict
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING
 
-from python_refactor_mcp.errors import ToolInputError
-from python_refactor_mcp.models import TypeStubFreshnessResult, TypeStubSignatureDrift
+from python_refactor_mcp.errors import PyrightError, ToolInputError
+from python_refactor_mcp.models import (
+    TypeStubCreationResult,
+    TypeStubFreshnessResult,
+    TypeStubSignatureDrift,
+)
+from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
+
+if TYPE_CHECKING:
+    from python_refactor_mcp.config import ServerConfig
+
+DEFAULT_STUB_DIR = "typings"
+"""Workspace-relative stub root; matches Pyright's default ``stubPath``."""
+
+_CREATESTUB_TIMEOUT_SECONDS = 300.0
+_UNRESOLVED_IMPORT_MARKER = "could not be resolved"
 
 
-class _PyrightStubBackend(Protocol):
-    """Protocol describing the Pyright method needed for stub generation."""
+def _validate_package_name(package_name: str) -> str:
+    """Require a dotted import name whose every segment is a valid identifier."""
+    if not package_name:
+        raise ToolInputError("package_name must be a non-empty import name (parameter: package_name)")
+    for segment in package_name.split("."):
+        validate_identifier(segment, "package_name")
+    return package_name
 
-    async def create_type_stub(self, package_name: str, output_dir: str | None = None) -> bool: ...
+
+def _resolve_stub_root(config: ServerConfig, output_dir: str | None) -> Path:
+    """Return the workspace-bounded stub root; relative paths anchor at the workspace."""
+    workspace_root = config.workspace_root
+    if output_dir is None:
+        candidate = workspace_root / DEFAULT_STUB_DIR
+    else:
+        requested = Path(output_dir).expanduser()
+        candidate = requested if requested.is_absolute() else workspace_root / requested
+    return Path(validate_workspace_path(str(candidate), workspace_root))
+
+
+async def _run_pyright_createstub(config: ServerConfig, package_name: str, cwd: Path) -> tuple[int, str]:
+    """Run ``pyright --createstub`` headlessly in *cwd*; return (exit code, combined output)."""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "pyright",
+        "--createstub",
+        package_name,
+        "--pythonpath",
+        str(config.python_executable),
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(process.communicate(), timeout=_CREATESTUB_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise PyrightError(
+            f"pyright --createstub timed out after {_CREATESTUB_TIMEOUT_SECONDS:.0f}s for {package_name!r}"
+        ) from exc
+    returncode = process.returncode if process.returncode is not None else -1
+    return returncode, stdout_bytes.decode("utf-8", errors="replace")
 
 
 async def create_type_stubs(
-    pyright: _PyrightStubBackend,
+    config: ServerConfig,
     package_name: str,
     output_dir: str | None = None,
-) -> bool:
-    """Generate .pyi stub files for a third-party package lacking type information."""
-    return await pyright.create_type_stub(package_name, output_dir)
+) -> TypeStubCreationResult:
+    """Generate ``.pyi`` stubs for an importable package with the headless Pyright CLI.
+
+    Stubs are written immediately (no preview) to ``<output root>/<top-level package>``,
+    where the output root is ``output_dir`` (workspace-relative or absolute, but always
+    inside the workspace) or ``<workspace>/typings`` by default. An existing target
+    directory is refused rather than merged or overwritten. Pyright resolves the import
+    against the workspace interpreter; an unresolvable import, or a run that produces no
+    ``.pyi`` files, is an error.
+    """
+    _validate_package_name(package_name)
+    stub_root = _resolve_stub_root(config, output_dir)
+    top_level = package_name.split(".", 1)[0]
+    target = stub_root / top_level
+    if target.exists():
+        raise ToolInputError(
+            f"Stub target already exists: {target}; remove it or choose another output_dir "
+            "(parameters: package_name, output_dir)"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="pyright-createstub-") as scratch:
+        scratch_root = Path(scratch)
+        returncode, output = await _run_pyright_createstub(config, package_name, scratch_root)
+        if returncode != 0:
+            if _UNRESOLVED_IMPORT_MARKER in output:
+                raise ToolInputError(
+                    f"Import '{package_name}' could not be resolved by the workspace interpreter "
+                    f"{config.python_executable} (parameter: package_name)"
+                )
+            raise PyrightError(f"pyright --createstub exited {returncode} for {package_name!r}: {output.strip()}")
+
+        generated = scratch_root / DEFAULT_STUB_DIR / top_level
+        if not generated.is_dir() or not any(generated.rglob("*.pyi")):
+            raise ToolInputError(
+                f"Pyright produced no .pyi stubs for '{package_name}' (parameter: package_name)"
+            )
+
+        stub_root.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            # Re-checked after the subprocess: shutil.move would nest into a directory
+            # created meanwhile instead of refusing it.
+            raise ToolInputError(f"Stub target already exists: {target} (parameters: package_name, output_dir)")
+        await asyncio.to_thread(shutil.move, str(generated), str(target))
+
+    files = sorted(str(path) for path in target.rglob("*.pyi"))
+    return TypeStubCreationResult(package_name=package_name, output_dir=str(stub_root), files=files)
 
 
 _FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef

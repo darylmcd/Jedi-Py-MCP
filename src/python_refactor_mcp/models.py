@@ -485,6 +485,14 @@ class TypeStubFreshnessResult(BaseModel):
     skipped_protocols: list[str] = Field(default_factory=list)
 
 
+class TypeStubCreationResult(BaseModel):
+    """Stub files written by ``create_type_stubs``."""
+
+    package_name: str
+    output_dir: str
+    files: list[str] = Field(default_factory=list)
+
+
 class SyntaxErrorItem(BaseModel):
     """A syntax error detected by Jedi's parser."""
 

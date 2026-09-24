@@ -23,7 +23,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `get_syntax_errors` | Return parse-level syntax errors for a file. | `list[SyntaxErrorItem]` |
 | `get_context` | Return surrounding scope context for a position when available. | `ScopeContext \| None` |
 | `get_all_names` | Return all names defined or imported in a file. | `list[NameEntry]` |
-| `create_type_stubs` | Generate type stubs for a package. | `bool` |
+| `create_type_stubs` | Generate `.pyi` stubs for a package via the Pyright CLI; writes immediately (no preview) to `<workspace>/typings/<package>` or a workspace-bounded `output_dir`. | `TypeStubCreationResult` |
 | `check_type_stub_freshness` | Compare a module's callable API shape with its `.pyi` stub. | `TypeStubFreshnessResult` |
 | `test_impact_select` | Select pytest tests that transitively exercise changed symbol anchors via call-hierarchy. | `TestImpactResult` |
 

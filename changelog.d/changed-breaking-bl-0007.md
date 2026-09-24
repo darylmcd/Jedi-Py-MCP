@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `create_type_stubs` now runs the Pyright CLI, returns the created `.pyi` paths instead of `true`, writes to `<workspace>/typings/<package>` by default (or a workspace-bounded `output_dir`), and errors when the import cannot be resolved or no stubs are produced.
