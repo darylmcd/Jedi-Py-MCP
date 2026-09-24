@@ -4,17 +4,55 @@
 	"display_name": "Python Refactor MCP",
 	"version": "0.5.0",
 	"description": "MCP server for Python code analysis and refactoring using Pyright, Jedi, and rope backends.",
-	"author": "darylmcd",
+	"author": {
+		"name": "darylmcd",
+		"url": "https://github.com/darylmcd"
+	},
 	"license": "MIT",
-	"repository": "https://github.com/darylmcd/Jedi-Py-MCP",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/darylmcd/Jedi-Py-MCP"
+	},
+	"homepage": "https://github.com/darylmcd/Jedi-Py-MCP",
 	"privacy_policies": [
 		"https://github.com/darylmcd/Jedi-Py-MCP/blob/main/PRIVACY.md"
 	],
-	"categories": ["developer-tools", "code-analysis"],
+	"keywords": ["developer-tools", "code-analysis"],
 	"icon": "icon.png",
-	"tools": {
-		"transport": "stdio",
-		"command": "python",
-		"args": ["-m", "python_refactor_mcp"]
+	"server": {
+		"type": "python",
+		"entry_point": "src/python_refactor_mcp/__main__.py",
+		"mcp_config": {
+			"command": "python",
+			"args": ["-m", "python_refactor_mcp"],
+			"env": {
+				"PYTHON_REFACTOR_MCP_TOOL_PROFILE": "${user_config.tool_profile}",
+				"MAX_WORKSPACES": "${user_config.max_workspaces}"
+			}
+		}
+	},
+	"tools_generated": true,
+	"user_config": {
+		"tool_profile": {
+			"type": "string",
+			"title": "Tool profile",
+			"description": "Advertised tool surface: \"refactoring\" (mutating + support tools) or \"analysis\" (read-only tools).",
+			"default": "refactoring",
+			"required": false
+		},
+		"max_workspaces": {
+			"type": "number",
+			"title": "Maximum workspaces",
+			"description": "Number of workspaces kept loaded at once; the least recently used workspace is evicted beyond this limit.",
+			"default": 3,
+			"min": 1,
+			"required": false
+		}
+	},
+	"compatibility": {
+		"platforms": ["win32", "darwin", "linux"],
+		"runtimes": {
+			"python": ">=3.14"
+		}
 	}
 }

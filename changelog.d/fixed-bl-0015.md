@@ -1,0 +1,1 @@
+- **Fixed:** `manifest.json` now conforms to the MCPB v0.3 schema (object `author`/`repository`, a `server` launch block, declared Python >=3.14 runtime and tool-profile/workspace env config, `tools_generated` instead of misplaced launch config), and `just ci` validates it against the vendored schema.
