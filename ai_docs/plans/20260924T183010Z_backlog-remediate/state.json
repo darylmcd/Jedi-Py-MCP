@@ -3,44 +3,13 @@
   "generatedAt": "2026-09-24T18:30:12.020Z",
   "backlogSnapshot": "2026-09-24T18:09:20Z",
   "addendaLoaded": true,
-  "phase": "skeleton",
-  "cycleCount": 0,
+  "phase": "complete",
+  "cycleCount": 1,
   "maxCycles": 2,
   "completed": false,
-  "reviewStatus": "pending",
+  "reviewStatus": "failed-after-remediation",
   "readyForExecute": false,
   "initiatives": [
-    {
-      "id": "bl-0003",
-      "order": 1,
-      "status": "pending",
-      "backlogRowsClosed": [
-        "bl-0003"
-      ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
-      "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
-      "scheduleHint": null,
-      "fanoutEstimate": null,
-      "fanoutOversize": false,
-      "deepenerStatus": "pending",
-      "deepenerFlags": {
-        "judgmentHeavy": false,
-        "anchorStale": false,
-        "ruleOneBundleResolved": null
-      },
-      "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
-      "notes": null
-    },
     {
       "id": "bl-0009",
       "order": 2,
@@ -48,29 +17,39 @@
       "backlogRowsClosed": [
         "bl-0009"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/search/_helpers.py",
+        "src/python_refactor_mcp/tools/search/dead_code.py",
+        "src/python_refactor_mcp/tools/search/unused_symbols.py"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_search_tools.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 55000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "e69b4fec5cbdd2f3491d416610a854258ca12be3cb5ffff78c832cb2871053cf",
+      "stanzaHash": "fa423ad181f016ea6f285e9209503d3c1ae940cab2c7294084c204979679b0ea",
+      "reviewedStanzaHash": "fa423ad181f016ea6f285e9209503d3c1ae940cab2c7294084c204979679b0ea"
     },
     {
       "id": "bl-0023",
@@ -79,60 +58,79 @@
       "backlogRowsClosed": [
         "bl-0023"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/tools/refactoring/code_actions.py",
+        "src/python_refactor_mcp/tool_registry.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_refactoring_tools.py"
+      ],
+      "docFiles": [
+        "docs/tool-reference.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 45000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "ae0af0842f7fdc363312ada8cb5d5916cef32632e98900f8d89a18c70bafd40c",
+      "stanzaHash": "fa07be939bbcb52c5905dda50ea36a7bc9ece369b6d5872cab7366bd129fd1d8",
+      "reviewedStanzaHash": "fa07be939bbcb52c5905dda50ea36a7bc9ece369b6d5872cab7366bd129fd1d8"
     },
     {
       "id": "bl-0025",
       "order": 4,
-      "status": "pending",
+      "status": "deferred",
       "backlogRowsClosed": [
         "bl-0025"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/pyright_lsp.py"
+      ],
+      "testFilesAdded": 2,
+      "testFiles": [
+        "tests/unit/test_pyright_lsp.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 30000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 1,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": "plan review blocked twice: raising LSP_UNSUPPORTED in get_folding_ranges bypasses the AST fallback at tools/navigation/outline.py:274-276; re-plan with outline.py in Scope (catch the unsupported error and fall back), type_hierarchy likewise",
+      "fileSetHash": "3713c2806b537bd0563ecddbb1827e329078adbea6d8177d3c907703b6c4b6db",
+      "stanzaHash": "e571a1d743f0733f3faca98e416c134437da6fa13e4a46285df32b17b9d98c83",
+      "reviewedStanzaHash": "e571a1d743f0733f3faca98e416c134437da6fa13e4a46285df32b17b9d98c83"
     },
     {
       "id": "bl-0026",
@@ -141,29 +139,36 @@
       "backlogRowsClosed": [
         "bl-0026"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/tool_runtime.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_error_boundary.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": null,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "03e96f264ba548b390e630176d4126c1d70d35752832641dac81e2a78f816ab3",
+      "stanzaHash": "e0f04db402ea1cda0c3046c54008e87a6c5c057744426ddb241e36cb62d2eb19",
+      "reviewedStanzaHash": "e0f04db402ea1cda0c3046c54008e87a6c5c057744426ddb241e36cb62d2eb19"
     },
     {
       "id": "bl-0028",
@@ -172,29 +177,37 @@
       "backlogRowsClosed": [
         "bl-0028"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/metrics/architecture.py",
+        "src/python_refactor_mcp/tools/metrics/dependencies.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_metrics_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 35000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "e123a83ec801eff74ed32ca825db9bbbc8b442acfd0519f7557b3086662aa6fc",
+      "stanzaHash": "79dc36906d14f2cb4db687e7ab3be216db1f0c60f11549d9e15f8b8ea47529b7",
+      "reviewedStanzaHash": "79dc36906d14f2cb4db687e7ab3be216db1f0c60f11549d9e15f8b8ea47529b7"
     },
     {
       "id": "bl-0030",
@@ -203,29 +216,36 @@
       "backlogRowsClosed": [
         "bl-0030"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 0,
+      "productionFiles": [],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/integration/conftest.py"
+      ],
+      "docFiles": [
+        "ai_docs/runtime.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 20000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "c248a234b14420fae41091337a2e581b236f9e3f47fbc30ff0a524ce65f0a5b7",
+      "stanzaHash": "3102296a726f0a5cd3ed3cf72483ed660d09063f4253dd60a1cb6fada6ab0a50",
+      "reviewedStanzaHash": "3102296a726f0a5cd3ed3cf72483ed660d09063f4253dd60a1cb6fada6ab0a50"
     },
     {
       "id": "bl-0019",
@@ -234,29 +254,36 @@
       "backlogRowsClosed": [
         "bl-0019"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/tool_registry.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_server.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 20000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": null,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "b267a9a36df071a7d2a9280a3dcd9e5178d5dfe77d3a26a5e8312a6c7eba2447",
+      "stanzaHash": "9f53860b5e91cd91575147f8def7907a3f0ca2f183b5d66d18183daac953f654",
+      "reviewedStanzaHash": "9f53860b5e91cd91575147f8def7907a3f0ca2f183b5d66d18183daac953f654"
     },
     {
       "id": "bl-0020",
@@ -265,29 +292,38 @@
       "backlogRowsClosed": [
         "bl-0020"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "src/python_refactor_mcp/tool_params.py",
+        "src/python_refactor_mcp/tool_registry.py",
+        "src/python_refactor_mcp/server.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/contract/test_mcp_protocol.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 55000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "b2608697c0150cbda59d159b7b1ff1ecdca72a1cb1ca7fc6dcaa316522632345",
+      "stanzaHash": "7f1fb7af3914bb903792502a1e556142380770969c43d77372839eaba8b4a873",
+      "reviewedStanzaHash": "7f1fb7af3914bb903792502a1e556142380770969c43d77372839eaba8b4a873"
     },
     {
       "id": "bl-0024",
@@ -296,29 +332,36 @@
       "backlogRowsClosed": [
         "bl-0024"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/refactoring/imports.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_refactoring_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 18000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": null,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "3d0f54ee6aa15b2f1641374988e07fa2e26241e49a36f1b399ce98b28f457f8b",
+      "stanzaHash": "2cc726456d293b68ff27365d0481319ca35c5cd7dad956c0782cc73aa7fa5b6c",
+      "reviewedStanzaHash": "2cc726456d293b68ff27365d0481319ca35c5cd7dad956c0782cc73aa7fa5b6c"
     },
     {
       "id": "bl-0027",
@@ -327,29 +370,36 @@
       "backlogRowsClosed": [
         "bl-0027"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/models.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_models.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 15000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": null,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "3f707fb65abd97bb3af5400e33bb6311a9234b2685a784f4d3757ff67af10fef",
+      "stanzaHash": "9eac89b2fa36bd81ae9d1b0f1a8a416dc23f0b5057f9722b8c1b5a2013fc16a4",
+      "reviewedStanzaHash": "9eac89b2fa36bd81ae9d1b0f1a8a416dc23f0b5057f9722b8c1b5a2013fc16a4"
     },
     {
       "id": "bl-0029",
@@ -358,29 +408,34 @@
       "backlogRowsClosed": [
         "bl-0029"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 0,
+      "productionFiles": [],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_create_type_stubs.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 15000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "63a234cfa52790e69df87e041bcfc10fbf131d51104bc5e8dee6072c4e843420",
+      "stanzaHash": "d1e0e7a96e8d121b58130ac0c24fbade0054574bdf2bc71ae0e1362b44bbf108",
+      "reviewedStanzaHash": "d1e0e7a96e8d121b58130ac0c24fbade0054574bdf2bc71ae0e1362b44bbf108"
     },
     {
       "id": "bl-0031",
@@ -389,29 +444,34 @@
       "backlogRowsClosed": [
         "bl-0031"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        ".gitignore"
+      ],
+      "testFilesAdded": 0,
+      "testFiles": [],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 8000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "bc37d034bad564583790a46f19d807abfe519c5671395fd494d8cce506c42947",
+      "stanzaHash": "c79edba2e95e3f8590eb3d34f2776aec91d80b6866be63fbdef54cc92cd9537d",
+      "reviewedStanzaHash": "c79edba2e95e3f8590eb3d34f2776aec91d80b6866be63fbdef54cc92cd9537d"
     },
     {
       "id": "bl-0032",
@@ -420,29 +480,35 @@
       "backlogRowsClosed": [
         "bl-0032"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 0,
+      "productionFiles": [],
+      "testFilesAdded": 0,
+      "testFiles": [],
+      "docFiles": [
+        "AGENTS.md",
+        ".ai-doc-audit.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 15000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 0,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "4351435192a65ffd92fe5787803f4aaf6977fa1faedfa3cadb40ea86ffd95a2f",
+      "stanzaHash": "edfce574f2b06d9a922f6e0553776f006ef97f9acf352b41d073419dd084fb01",
+      "reviewedStanzaHash": "edfce574f2b06d9a922f6e0553776f006ef97f9acf352b41d073419dd084fb01"
     },
     {
       "id": "bl-0033",
@@ -451,36 +517,102 @@
       "backlogRowsClosed": [
         "bl-0033"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/pyright_lsp.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_pyright_lsp.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 25000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": null,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "506158ca7876350c08450c119059031f57e40de592628f35ad883ed28eabfe8f",
+      "stanzaHash": "3f9e43aefc12834d8e15d680d96c53f34e15ec4f7eca7da278de685dfe636b39",
+      "reviewedStanzaHash": "3f9e43aefc12834d8e15d680d96c53f34e15ec4f7eca7da278de685dfe636b39"
     }
   ],
-  "anchorVerification": "pending",
+  "anchorVerification": "performed",
   "conflictGraph": {
-    "edges": [],
-    "degrees": {},
-    "zeroDegreeInitiatives": []
+    "edges": [
+      {
+        "a": 3,
+        "b": 8,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tool_registry.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 9,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tool_registry.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 10,
+        "sharedFiles": [
+          "tests/unit/test_refactoring_tools.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 9,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tool_registry.py"
+        ]
+      }
+    ],
+    "degrees": {
+      "2": 0,
+      "3": 4,
+      "5": 0,
+      "6": 0,
+      "7": 0,
+      "8": 2,
+      "9": 2,
+      "10": 1,
+      "11": 1,
+      "12": 0,
+      "13": 0,
+      "14": 0,
+      "15": 0
+    },
+    "zeroDegreeInitiatives": [
+      2,
+      5,
+      6,
+      7,
+      12,
+      13,
+      14,
+      15
+    ]
   },
   "selection": {
     "requestedCount": 15,
@@ -506,6 +638,111 @@
         "id": "rope-python314-deprecations",
         "reason": "defer-band"
       }
+    ],
+    "splits": [
+      {
+        "parent": "bl-0003",
+        "children": [
+          "bl-0034",
+          "bl-0035",
+          "bl-0036",
+          "bl-0037",
+          "bl-0038"
+        ]
+      }
     ]
-  }
+  },
+  "reviewFindings": {
+    "block": 1,
+    "warn": 6,
+    "info": 4
+  },
+  "lastReviewFindings": [
+    {
+      "initiativeId": "bl-0025",
+      "severity": "block",
+      "rule": "3",
+      "introducedByRemediation": true,
+      "evidence": "Raising LspFeatureUnsupportedError in get_folding_ranges bypasses the existing AST fallback at tools/navigation/outline.py:274-276 (_ast_folding_ranges :126); outline.py missing from Scope.",
+      "resolved": true,
+      "resolution": "bl-0025 deferred (blocked after one remediation cycle); re-plan note appended to items/bl-0025.md."
+    },
+    {
+      "initiativeId": "bl-0009",
+      "severity": "warn",
+      "rule": "3",
+      "introducedByRemediation": true,
+      "evidence": "Missed-target branch appends the profile to ai_docs/items/bl-0009.md, not in Scope.",
+      "resolved": true,
+      "resolution": "The items note is written by the orchestrator in the generation reconcile PR via backlog.mjs note, never in the initiative PR; the initiative diff does not touch items/bl-0009.md."
+    },
+    {
+      "initiativeId": "bl-0020",
+      "severity": "warn",
+      "rule": "3b",
+      "unresolvedSinceCycle": 0,
+      "evidence": "~300 retypes across 101 tools is the bulk-type-replacement shape but declared edit-only."
+    },
+    {
+      "initiativeId": "bl-0019/bl-0020",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "unresolvedSinceCycle": 0,
+      "evidence": "Consecutive orders 8-9 share tool_registry.py (separate generations)."
+    },
+    {
+      "initiativeId": "bl-0023/bl-0025",
+      "severity": "warn",
+      "rule": "hotspot",
+      "unresolvedSinceCycle": 0,
+      "evidence": "Orders 3-4 touch hotspots.",
+      "resolved": true,
+      "resolution": "bl-0025 deferred; adjacency gone."
+    },
+    {
+      "initiativeId": "bl-0025/bl-0026",
+      "severity": "warn",
+      "rule": "hotspot",
+      "unresolvedSinceCycle": 0,
+      "evidence": "Orders 4-5 touch hotspots.",
+      "resolved": true,
+      "resolution": "bl-0025 deferred; adjacency gone."
+    },
+    {
+      "initiativeId": "bl-0019/bl-0020",
+      "severity": "warn",
+      "rule": "hotspot",
+      "unresolvedSinceCycle": 0,
+      "evidence": "Orders 8-9 both touch tool_registry.py."
+    },
+    {
+      "initiativeId": "bl-0023",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Degree 4 without heroic-last."
+    },
+    {
+      "initiativeId": "bl-0019",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Degree 2 without heroic-last."
+    },
+    {
+      "initiativeId": "bl-0020",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Degree 2 without heroic-last."
+    },
+    {
+      "initiativeId": "bl-0025",
+      "severity": "info",
+      "rule": "anchor",
+      "evidence": "Pyright pin is a floor (>=1.1.409); uv.lock resolves 1.1.411."
+    }
+  ],
+  "conflictGraphInputHash": "0c733dd7a3202f38b26c10581f809a9937eccd21d8232c6bb71972e67606017b",
+  "planHash": "2f7590ba5dc9d74d86411c44d374e614582fd342192282c3efb0d902875b8fb5",
+  "backlogSnapshotHash": "237073c30029f28e1431b21cd4c8ca4eb11c6696928d93e25090a61ae2ce2cab",
+  "reviewedPlanHash": "2f7590ba5dc9d74d86411c44d374e614582fd342192282c3efb0d902875b8fb5",
+  "reviewedBacklogSnapshotHash": "237073c30029f28e1431b21cd4c8ca4eb11c6696928d93e25090a61ae2ce2cab"
 }
