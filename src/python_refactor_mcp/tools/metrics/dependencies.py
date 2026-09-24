@@ -79,10 +79,56 @@ def _collect_imports(tree: ast.AST) -> list[tuple[ast.Import | ast.ImportFrom, b
     return collector.imports
 
 
-def _import_roots(workspace_root: Path) -> tuple[Path, ...]:
-    """Return import roots in Python resolution order for common layouts."""
+def workspace_import_roots(workspace_root: Path) -> tuple[Path, ...]:
+    """Return import roots in resolution order: ``src``/``lib`` layouts before the root.
+
+    Shared by the dependency tools and ``check_layer_violations`` so every
+    metrics tool names and resolves modules the same way.
+    """
     roots = [workspace_root / name for name in ("src", "lib")]
     return tuple(root.resolve() for root in (*roots, workspace_root) if root.is_dir())
+
+
+def source_module_parts(source: Path, import_roots: tuple[Path, ...]) -> tuple[str, ...] | None:
+    """Return the dotted module parts of ``source`` relative to its import root.
+
+    A package ``__init__.py`` is named after its package. ``None`` means the
+    file lies outside every import root.
+    """
+    resolved = source.resolve()
+    for root in import_roots:
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError:
+            continue
+        parts = relative.with_suffix("").parts
+        return parts[:-1] if parts and parts[-1] == "__init__" else parts
+    return None
+
+
+def source_package_parts(source: Path, module_parts: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the package a relative import in ``source`` is resolved against.
+
+    A package ``__init__.py`` resolves against its own package; any other
+    module resolves against its parent package.
+    """
+    return module_parts if source.name == "__init__.py" else module_parts[:-1]
+
+
+def resolve_import_from(node: ast.ImportFrom, package: tuple[str, ...] | None) -> str | None:
+    """Resolve an ``ImportFrom`` module (including relative levels) to a dotted name.
+
+    ``package`` comes from :func:`source_package_parts`. ``None`` is returned
+    when a relative import has no package context or climbs above the top level.
+    """
+    if node.level == 0:
+        return node.module
+    if package is None or node.level > len(package):
+        return None
+    base = package[: len(package) - (node.level - 1)]
+    if node.module:
+        base = (*base, *node.module.split("."))
+    return ".".join(base)
 
 
 def _resolve_module_to_file(module_name: str, import_roots: tuple[Path, ...]) -> str | None:
@@ -106,21 +152,6 @@ def _resolve_module_to_file(module_name: str, import_roots: tuple[Path, ...]) ->
     return None
 
 
-def _package_parts(source: Path, import_roots: tuple[Path, ...]) -> tuple[str, ...] | None:
-    """Return the importing module's package relative to its import root."""
-    for root in import_roots:
-        try:
-            relative = source.resolve().relative_to(root)
-        except ValueError:
-            continue
-
-        module_parts = relative.with_suffix("").parts
-        if not module_parts:
-            return ()
-        return module_parts[:-1]
-    return None
-
-
 def _source_first_import_roots(source: Path, import_roots: tuple[Path, ...]) -> tuple[Path, ...]:
     """Prioritize the source's own root when resolving a relative import."""
     resolved_source = source.resolve()
@@ -131,26 +162,6 @@ def _source_first_import_roots(source: Path, import_roots: tuple[Path, ...]) -> 
             continue
         return (root, *(candidate for candidate in import_roots if candidate != root))
     return import_roots
-
-
-def _absolute_from_module(
-    node: ast.ImportFrom,
-    source: Path,
-    import_roots: tuple[Path, ...],
-) -> str | None:
-    """Resolve an ImportFrom module against the source package context."""
-    if node.level == 0:
-        return node.module or ""
-
-    package = _package_parts(source, import_roots)
-    if package is None or node.level > len(package):
-        return None
-
-    parent_hops = node.level - 1
-    base = package[: len(package) - parent_hops] if parent_hops else package
-    if node.module:
-        base = (*base, *node.module.split("."))
-    return ".".join(base)
 
 
 def _from_import_name(node: ast.ImportFrom, alias_name: str) -> str:
@@ -252,7 +263,7 @@ async def get_module_dependencies(
     modules: set[str] = set()
     graph: dict[str, set[str]] = {}
     scan_failures: list[ScanFailure] = []
-    import_roots = _import_roots(workspace_root)
+    import_roots = workspace_import_roots(workspace_root)
 
     for fp in sorted(paths):
         source = str(fp.resolve())
@@ -272,6 +283,8 @@ async def get_module_dependencies(
         modules.add(source)
         if source not in graph:
             graph[source] = set()
+        module_parts = source_module_parts(fp, import_roots)
+        package = source_package_parts(fp, module_parts) if module_parts is not None else None
 
         for node, is_runtime_import in _collect_imports(tree):
             if isinstance(node, ast.Import):
@@ -288,7 +301,7 @@ async def get_module_dependencies(
                         if is_runtime_import:
                             graph[source].add(target)
             else:
-                absolute_module = _absolute_from_module(node, fp, import_roots)
+                absolute_module = resolve_import_from(node, package)
                 resolution_roots = (
                     _source_first_import_roots(fp, import_roots) if node.level else import_roots
                 )

@@ -1,0 +1,1 @@
+- **Maintenance:** `get_module_dependencies`, `get_coupling_metrics` and `check_layer_violations` now share one helper for import roots, module/package names and relative `ImportFrom` resolution, with a regression test pinning relative imports inside a package `__init__.py` to that package.
