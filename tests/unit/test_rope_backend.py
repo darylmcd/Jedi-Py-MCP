@@ -10,7 +10,7 @@ from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-unt
 
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import RopeError, ToolInputError
 from python_refactor_mcp.models import SignatureOperation
 from python_refactor_mcp.tools.refactoring.signature_annotations import restore_signature_metadata
 
@@ -45,6 +45,56 @@ async def test_change_signature_annotation_restore_end_to_end(tmp_path: Path) ->
     assert "name: str" in fixed
     assert "n: int" in fixed
     assert "-> str:" in fixed
+
+
+@pytest.mark.asyncio
+async def test_inline_default_removes_default_and_inlines_call_sites(tmp_path: Path) -> None:
+    """Real rope inlines the default at call sites AND drops it from the definition."""
+    module = tmp_path / "m.py"
+    module.write_text(
+        "def helper(a: int, b: int = 2) -> int:\n    return a + b\n\n\nhelper(1)\n",
+        encoding="utf-8",
+    )
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    ops = [SignatureOperation(op="inline_default", index=1)]
+    result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
+    edit = next(e for e in result.edits if Path(e.file_path).resolve() == module.resolve())
+
+    assert "= 2" not in edit.new_text.splitlines()[0]
+    assert "helper(1, 2)" in edit.new_text
+    fixed = restore_signature_metadata(module.read_text(encoding="utf-8"), edit.new_text, 0, 4, ops)
+    assert "def helper(a: int, b: int) -> int:" in fixed
+    assert "helper(1, 2)" in fixed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "index", "reason"),
+    [
+        ("def f(a, b=2):\n    return b\n", 0, "has no default"),
+        ("def f(a=1, b=2):\n    return b\n", 1, "earlier parameter(s) at index 0"),
+        ("def f(a, b=2):\n    return b\n", 5, "out of range"),
+    ],
+)
+async def test_inline_default_rejects_invalid_targets(
+    tmp_path: Path, source: str, index: int, reason: str
+) -> None:
+    """inline_default targets rope would mishandle raise ToolInputError naming index."""
+    module = tmp_path / "m.py"
+    module.write_text(source, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    with pytest.raises(ToolInputError) as exc_info:
+        await backend.change_signature(
+            str(module), 0, 4, [SignatureOperation(op="inline_default", index=index)], apply=False
+        )
+
+    assert reason in str(exc_info.value)
+    assert "(parameter: index)" in str(exc_info.value)
+    assert module.read_text(encoding="utf-8") == source
 
 
 @pytest.fixture
