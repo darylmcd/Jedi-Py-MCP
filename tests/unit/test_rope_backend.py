@@ -440,6 +440,26 @@ async def test_generate_code_module_and_package_preview_adds_import(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "created"),
+    [("module", "helpers.py"), ("package", "helpers/__init__.py")],
+)
+async def test_generate_code_module_and_package_apply_creates_resource(
+    tmp_path: Path, kind: str, created: str,
+) -> None:
+    """Real rope: apply=True creates the new module/package as well as writing the import."""
+    source = "helpers.run()\n"
+    backend, module = _generate_fixture(tmp_path, source)
+
+    result = await backend.generate_code(str(module), 0, 0, kind, apply=True)
+
+    assert result.applied is True
+    assert (tmp_path / created).is_file()
+    assert "import helpers" in module.read_text(encoding="utf-8")
+    assert str(module.resolve()) in {str(Path(path).resolve()) for path in result.files_affected}
+
+
+@pytest.mark.asyncio
 async def test_generate_code_rejects_unknown_kind(tmp_path: Path) -> None:
     backend, module = _generate_fixture(tmp_path, "value = thing\n")
 

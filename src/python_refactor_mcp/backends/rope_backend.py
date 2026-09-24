@@ -6,6 +6,7 @@ import ast
 import keyword
 import logging
 import os
+import shutil
 import threading
 from collections.abc import Callable
 from difflib import SequenceMatcher
@@ -300,6 +301,34 @@ class RopeBackend:
                     write_atomic(path, originals[path])
             raise
         return changed_files
+
+    def _do_with_resource_changes(self, project: Project, changes: ChangeSet, description: str) -> RefactorResult:
+        """Apply a change set that creates resources through rope, restoring edited files on failure."""
+        edits = self._changes_to_edits(changes)
+        originals = {edit.file_path: Path(edit.file_path).read_bytes() for edit in edits}
+        created = [
+            _absolute_path(str(self._config.workspace_root / change.resource.path))
+            for change in changes.changes
+            if not isinstance(change, ChangeContents)
+        ]
+        try:
+            project.do(changes)
+        except Exception:
+            for file_path, original in originals.items():
+                write_bytes_atomic(file_path, original)
+            for created_path in reversed(created):
+                target = Path(created_path)
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+            raise
+        return RefactorResult(
+            edits=edits,
+            files_affected=sorted({*originals, *created}),
+            description=description,
+            applied=True,
+        )
 
     def _build_result(self, changes: ChangeSet | None, description: str, apply: bool) -> RefactorResult:
         """Build a model result from rope changes and apply mode."""
@@ -1002,7 +1031,14 @@ class RopeBackend:
             # module/package kinds carry resource-creation changes beside the import edit.
             generator = rope_generate.create_generate(kind_lower, project, resource, offset)
             changes = generator.get_changes()
-            return self._build_result(changes, f"Generated {kind_lower}", apply)
+            description = f"Generated {kind_lower}"
+            if apply and self._change_stack is None and any(
+                not isinstance(change, ChangeContents) for change in changes.changes
+            ):
+                # _build_result writes only text edits; module/package generation must also
+                # create the new file or package, so let rope apply the whole change set.
+                return self._do_with_resource_changes(project, changes, description)
+            return self._build_result(changes, description, apply)
 
         return await run_in_thread(
             _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.generate_code", logger=_LOGGER,
