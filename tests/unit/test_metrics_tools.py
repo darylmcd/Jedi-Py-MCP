@@ -316,6 +316,42 @@ async def test_module_dependencies_cap_edges_but_keep_full_graph(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_package_init_relative_imports_resolve_against_that_package(tmp_path: Path) -> None:
+    pkg = tmp_path / "src" / "pkg"
+    (pkg / "sub").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("from .helper import value\nfrom . import sibling\n", encoding="utf-8")
+    (pkg / "helper.py").write_text("value = 1\n", encoding="utf-8")
+    (pkg / "sibling.py").write_text("", encoding="utf-8")
+    (pkg / "sub" / "__init__.py").write_text("from ..helper import value\nfrom .leaf import x\n", encoding="utf-8")
+    (pkg / "sub" / "leaf.py").write_text("x = 1\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    root = (tmp_path / "src").resolve()
+
+    graph = await metrics.get_module_dependencies(config)
+    coupling = await metrics.get_coupling_metrics(config)
+    layers = await metrics.check_layer_violations(config, [["pkg.helper", "pkg.sub.leaf"], ["pkg.sub"]])
+
+    edges = sorted(
+        (Path(dep.source).relative_to(root).as_posix(), Path(dep.target).relative_to(root).as_posix())
+        for dep in graph.dependencies
+    )
+    assert edges == [
+        ("pkg/__init__.py", "pkg/helper.py"),
+        ("pkg/__init__.py", "pkg/sibling.py"),
+        ("pkg/sub/__init__.py", "pkg/helper.py"),
+        ("pkg/sub/__init__.py", "pkg/sub/leaf.py"),
+    ]
+    efferent = {Path(item.module).relative_to(root).as_posix(): item.efferent_coupling for item in coupling.items}
+    assert efferent["pkg/__init__.py"] == 2
+    assert efferent["pkg/sub/__init__.py"] == 2
+    # The layer tool shares the same resolver: ``pkg.sub`` resolves ``..helper`` to ``pkg.helper``.
+    assert _violation_keys(layers) == [
+        ("__init__.py", "pkg.helper", 1, 0, 0),
+        ("__init__.py", "pkg.sub.leaf", 1, 0, 1),
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("limit", [0, -1])
 async def test_metrics_limits_reject_non_positive_values(tmp_path: Path, limit: int) -> None:
     module = tmp_path / "m.py"

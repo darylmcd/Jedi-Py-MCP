@@ -18,6 +18,13 @@ from python_refactor_mcp.models import (
     ProtocolSource,
     ScanFailure,
 )
+from python_refactor_mcp.tools.metrics.dependencies import (
+    get_module_dependencies,
+    resolve_import_from,
+    source_module_parts,
+    source_package_parts,
+    workspace_import_roots,
+)
 from python_refactor_mcp.util.scan import parse_python_file
 
 
@@ -34,7 +41,6 @@ async def get_coupling_metrics(
     """
     # Build adjacency from the dependency graph
     if dependency_graph is None:
-        from python_refactor_mcp.tools.metrics.dependencies import get_module_dependencies
         dependency_graph = await get_module_dependencies(config, file_paths=file_paths)
 
     efferent: dict[str, set[str]] = defaultdict(set)
@@ -64,42 +70,6 @@ async def get_coupling_metrics(
     )
 
 
-def _layer_import_roots(workspace_root: Path) -> tuple[Path, ...]:
-    """Return import roots in resolution order: ``src``/``lib`` layouts before the root."""
-    roots = [workspace_root / name for name in ("src", "lib")]
-    return tuple(root.resolve() for root in (*roots, workspace_root) if root.is_dir())
-
-
-def _source_module_parts(source: Path, import_roots: tuple[Path, ...]) -> tuple[str, ...] | None:
-    """Return the dotted module parts of ``source`` relative to its import root."""
-    resolved = source.resolve()
-    for root in import_roots:
-        try:
-            relative = resolved.relative_to(root)
-        except ValueError:
-            continue
-        parts = relative.with_suffix("").parts
-        return parts[:-1] if parts and parts[-1] == "__init__" else parts
-    return None
-
-
-def _source_package_parts(source: Path, module_parts: tuple[str, ...]) -> tuple[str, ...]:
-    """Return the package a relative import in ``source`` is resolved against."""
-    return module_parts if source.name == "__init__.py" else module_parts[:-1]
-
-
-def _absolute_import_base(node: ast.ImportFrom, package: tuple[str, ...] | None) -> str | None:
-    """Resolve an ``ImportFrom`` module (including relative levels) to a dotted name."""
-    if node.level == 0:
-        return node.module
-    if package is None or node.level > len(package):
-        return None
-    base = package[: len(package) - (node.level - 1)]
-    if node.module:
-        base = (*base, *node.module.split("."))
-    return ".".join(base)
-
-
 def _pattern_matches(pattern: str, dotted_name: str | None, components: tuple[str, ...]) -> bool:
     """Match a dotted pattern by dotted prefix and a plain pattern by component."""
     if "." in pattern:
@@ -124,7 +94,7 @@ async def check_layer_violations(
     ``unmatched_layer_patterns``.
     """
     workspace_root = config.workspace_root
-    import_roots = _layer_import_roots(workspace_root)
+    import_roots = workspace_import_roots(workspace_root)
     # Build layer index: module_pattern -> layer_number
     layer_index: dict[str, int] = {}
     for layer_num, patterns in enumerate(layers):
@@ -162,7 +132,7 @@ async def check_layer_violations(
             continue
 
         source_str = str(parsed.path)
-        module_parts = _source_module_parts(parsed.path, import_roots)
+        module_parts = source_module_parts(parsed.path, import_roots)
         source_dotted = ".".join(module_parts) if module_parts else None
         source_components = Path(source_str).parts
         matched_patterns.update(
@@ -171,7 +141,7 @@ async def check_layer_violations(
         source_layer = _get_layer(source_dotted, source_components)
         if source_layer is None:
             continue
-        package = _source_package_parts(parsed.path, module_parts) if module_parts is not None else None
+        package = source_package_parts(parsed.path, module_parts) if module_parts is not None else None
 
         for node in ast.walk(parsed.tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -183,7 +153,7 @@ async def check_layer_violations(
                     if layer is not None:
                         targets.append((alias.name, layer))
             else:
-                base = _absolute_import_base(node, package)
+                base = resolve_import_from(node, package)
                 if not base:
                     continue
                 base_layer = _target_layer(base)
