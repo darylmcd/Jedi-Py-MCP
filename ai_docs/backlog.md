@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T15:34:37Z
+**updated_at:** 2026-09-24T16:14:24Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -53,7 +53,6 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `bl-0003` | High | bl-0002 | **Caller-input errors reported as backend outages** — add a caller-safe input-error class; preflight position/file in `_position_request`; rope history/stack/transaction misuse raises it, not `RopeError`. Regression of e93207e. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0003.md |
-| `bl-0007` | High | — | **`create_type_stubs` reports success without output** — send Pyright's real `createtypestub` argument shape, verify stub files exist, return the created paths and error when none; define `output_dir` semantics. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0007.md |
 
 ## Medium
 
