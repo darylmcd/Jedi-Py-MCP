@@ -70,7 +70,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | `VIRTUAL_ENV` | env var | Interpreter discovery fallback |
 | `pyrightconfig.json` | workspace file | Optional Pyright project config, discovered from the workspace root |
 | `.venv` / `venv` | workspace directories | Preferred interpreter discovery locations |
-| `manifest.json` | repo root file | Manifest metadata for clients and packaging |
+| `manifest.json` | repo root file | MCPB v0.3 manifest (`server.mcp_config` launch block; `user_config.tool_profile` / `max_workspaces` feed the two env vars above); `tests/unit/test_manifest.py` validates it against the vendored schema in `tests/unit/data/` |
 
 Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtualenv path from `pyproject.toml` -> `VIRTUAL_ENV` -> `python3` -> `python`.
 
