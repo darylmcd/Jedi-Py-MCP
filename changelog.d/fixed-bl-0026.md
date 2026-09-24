@@ -1,0 +1,1 @@
+- **Fixed:** Directory-typed tool parameters (`output_dir`) are validated against the workspace boundary at the tool boundary, like file paths.
