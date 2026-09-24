@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T19:33:53Z
+**updated_at:** 2026-09-24T20:38:07Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -60,10 +60,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `bl-0009` | Medium | bl-0001 | **Dead-code sweeps exceed 30 s on a 137-file repo** — batch or bound-concurrently run the per-symbol reference lookups in `dead_code_detection` and `unused_symbol_sweep`; target < 10 s on this repo. [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
-| `bl-0023` | Medium | — | **`apply_code_action` promises to list actions but applies the first** — make omitting `action_title` return the available titles (or fix the description) and add a unit test. [type: bug] [source: backlog-remediate-20260924T131340Z] | M | items/bl-0023.md |
 | `bl-0025` | Medium | — | **Unhandled-method replies still read as empty results** — route the 5 remaining unhandled-method `return []` branches through `LspFeatureUnsupportedError` (bl-0005's pattern). [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0025.md |
-| `bl-0026` | Medium | — | **`output_dir`-style params bypass workspace validation** — add directory parameters to `PATH_PARAMS` (or a `DIR_PARAMS` list) so every folder argument is workspace-bounded. [type: security] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0026.md |
-| `bl-0028` | Medium | — | **Duplicated import-resolution helpers disagree on `__init__`** — share one helper for import roots and relative-import resolution between `architecture.py` and `dependencies.py`. [type: refactor] [source: backlog-remediate-20260924T131340Z] | M | items/bl-0028.md |
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
 | `bl-0037` | Medium | — | **Search/analysis caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in structural, search helpers, diagnostics and type_users to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0037.md |
 | `bl-0038` | Medium | — | **Navigation/rename/server caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in hierarchy, outline, rename and server to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0038.md |
@@ -79,10 +76,6 @@
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
 | `bl-0024` | Low | — | **AutoImport invalid-statement errors escape redaction** — raise `RopeError` (not `ValueError`) for unusable rope AutoImport output in `imports.py`. [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0024.md |
 | `bl-0027` | Low | — | **`new_order` negatives are silently dropped** — constrain `SignatureOperation.new_order` items to `>= 0` so a bad reorder is rejected, not ignored. [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0027.md |
-| `bl-0029` | Low | — | **`create_type_stubs` timeout path has no test** — add a unit test where the createstub subprocess hangs past a patched timeout and assert kill + `PyrightError`. [type: test] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0029.md |
-| `bl-0031` | Low | — | **`.worktrees/` shows as untracked** — add `.worktrees/` to `.gitignore` so worktree-based workflows keep the primary checkout clean. [type: chore] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0031.md |
-| `bl-0032` | Low | — | **AGENTS.md misstates repo visibility** — state that Jedi-Py-MCP is PUBLIC and record the 2026-09-24 contract ruling (breaking fixes allowed with a `changed-breaking-*` fragment). [type: docs] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0032.md |
-| `bl-0033` | Low | — | **`prepare_rename` range math ignores UTF-16** — convert LSP `character` offsets to code points in the `{defaultBehavior}` and placeholder paths. [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0033.md |
 
 ## Defer
 
