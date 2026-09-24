@@ -129,6 +129,55 @@ async def test_dead_code_detection_marks_unreferenced_symbols(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_dead_code_detection_keeps_once_referenced_same_file_helper(tmp_path: Path) -> None:
+    """A helper called once in its own file is live; an uncalled sibling is still dead.
+
+    ``get_references`` is queried with ``include_declaration=False``, so a single
+    same-file reference is a real call site (regression: bl-0001).
+    """
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "def _used_once():\n"
+        "    return 1\n\n"
+        "def _never_called():\n"
+        "    return 2\n\n"
+        "VALUE = _used_once()\n",
+        encoding="utf-8",
+    )
+
+    async def _references(path: str, line: int, character: int, include_declaration: bool) -> list[Location]:
+        assert include_declaration is False
+        if line == 0:
+            return [_location(source, 6, 8)]
+        return []
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_references.side_effect = _references
+
+    result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
+
+    names = {item.name for item in result.items}
+    assert "_used_once" not in names
+    assert "_never_called" in names
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_ignores_declaration_self_reference(tmp_path: Path) -> None:
+    """A reference located at the declaration itself is not a use of the symbol."""
+    source = tmp_path / "sample.py"
+    source.write_text("def dead_func():\n    return 1\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_references.return_value = [_location(source, 0, 4)]
+
+    result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
+
+    assert {item.name for item in result.items} == {"dead_func"}
+
+
+@pytest.mark.asyncio
 async def test_dead_code_detection_reports_diagnostic_failures(tmp_path: Path) -> None:
     source = tmp_path / "sample.py"
     source.write_text("# no symbols\n", encoding="utf-8")

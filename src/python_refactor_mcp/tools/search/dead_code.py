@@ -55,7 +55,11 @@ async def _check_symbol(
     kind: str,
     symbol_range: Range,
 ) -> DeadCodeItem | None:
-    """Check whether a symbol has external references; return a dead-code item if not."""
+    """Return a dead-code item when the symbol has no references anywhere."""
+    # include_declaration=False: every returned location is a use, so ONE reference
+    # (same file or not) keeps the symbol alive. The threshold below depends on this
+    # flag; change them together. A location at the declaration itself is skipped in
+    # case the backend still echoes it.
     async with sem:
         references = await pyright.get_references(
             str(path),
@@ -64,19 +68,18 @@ async def _check_symbol(
             False,
         )
     resolved_path = str(path.resolve())
-    same_file_count = 0
-    has_external = False
     for ref in references:
         ref_path = getattr(ref, "file_path", None)
         if not isinstance(ref_path, str):
             continue
-        if ref_path == resolved_path:
-            same_file_count += 1
-        else:
-            has_external = True
-            break
-    if has_external or same_file_count > 1:
-        return None
+        ref_start = ref.range.start
+        is_declaration = (
+            ref_path == resolved_path
+            and ref_start.line == symbol_range.start.line
+            and ref_start.character == symbol_range.start.character
+        )
+        if not is_declaration:
+            return None
     reason = "no references"
     return DeadCodeItem(
         name=name,
