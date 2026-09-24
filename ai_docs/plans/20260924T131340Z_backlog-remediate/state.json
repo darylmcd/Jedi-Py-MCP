@@ -3,12 +3,12 @@
   "generatedAt": "2026-09-24T13:14:04.316Z",
   "backlogSnapshot": "2026-09-24T13:06:33Z",
   "addendaLoaded": true,
-  "phase": "skeleton",
-  "cycleCount": 0,
+  "phase": "complete",
+  "cycleCount": 1,
   "maxCycles": 2,
   "completed": false,
-  "reviewStatus": "pending",
-  "readyForExecute": false,
+  "reviewStatus": "passed-with-warnings",
+  "readyForExecute": true,
   "initiatives": [
     {
       "id": "bl-0002",
@@ -49,7 +49,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "22ee06eb4f51fb9f991dae21186b35f3d27df6db6c0f6ac2c4b11d8c42fe0752",
+      "stanzaHash": "a72358a0a8272d816a81c5c8eb3436a1d69af54708e4e77e38623638aa8aa92e",
+      "reviewedStanzaHash": "a72358a0a8272d816a81c5c8eb3436a1d69af54708e4e77e38623638aa8aa92e"
     },
     {
       "id": "bl-0004",
@@ -85,7 +88,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "3713c2806b537bd0563ecddbb1827e329078adbea6d8177d3c907703b6c4b6db",
+      "stanzaHash": "de74eae0e74a20f94a866caeeb56a9846b9ac83ab2c082246f2485b04f4dab09",
+      "reviewedStanzaHash": "de74eae0e74a20f94a866caeeb56a9846b9ac83ab2c082246f2485b04f4dab09"
     },
     {
       "id": "bl-0005",
@@ -123,7 +129,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "8b78f737c57c35a8ef62a136c5ed824d5a0425c33b06c6973e9d603cc0216893",
+      "stanzaHash": "45193b9c49df190860ce48ae6b963569698129f182cddbe7d995a857cc1d0fad",
+      "reviewedStanzaHash": "45193b9c49df190860ce48ae6b963569698129f182cddbe7d995a857cc1d0fad"
     },
     {
       "id": "bl-0006",
@@ -158,7 +167,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "ddceb903f6b028e2477665bd453dfb6a766c39fca58b8bbd376c55f19c012ad5",
+      "stanzaHash": "12215bd5eee674e8f412c494f352352f949d130c2be9862ee94a7291fbc88f1c",
+      "reviewedStanzaHash": "12215bd5eee674e8f412c494f352352f949d130c2be9862ee94a7291fbc88f1c"
     },
     {
       "id": "bl-0007",
@@ -201,7 +213,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "81a68a11a4c3b63560f38255498e2f1f12b9ee9dbb4279326109ad37344a27b8",
+      "stanzaHash": "ff4cce55ad8b8b4bcbba3b5fe9fed8000ba5c8c4314315bf263e6e4572e3638e",
+      "reviewedStanzaHash": "ff4cce55ad8b8b4bcbba3b5fe9fed8000ba5c8c4314315bf263e6e4572e3638e"
     },
     {
       "id": "bl-0001",
@@ -236,7 +251,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "01c698269b5a07309b4b27f2921a1e91ce8ba9863eb90dba294e6d6e39d22dbd",
+      "stanzaHash": "cc48f10b259615f80b584166a1782e31d2214c869c37b11d929b11d57e9cb91f",
+      "reviewedStanzaHash": "cc48f10b259615f80b584166a1782e31d2214c869c37b11d929b11d57e9cb91f"
     },
     {
       "id": "bl-0008",
@@ -271,7 +289,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "745922b36d3f68ad4db2a695e19b348065ee5a7e9ae7b8db3de9074b72b321d5",
+      "stanzaHash": "7dd1a8009b6e748a2f3af9a99db3793092693b6248a3b5bdd18b67956a196069",
+      "reviewedStanzaHash": "7dd1a8009b6e748a2f3af9a99db3793092693b6248a3b5bdd18b67956a196069"
     },
     {
       "id": "bl-0010",
@@ -317,7 +338,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "e4c60f93920559ea6ea31a7316fbc857bbb1d689aa6ce1cbcc805ab861d104a8",
+      "stanzaHash": "d97c2e6c072ccb49c7e6f91ddb7096361836addbf4a0c3d1da1743b327cebd3d",
+      "reviewedStanzaHash": "d97c2e6c072ccb49c7e6f91ddb7096361836addbf4a0c3d1da1743b327cebd3d"
     },
     {
       "id": "bl-0011",
@@ -353,7 +377,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "d413deee45f3c2dcf8783c3199b904b9ab7f42d37a51ed26e6595070ed8fe7b1",
+      "stanzaHash": "bc3662c0d0fb18601de62c126d8adf5b29b2bb5636ea2e7011109ee600dfe8ce",
+      "reviewedStanzaHash": "bc3662c0d0fb18601de62c126d8adf5b29b2bb5636ea2e7011109ee600dfe8ce"
     },
     {
       "id": "bl-0012",
@@ -394,7 +421,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "83c28ae37110cc6c53217bc48d65b5fb2748f2c9dde1825e7599c7e97a08d81e",
+      "stanzaHash": "f83313446de400e6b9c89fe3299f89caf783e36642a0b0ffd78af1996545cf10",
+      "reviewedStanzaHash": "f83313446de400e6b9c89fe3299f89caf783e36642a0b0ffd78af1996545cf10"
     },
     {
       "id": "bl-0013",
@@ -431,7 +461,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "a617b24b6fd918805a343aa99434e4b6f41ee035b4d3773760b3250cb90974a8",
+      "stanzaHash": "d4b631e6888a0aff51c55afb5d00ad657578514d4e96ef5e836c6c96a1dd0972",
+      "reviewedStanzaHash": "d4b631e6888a0aff51c55afb5d00ad657578514d4e96ef5e836c6c96a1dd0972"
     },
     {
       "id": "bl-0014",
@@ -457,7 +490,7 @@
       ],
       "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": 45000,
+      "estimatedContextTokens": 58000,
       "toolPolicy": "edit-only",
       "scheduleHint": null,
       "fanoutEstimate": 6,
@@ -475,7 +508,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "15a92ff3de0e927e12b9bf3749844b7a3a459fee93cb26b7ff10658189fe2e5e",
+      "stanzaHash": "8a00bae7082e90aaf6973f09cb8b8ea025010cc54a1276c362e51267f9fa1864",
+      "reviewedStanzaHash": "8a00bae7082e90aaf6973f09cb8b8ea025010cc54a1276c362e51267f9fa1864"
     },
     {
       "id": "bl-0015",
@@ -515,7 +551,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "0418a63b54b6c1a13466c0491fc6da463cd616f2cbcde09a3d81c816f8fcf478",
+      "stanzaHash": "4e9a11fe6a82829e6e61443e94ce69deef13309846db6252155f4779a1705568",
+      "reviewedStanzaHash": "4e9a11fe6a82829e6e61443e94ce69deef13309846db6252155f4779a1705568"
     },
     {
       "id": "bl-0016",
@@ -554,10 +593,13 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "c7e28808be9076be765f24728479698b879c635e2d8434efa1268d81845d09b1",
+      "stanzaHash": "6242d5245f4be722d2d34ac5c58ae38cb5d4299ccd5b892d94b7c7e2cb9c87cf",
+      "reviewedStanzaHash": "6242d5245f4be722d2d34ac5c58ae38cb5d4299ccd5b892d94b7c7e2cb9c87cf"
     }
   ],
-  "anchorVerification": "pending",
+  "anchorVerification": "performed",
   "conflictGraph": {
     "edges": [
       {
@@ -851,5 +893,103 @@
         ]
       }
     ]
-  }
+  },
+  "reviewFindings": {
+    "block": 0,
+    "warn": 14,
+    "info": 0
+  },
+  "lastReviewFindings": [
+    {
+      "initiativeId": "bl-0010",
+      "severity": "warn",
+      "rule": "3",
+      "evidence": "6 prod files, coherence only; operator-accepted"
+    },
+    {
+      "initiativeId": "bl-0014",
+      "severity": "warn",
+      "rule": "3",
+      "evidence": "forcing shape covers _helpers+2 callers only; outline/coverage/models justified as one shape (missing scope never reads clean)"
+    },
+    {
+      "initiativeId": "bl-0014",
+      "severity": "warn",
+      "rule": "4",
+      "evidence": "three mechanisms, one regression shape — accepted"
+    },
+    {
+      "initiativeId": "bl-0014",
+      "severity": "warn",
+      "rule": "5",
+      "evidence": "estimate 45000 looked low",
+      "resolved": true,
+      "resolution": "raised to 58000"
+    },
+    {
+      "initiativeId": "bl-0004",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 1-2"
+    },
+    {
+      "initiativeId": "bl-0005",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 2-3"
+    },
+    {
+      "initiativeId": "bl-0006",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 3-4"
+    },
+    {
+      "initiativeId": "bl-0007",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 4-5"
+    },
+    {
+      "initiativeId": "bl-0013",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 10-11"
+    },
+    {
+      "initiativeId": "bl-0005",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "evidence": "orders 2/3; serialized by generations"
+    },
+    {
+      "initiativeId": "bl-0011",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "evidence": "orders 8/9; serialized"
+    },
+    {
+      "initiativeId": "bl-0012",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "evidence": "orders 9/10; serialized"
+    },
+    {
+      "initiativeId": "bl-0013",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "evidence": "orders 10/11; serialized"
+    },
+    {
+      "initiativeId": "bl-0014",
+      "severity": "warn",
+      "rule": "C2-wave-conflict",
+      "evidence": "orders 11/12; serialized"
+    }
+  ],
+  "conflictGraphInputHash": "c3ee0efb484e0f42b42a20d13088cdd9e2e883937c095f03e6f3e04227849b89",
+  "planHash": "7529f45dca0538aa1e90bfb71912881f4c7b49ed087e8bc85b206fe042cd0a10",
+  "backlogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7",
+  "reviewedPlanHash": "7529f45dca0538aa1e90bfb71912881f4c7b49ed087e8bc85b206fe042cd0a10",
+  "reviewedBacklogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7"
 }
