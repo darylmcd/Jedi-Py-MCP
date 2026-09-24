@@ -6,11 +6,17 @@ import ast
 from pathlib import Path
 
 import pytest
+from mcp.server.mcpserver import MCPServer
 
 from python_refactor_mcp import server
 from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
 from python_refactor_mcp.errors import BackendError
-from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE, profile_description, tool_names_for_profile
+from python_refactor_mcp.tool_registry import (
+    MAX_TOOLS_PER_PROFILE,
+    profile_description,
+    register_tools,
+    tool_names_for_profile,
+)
 
 # Shared 0-based position convention sentence. Every position-based tool
 # description must embed this verbatim; this constant is the single source of
@@ -221,3 +227,40 @@ def test_build_server_instructions_analysis_notes_refactoring_profile() -> None:
     assert "Active tool profile: analysis" in text
     assert "rename_symbol" not in text
     assert '="refactoring" to use them' in text
+
+
+# Tools whose ``apply=True`` path replaces existing file content wholesale.
+_WHOLE_FILE_REWRITERS = frozenset(
+    {
+        "apply_code_action",
+        "organize_imports",
+        "format_code",
+        "apply_lint_fixes",
+        "apply_type_annotations",
+        "expand_star_imports",
+        "relatives_to_absolutes",
+        "froms_to_imports",
+        "handle_long_imports",
+    }
+)
+
+
+@pytest.mark.asyncio
+async def test_whole_file_rewriters_advertise_destructive_hint() -> None:
+    """Rewriters of existing content advertise destructiveHint without changing profile membership."""
+    mcp = MCPServer("whole-file rewriter annotations")
+    register_tools(mcp, "refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    advertised = {tool.name: tool for tool in await mcp.list_tools()}
+
+    assert advertised.keys() >= _WHOLE_FILE_REWRITERS
+    for name in sorted(_WHOLE_FILE_REWRITERS):
+        annotations = advertised[name].annotations
+        assert annotations is not None, name
+        assert annotations.destructive_hint is True, name
+        assert annotations.read_only_hint is False, name
+
+    analysis = tool_names_for_profile("analysis", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    refactoring = tool_names_for_profile("refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    assert refactoring >= _WHOLE_FILE_REWRITERS
+    assert not _WHOLE_FILE_REWRITERS & analysis
+    assert (len(analysis), len(refactoring)) == (56, 75)

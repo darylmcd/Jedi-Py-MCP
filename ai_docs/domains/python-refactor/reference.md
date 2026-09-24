@@ -55,9 +55,9 @@ The canonical catalog is assembled from `tool_registry.py::TOOL_RECORDS` and
 `diff_preview`, `refactor_transaction`, `get_keyword_help`, `get_sub_definitions`, `simulate_execution`, `list_environments`, `restart_server`, `multi_project_rename`, `security_scan`, `security_autofix`, `server_status`
 
 ### Annotation Categories
-- `_READONLY` — read-only, idempotent (analysis, navigation, search, metrics)
-- `_ADDITIVE` — non-destructive mutations (organize_imports, apply_code_action, expand_star_imports, begin_change_stack, create_type_stubs)
-- `_DESTRUCTIVE` — file-modifying refactorings (all default to `apply=False` preview mode)
+- `READ_ONLY_ANNOTATIONS` — read-only, idempotent (analysis, navigation, search, metrics)
+- `ADDITIVE_ANNOTATIONS` — mutations that only add, never rewrite existing content (`create_type_stubs`, `begin_change_stack`)
+- `DESTRUCTIVE_ANNOTATIONS` — tools that rewrite existing content, including whole-file rewriters (`format_code`, `apply_lint_fixes`, `organize_imports`, import rewriters, `apply_code_action`, `apply_type_annotations`); `apply`-bearing tools default to preview mode
 
 ## Common Agent Workflow Patterns
 

@@ -1,0 +1,1 @@
+- **Fixed:** whole-file rewriters (`format_code`, `apply_lint_fixes`, `organize_imports`, the import rewriters, `apply_code_action`, `apply_type_annotations`) now advertise `destructiveHint: true`.
