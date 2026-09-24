@@ -10,7 +10,7 @@ import pytest
 from python_refactor_mcp import server
 from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
 from python_refactor_mcp.errors import BackendError
-from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE
+from python_refactor_mcp.tool_registry import MAX_TOOLS_PER_PROFILE, profile_description, tool_names_for_profile
 
 # Shared 0-based position convention sentence. Every position-based tool
 # description must embed this verbatim; this constant is the single source of
@@ -171,3 +171,53 @@ async def test_position_based_tools_document_zero_based_convention() -> None:
         f"{len(missing)} position-based tool description(s) missing the 0-based "
         f"convention phrase: {sorted(missing)}"
     )
+
+
+_ADVERTISED = frozenset({"find_references", "get_type_info", "get_signature_help"})
+
+
+def test_profile_description_prunes_unadvertised_related_items() -> None:
+    """Hidden tools drop out of Related while the trailing sentence survives."""
+    doc = f"Find refs. Related: prepare_rename, find_references, rename_symbol. {POSITION_CONVENTION_PHRASE}"
+
+    result = profile_description(doc, _ADVERTISED)
+
+    assert result == f"Find refs. Related: find_references. {POSITION_CONVENTION_PHRASE}"
+
+
+def test_profile_description_drops_empty_related_clause() -> None:
+    """A clause with no advertised tools is removed without leaving stray punctuation."""
+    assert profile_description("Undo. Related: redo_refactoring.", _ADVERTISED) == "Undo."
+    assert (
+        profile_description(f"Undo. Related: redo_refactoring. {POSITION_CONVENTION_PHRASE}", _ADVERTISED)
+        == f"Undo. {POSITION_CONVENTION_PHRASE}"
+    )
+
+
+def test_profile_description_keeps_parentheticals_with_their_items() -> None:
+    """A kept item's parenthetical travels with it, even when it holds commas or periods."""
+    doc = (
+        "Docs. Related: get_type_info (for type only, e.g. hover), "
+        "rename_symbol (any tool, e.g. x), get_signature_help (call-site params)."
+    )
+
+    result = profile_description(doc, _ADVERTISED)
+
+    assert result == "Docs. Related: get_type_info (for type only, e.g. hover), get_signature_help (call-site params)."
+
+
+def test_profile_description_without_related_clause_is_unchanged() -> None:
+    """Descriptions without a Related clause pass through verbatim."""
+    assert profile_description("Plain text. No hints.", _ADVERTISED) == "Plain text. No hints."
+    assert profile_description("", _ADVERTISED) == ""
+
+
+def test_build_server_instructions_analysis_notes_refactoring_profile() -> None:
+    """The analysis profile names no refactoring tool and points at the refactoring profile."""
+    advertised = tool_names_for_profile("analysis", extra_records=server.EXPLICIT_TOOL_RECORDS)
+
+    text = server.build_server_instructions("analysis", advertised)
+
+    assert "Active tool profile: analysis" in text
+    assert "rename_symbol" not in text
+    assert '="refactoring" to use them' in text

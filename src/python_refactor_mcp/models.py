@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -39,6 +41,18 @@ class TextEdit(BaseModel):
     file_path: str
     range: Range
     new_text: str
+
+
+class FileOperation(BaseModel):
+    """A filesystem change a refactoring makes beside its text edits.
+
+    Operations run in list order after the text edits, whose paths name files as
+    they exist before any operation. ``new_path`` is set only for ``move``.
+    """
+
+    kind: Literal["create_file", "create_folder", "move", "remove"]
+    path: str
+    new_path: str | None = None
 
 
 class SymbolInfo(BaseModel):
@@ -271,11 +285,16 @@ class DocumentationResult(BaseModel):
 
 
 class RefactorResult(BaseModel):
-    """Refactoring edit payload and optional diagnostics."""
+    """Refactoring edit payload and optional diagnostics.
+
+    ``files_affected`` lists the files as they exist after the refactoring, so a
+    moved module appears at its destination path.
+    """
 
     edits: list[TextEdit]
     files_affected: list[str]
     description: str
+    file_operations: list[FileOperation] = Field(default_factory=list)
     applied: bool = False
     diagnostics_after: list[Diagnostic] | None = None
     diffs: list[DiffPreview] | None = None
