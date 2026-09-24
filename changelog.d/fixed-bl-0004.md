@@ -1,0 +1,1 @@
+- **Fixed:** `prepare_rename` now returns the identifier range for Pyright's bare-`Range` reply instead of `null`, and derives a range for `{defaultBehavior}` replies.

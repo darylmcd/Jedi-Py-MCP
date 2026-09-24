@@ -583,6 +583,66 @@ async def test_document_highlights_and_prepare_rename_mapping(tmp_path: Path) ->
     assert rename.placeholder == "value"
 
 
+_OTHER_RANGE: dict[str, JSONValue] = {
+    "start": {"line": 0, "character": 8},
+    "end": {"line": 0, "character": 13},
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result", "character", "expected_placeholder"),
+    [
+        pytest.param(_OTHER_RANGE, 10, "other", id="bare-range"),
+        pytest.param({"range": _OTHER_RANGE, "placeholder": "renamed"}, 10, "renamed", id="range-with-placeholder"),
+        pytest.param({"defaultBehavior": True}, 10, "other", id="default-behavior-inside-word"),
+        pytest.param({"defaultBehavior": True}, 13, "other", id="default-behavior-word-end"),
+    ],
+)
+async def test_prepare_rename_maps_every_lsp_reply_shape(
+    tmp_path: Path,
+    result: JSONValue,
+    character: int,
+    expected_placeholder: str,
+) -> None:
+    """Verify each LSP PrepareRenameResult shape yields the identifier range."""
+    backend, _, sample = _position_harness(
+        tmp_path,
+        {"textDocument/prepareRename": {"jsonrpc": "2.0", "id": 1, "result": result}},
+    )
+
+    rename = await backend.prepare_rename(str(sample), 0, character)
+
+    assert rename is not None
+    assert rename.range.start == Position(line=0, character=8)
+    assert rename.range.end == Position(line=0, character=13)
+    assert rename.placeholder == expected_placeholder
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result", "character"),
+    [
+        pytest.param(None, 10, id="null"),
+        pytest.param({"defaultBehavior": False}, 10, id="default-behavior-false"),
+        pytest.param({"defaultBehavior": True}, 6, id="default-behavior-off-identifier"),
+        pytest.param({"unexpected": 1}, 10, id="unknown-dict"),
+    ],
+)
+async def test_prepare_rename_rejects_non_renameable_replies(
+    tmp_path: Path,
+    result: JSONValue,
+    character: int,
+) -> None:
+    """Verify null, rejected, and unrecognized prepareRename replies map to None."""
+    backend, _, sample = _position_harness(
+        tmp_path,
+        {"textDocument/prepareRename": {"jsonrpc": "2.0", "id": 1, "result": result}},
+    )
+
+    assert await backend.prepare_rename(str(sample), 0, character) is None
+
+
 @pytest.mark.asyncio
 async def test_inlay_semantic_and_folding_mapping(tmp_path: Path) -> None:
     """Verify inlay hints, semantic tokens, and folding ranges map correctly."""
