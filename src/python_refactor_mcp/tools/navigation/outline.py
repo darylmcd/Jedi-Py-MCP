@@ -8,11 +8,13 @@ import re
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     FoldingRange,
     Position,
     SelectionRangeResult,
     SymbolOutlineItem,
+    SymbolOutlineResult,
 )
 from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.shared import apply_limit as _apply_limit
@@ -72,6 +74,55 @@ def _renest_flattened_symbols(items: list[SymbolOutlineItem]) -> list[SymbolOutl
     return top_level
 
 
+def _count_nodes(item: SymbolOutlineItem) -> int:
+    """Count *item* plus all of its descendants."""
+    return 1 + sum(_count_nodes(child) for child in item.children)
+
+
+def _prune_to_budget(item: SymbolOutlineItem, budget: int) -> tuple[SymbolOutlineItem, int]:
+    """Copy *item* keeping a depth-first prefix of descendants within *budget* (>= 1).
+
+    Returns the pruned copy and the number of nodes it contains.
+    """
+    used = 1
+    kept: list[SymbolOutlineItem] = []
+    for child in item.children:
+        if used >= budget:
+            break
+        pruned, count = _prune_to_budget(child, budget - used)
+        kept.append(pruned)
+        used += count
+    return item.model_copy(update={"children": kept}), used
+
+
+def _apply_node_budget(
+    roots: list[SymbolOutlineItem],
+    max_nodes: int | None,
+) -> tuple[list[SymbolOutlineItem], int, bool]:
+    """Keep whole roots until *max_nodes* is spent; prune the crossing root depth-first.
+
+    Returns ``(items, returned_nodes, truncated)``.
+    """
+    if max_nodes is None:
+        return roots, sum(_count_nodes(root) for root in roots), False
+    kept: list[SymbolOutlineItem] = []
+    used = 0
+    for root in roots:
+        remaining = max_nodes - used
+        if remaining <= 0:
+            return kept, used, True
+        size = _count_nodes(root)
+        if size <= remaining:
+            kept.append(root)
+            used += size
+            continue
+        # The crossing root always loses descendants, so the page is truncated.
+        pruned, count = _prune_to_budget(root, remaining)
+        kept.append(pruned)
+        return kept, used + count, True
+    return kept, used, False
+
+
 def _ast_folding_ranges(file_path: str) -> list[FoldingRange]:
     """Generate folding ranges from AST compound statements as a fallback."""
     try:
@@ -128,10 +179,16 @@ async def get_symbol_outline(
     root_path: str | None = None,
     file_paths: list[str] | None = None,
     offset: int = 0,
-) -> list[SymbolOutlineItem]:
-    """Return a filtered symbol outline for one file, batch, or full workspace."""
+    max_nodes: int | None = None,
+) -> SymbolOutlineResult:
+    """Return a filtered symbol outline for one file, batch, or full workspace.
+
+    ``limit`` bounds root items; ``max_nodes`` bounds roots plus descendants.
+    """
     if file_path is not None and file_paths is not None:
         raise ValueError("file_path and file_paths are mutually exclusive")
+    if max_nodes is not None and max_nodes < 1:
+        raise ToolInputError("max_nodes must be greater than or equal to 1")
 
     effective_root = Path(root_path).resolve() if root_path else config.workspace_root
     if file_paths is not None:
@@ -183,10 +240,20 @@ async def get_symbol_outline(
     outlines = _renest_flattened_symbols(outlines)
 
     sorted_items = sorted(outlines, key=_outline_key)
+    total_count = len(sorted_items)
+    total_nodes = sum(_count_nodes(item) for item in sorted_items)
     if offset > 0:
         sorted_items = sorted_items[offset:]
-    limited, _ = _apply_limit(sorted_items, limit)
-    return limited
+    limited, root_truncated = _apply_limit(sorted_items, limit)
+    bounded, returned_nodes, node_truncated = _apply_node_budget(limited, max_nodes)
+    return SymbolOutlineResult(
+        items=bounded,
+        total_count=total_count,
+        offset=offset,
+        truncated=root_truncated or node_truncated,
+        total_nodes=total_nodes,
+        returned_nodes=returned_nodes,
+    )
 
 
 async def get_folding_ranges(

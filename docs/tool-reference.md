@@ -36,7 +36,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `get_type_definition` | Navigate to type definitions for a symbol. | `list[Location]` |
 | `find_implementations` | Navigate to concrete implementation locations. | `list[Location]` |
 | `get_folding_ranges` | Return foldable code regions for chunked analysis. | `list[FoldingRange]` |
-| `get_symbol_outline` | Return a hierarchical symbol outline for a file or workspace. | `list[SymbolOutlineItem]` |
+| `get_symbol_outline` | Return a hierarchical symbol outline for a file or workspace. `limit` counts root items and `max_nodes` counts roots plus descendants; workspace scans default to 500 roots / 250 nodes. Check `truncated`. | `SymbolOutlineResult` |
 | `call_hierarchy` | Return callers and callees for a symbol. | `CallHierarchyResult` |
 | `type_hierarchy` | Return supertypes/subtypes for a class/type symbol. | `TypeHierarchyResult` |
 | `selection_range` | Return nested selection ranges for one or more positions. | `list[SelectionRangeResult]` |
@@ -94,10 +94,10 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | Tool | Purpose | Returns |
 |---|---|---|
 | `find_constructors` | Locate constructor call sites and report partial file/reference failures. | `ConstructorSearchResult` |
-| `search_symbols` | Search workspace symbols by name across semantic backends and report partial backend failures. | `SymbolSearchResult` |
+| `search_symbols` | Search workspace symbols by name across semantic backends and report partial backend failures. `limit` defaults to 200 (`null` for all); check `truncated`. | `SymbolSearchResult` |
 | `structural_search` | Search Python code using LibCST matcher expressions. | `StructuralSearchResult` |
 | `structural_replace` | Rewrite LibCST matcher matches using `$name` capture templates. | `RefactorResult` |
-| `dead_code_detection` | Identify likely dead symbols and unused code. | `PaginatedDeadCode` |
+| `dead_code_detection` | Identify likely dead symbols and unused code. `limit` defaults to 200 (`null` for all); check `truncated`. | `PaginatedDeadCode` |
 | `unused_symbol_sweep` | Project-wide audit of public exports with zero cross-file references. | `PaginatedDeadCode` |
 | `suggest_imports` | Suggest import statements for unresolved symbols. | `list[ImportSuggestion]` |
 | `autoimport_search` | Search autoimport database for a symbol name. | `list[ImportSuggestion]` |
@@ -108,8 +108,8 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 | Tool | Purpose | Returns |
 |---|---|---|
-| `code_metrics` | Return complexity metrics plus partial-scan failures. | `CodeMetricsResult` |
-| `get_module_dependencies` | Return an import dependency graph plus partial-scan failures. | `DependencyGraph` |
+| `code_metrics` | Return complexity metrics plus partial-scan failures. `functions` is sorted by cyclomatic complexity (highest first) and capped by `limit` (default 200, `null` for all); aggregates cover every function. Check `truncated`. | `CodeMetricsResult` |
+| `get_module_dependencies` | Return an import dependency graph plus partial-scan failures. `limit` (default 500, `null` for all) caps only `dependencies`; `modules` and cycles stay complete. Check `truncated` / `total_dependencies`. | `DependencyGraph` |
 | `get_type_coverage` | Return type annotation coverage plus partial-scan failures. | `TypeCoverageReport` |
 | `get_coupling_metrics` | Return coupling metrics plus dependency-scan failures. | `CouplingMetricsResult` |
 | `check_layer_violations` | Detect layer violations and report partial file failures. | `LayerViolationResult` |

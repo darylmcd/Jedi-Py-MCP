@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Diagnostic, Position, Range
 from python_refactor_mcp.tools import metrics
 from python_refactor_mcp.tools.metrics.security import security_scan
@@ -234,3 +235,65 @@ async def test_layer_reports_patterns_matching_no_scanned_module(tmp_path: Path)
     )
 
     assert result.unmatched_layer_patterns == ["pkg.web", "domain"]
+
+
+@pytest.mark.asyncio
+async def test_code_metrics_ranks_by_cyclomatic_and_caps_after_aggregates(tmp_path: Path) -> None:
+    module = tmp_path / "ranked.py"
+    module.write_text(
+        "def flat():\n"
+        "    return 1\n"
+        "\n"
+        "def branchy(a, b):\n"
+        "    if a:\n"
+        "        return 1\n"
+        "    if b:\n"
+        "        return 2\n"
+        "    return 3\n"
+        "\n"
+        "def one_branch(a):\n"
+        "    if a:\n"
+        "        return 1\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+
+    full = await metrics.code_metrics(str(module))
+    capped = await metrics.code_metrics(str(module), limit=2)
+
+    assert [f.name for f in full.functions] == ["branchy", "one_branch", "flat"]
+    assert full.truncated is False
+    assert [f.name for f in capped.functions] == ["branchy", "one_branch"]
+    assert capped.truncated is True
+    assert capped.total_functions == 3
+    assert capped.max_cyclomatic == 3
+    assert capped.avg_cyclomatic == full.avg_cyclomatic == 2.0
+
+
+@pytest.mark.asyncio
+async def test_module_dependencies_cap_edges_but_keep_full_graph(tmp_path: Path) -> None:
+    _layered_package(tmp_path)
+    config = make_config(tmp_path)
+
+    full = await metrics.get_module_dependencies(config)
+    capped = await metrics.get_module_dependencies(config, limit=1)
+
+    assert full.total_dependencies == len(full.dependencies) > 1
+    assert full.truncated is False
+    assert capped.dependencies == full.dependencies[:1]
+    assert capped.total_dependencies == full.total_dependencies
+    assert capped.truncated is True
+    assert capped.modules == full.modules
+    assert capped.circular_dependencies == full.circular_dependencies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, -1])
+async def test_metrics_limits_reject_non_positive_values(tmp_path: Path, limit: int) -> None:
+    module = tmp_path / "m.py"
+    module.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    with pytest.raises(ToolInputError, match="limit"):
+        await metrics.code_metrics(str(module), limit=limit)
+    with pytest.raises(ToolInputError, match="limit"):
+        await metrics.get_module_dependencies(make_config(tmp_path), limit=limit)

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     FoldingRange,
@@ -14,9 +15,11 @@ from python_refactor_mcp.models import (
     Range,
     SelectionRangeResult,
     SymbolOutlineItem,
+    SymbolOutlineResult,
     TypeHierarchyItem,
 )
 from python_refactor_mcp.tools import navigation
+from python_refactor_mcp.tools.navigation.outline import _apply_node_budget
 from tests.helpers import make_config as _config
 from tests.helpers import make_location as _location
 
@@ -122,7 +125,116 @@ async def test_get_symbol_outline_collects_workspace_items(tmp_path: Path) -> No
 
     result = await navigation.get_symbol_outline(pyright, _config(tmp_path))
 
-    assert [item.name for item in result] == ["a", "b"]
+    assert [item.name for item in result.items] == ["a", "b"]
+    assert result.total_count == 2
+    assert result.total_nodes == 2
+    assert result.returned_nodes == 2
+    assert result.truncated is False
+
+
+def _outline_node(
+    name: str,
+    path: str,
+    line: int,
+    end_line: int,
+    children: list[SymbolOutlineItem] | None = None,
+) -> SymbolOutlineItem:
+    return SymbolOutlineItem(
+        name=name,
+        kind="class" if children else "function",
+        file_path=path,
+        range=Range(start=Position(line=line, character=0), end=Position(line=end_line, character=0)),
+        selection_range=Range(start=Position(line=line, character=0), end=Position(line=line, character=1)),
+        children=children or [],
+    )
+
+
+def _outline_tree(path: str) -> list[SymbolOutlineItem]:
+    """Two roots: ``A`` (1 + 4 descendants, one nested two deep) and ``B`` (1 node)."""
+    inner = _outline_node("A.m1.inner", path, 2, 3)
+    a = _outline_node(
+        "A",
+        path,
+        0,
+        20,
+        [
+            _outline_node("A.m1", path, 1, 4, [inner]),
+            _outline_node("A.m2", path, 5, 8),
+            _outline_node("A.m3", path, 9, 12),
+        ],
+    )
+    b = _outline_node("B", path, 30, 31)
+    return [a, b]
+
+
+def _names(item: SymbolOutlineItem) -> list[str]:
+    return [item.name, *(name for child in item.children for name in _names(child))]
+
+
+def test_node_budget_prunes_crossing_root_depth_first() -> None:
+    """max_nodes keeps a depth-first prefix of the root that crosses the budget."""
+    roots = _outline_tree("/repo/m.py")
+
+    kept, returned, truncated = _apply_node_budget(roots, 3)
+
+    assert [_names(item) for item in kept] == [["A", "A.m1", "A.m1.inner"]]
+    assert returned == 3
+    assert truncated is True
+    # The source tree is copied, never mutated.
+    assert _names(roots[0]) == ["A", "A.m1", "A.m1.inner", "A.m2", "A.m3"]
+
+
+def test_node_budget_stops_at_root_boundary_and_passes_through_when_unbounded() -> None:
+    """A budget exactly covering the first root drops later roots; ample or no budget keeps all."""
+    roots = _outline_tree("/repo/m.py")
+
+    kept, returned, truncated = _apply_node_budget(roots, 5)
+    assert [_names(item) for item in kept] == [["A", "A.m1", "A.m1.inner", "A.m2", "A.m3"]]
+    assert (returned, truncated) == (5, True)
+
+    assert _apply_node_budget(roots, 6)[1:] == (6, False)
+    assert _apply_node_budget(roots, None)[1:] == (6, False)
+
+
+@pytest.mark.asyncio
+async def test_get_symbol_outline_root_limit_and_offset_report_truncation(tmp_path: Path) -> None:
+    """limit counts roots, max_nodes counts nodes; both report truncation through the result."""
+    module = tmp_path / "m.py"
+    module.write_text("def a():\n    pass\n", encoding="utf-8")
+    path = str(module)
+    pyright = AsyncMock()
+    pyright.get_document_symbols.side_effect = lambda _path: [
+        _outline_node(name, path, line, line) for line, name in enumerate(["a", "b", "c"])
+    ]
+
+    async def _outline(**kwargs: object) -> SymbolOutlineResult:
+        return await navigation.get_symbol_outline(pyright, _config(tmp_path), file_path=path, **kwargs)  # type: ignore[arg-type]
+
+    limited = await _outline(limit=1)
+    assert [item.name for item in limited.items] == ["a"]
+    assert (limited.total_count, limited.returned_nodes, limited.truncated) == (3, 1, True)
+
+    paged = await _outline(offset=1)
+    assert [item.name for item in paged.items] == ["b", "c"]
+    assert (paged.offset, paged.total_count, paged.truncated) == (1, 3, False)
+
+    budgeted = await _outline(max_nodes=2)
+    assert [item.name for item in budgeted.items] == ["a", "b"]
+    assert (budgeted.total_nodes, budgeted.returned_nodes, budgeted.truncated) == (3, 2, True)
+
+    whole = await _outline(max_nodes=3)
+    assert (whole.returned_nodes, whole.truncated) == (3, False)
+
+
+@pytest.mark.asyncio
+async def test_get_symbol_outline_rejects_non_positive_max_nodes(tmp_path: Path) -> None:
+    """max_nodes below one is a caller error raised before any backend call."""
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match="max_nodes"):
+        await navigation.get_symbol_outline(pyright, _config(tmp_path), max_nodes=0)
+
+    pyright.get_document_symbols.assert_not_awaited()
 
 
 @pytest.mark.asyncio

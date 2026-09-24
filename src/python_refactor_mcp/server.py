@@ -20,7 +20,7 @@ from python_refactor_mcp.models import (
     SecurityScanResult,
     ServerStatus,
     SignatureOperation,
-    SymbolOutlineItem,
+    SymbolOutlineResult,
     TestCoverageMap,
     UnusedImportScanResult,
 )
@@ -40,6 +40,10 @@ from python_refactor_mcp.util.shared import apply_limit
 from python_refactor_mcp.workspace_registry import WorkspaceRegistry
 
 _LOGGER = logging.getLogger(__name__)
+
+# Default payload bounds for workspace-wide get_symbol_outline scans.
+_WORKSPACE_OUTLINE_ROOT_LIMIT = 500
+_WORKSPACE_OUTLINE_MAX_NODES = 250
 _workspace_root: Path | None = None
 
 
@@ -164,14 +168,19 @@ async def get_symbol_outline(
     root_path: str | None = None,
     file_paths: list[str] | None = None,
     offset: int = 0,
-) -> list[SymbolOutlineItem]:
-    """Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Supports pagination via offset/limit. Related: search_symbols (name-based search), get_folding_ranges."""
+    max_nodes: int | None = None,
+) -> SymbolOutlineResult:
+    """Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Returns {items, total_count, offset, truncated, total_nodes, returned_nodes}. Supports pagination via offset/limit (limit counts root items). max_nodes caps roots plus descendants; a root crossing the budget keeps a depth-first prefix of its children. Workspace-wide scans (no file_path/file_paths) default to limit=500 roots and max_nodes=250; single-file and batch outlines are unbounded unless set. Check truncated before assuming completeness. Related: search_symbols (name-based search), get_folding_ranges."""
     app = get_current_backends()
-    # Apply a sensible default limit for workspace-wide scans to prevent
-    # excessive output (can produce millions of characters across many files).
+    # Workspace-wide scans default to bounded output: a full-repo outline is
+    # otherwise megabytes (500 roots once carried ~10k descendant nodes).
     effective_limit = limit
-    if effective_limit is None and file_path is None and file_paths is None:
-        effective_limit = 500
+    effective_max_nodes = max_nodes
+    if file_path is None and file_paths is None:
+        if effective_limit is None:
+            effective_limit = _WORKSPACE_OUTLINE_ROOT_LIMIT
+        if effective_max_nodes is None:
+            effective_max_nodes = _WORKSPACE_OUTLINE_MAX_NODES
     result = await navigation.get_symbol_outline(
         app.pyright,
         app.config,
@@ -182,8 +191,15 @@ async def get_symbol_outline(
         root_path,
         file_paths,
         offset,
+        effective_max_nodes,
     )
-    _LOGGER.debug("get_symbol_outline count=%s", len(result))
+    _LOGGER.debug(
+        "get_symbol_outline roots=%s nodes=%s/%s truncated=%s",
+        len(result.items),
+        result.returned_nodes,
+        result.total_nodes,
+        result.truncated,
+    )
     return result
 
 

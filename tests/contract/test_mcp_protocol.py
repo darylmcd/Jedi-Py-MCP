@@ -111,6 +111,31 @@ async def test_destructive_tools_have_apply_parameter() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workspace_scale_tools_advertise_default_bounds() -> None:
+    """Workspace-scale tools advertise bounded defaults and a truncated/count output contract."""
+    tools: dict[str, Any] = {}
+    for profile in TOOL_PROFILES:
+        tools.update({tool.name: tool for tool in await _profile_tools(profile)})
+    expected_defaults = {
+        "search_symbols": ("limit", 200),
+        "dead_code_detection": ("limit", 200),
+        "code_metrics": ("limit", 200),
+        "get_module_dependencies": ("limit", 500),
+    }
+    for name, (param, default) in expected_defaults.items():
+        props = tools[name].input_schema.get("properties", {})
+        assert props[param].get("default") == default, f"{name}.{param} default drifted"
+        output_props = (tools[name].output_schema or {}).get("properties", {})
+        assert "truncated" in output_props, f"{name} output must expose truncated"
+
+    outline = tools["get_symbol_outline"]
+    assert "max_nodes" in outline.input_schema.get("properties", {})
+    outline_output = (outline.output_schema or {}).get("properties", {})
+    assert {"items", "total_count", "offset", "truncated", "total_nodes", "returned_nodes"} <= set(outline_output)
+    assert "total_dependencies" in (tools["get_module_dependencies"].output_schema or {}).get("properties", {})
+
+
+@pytest.mark.asyncio
 async def test_no_ctx_in_schemas() -> None:
     """The internal ctx parameter must never appear in tool schemas."""
     tools = await server.mcp.list_tools()
