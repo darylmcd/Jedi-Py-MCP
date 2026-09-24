@@ -14,6 +14,7 @@ from python_refactor_mcp.models import (
     Location,
     Position,
     Range,
+    ScanFailure,
     SymbolInfo,
 )
 from python_refactor_mcp.util.file_filter import python_files as _filtered_python_files
@@ -119,26 +120,48 @@ def is_test_file(path: Path) -> bool:
     return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedTargets:
+    """Files a workspace search scan will inspect plus the requested scopes that do not exist."""
+
+    files: list[Path]
+    failures: list[ScanFailure]
+
+
+def _resolve_failure(path: Path, wrong_kind_error: str) -> ScanFailure:
+    """Describe a requested scan scope that does not exist or is the wrong kind of entry."""
+    error_type = wrong_kind_error if path.exists() else "FileNotFoundError"
+    return ScanFailure(file_path=str(path), phase="resolve", error_type=error_type)
+
+
 def resolve_target_files(
     file_path: str | None,
     file_paths: list[str] | None,
     root_path: str | None,
     config: ServerConfig,
     exclude_test_files: bool,
-) -> list[Path]:
-    """Resolve the stable file set shared by workspace search scans."""
+) -> ResolvedTargets:
+    """Resolve the stable file set shared by workspace search scans.
+
+    A missing ``root_path`` or explicit file is returned as a ``phase="resolve"``
+    failure so callers never report a nonexistent scope as a clean empty scan.
+    """
     if file_path is not None and file_paths is not None:
         raise ValueError("file_path and file_paths are mutually exclusive")
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
     if file_paths is not None:
-        targets = [Path(path).resolve() for path in file_paths]
+        requested = [Path(path).resolve() for path in file_paths]
     elif file_path is not None:
-        targets = [Path(file_path).resolve()]
+        requested = [Path(file_path).resolve()]
     else:
-        targets = python_files(effective_root)
+        effective_root = Path(root_path).resolve() if root_path else config.workspace_root
+        if not effective_root.is_dir():
+            return ResolvedTargets(files=[], failures=[_resolve_failure(effective_root, "NotADirectoryError")])
+        requested = python_files(effective_root)
     if exclude_test_files:
-        targets = [path for path in targets if not is_test_file(path)]
-    return targets
+        requested = [path for path in requested if not is_test_file(path)]
+    files = [path for path in requested if path.is_file()]
+    failures = [_resolve_failure(path, "IsADirectoryError") for path in requested if not path.is_file()]
+    return ResolvedTargets(files=files, failures=failures)
 
 
 def score_dead_code_confidence(name: str, reason: str) -> str:

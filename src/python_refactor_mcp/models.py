@@ -650,8 +650,12 @@ class TypeCoverageReport(BaseModel):
     annotated_return: int
     annotated_params: int
     total_params: int
-    return_coverage_pct: float
-    param_coverage_pct: float
+    return_coverage_pct: float | None = Field(
+        description="Percent of scanned functions with a return annotation; null when no file was scanned."
+    )
+    param_coverage_pct: float | None = Field(
+        description="Percent of scanned parameters with an annotation; null when no file was scanned."
+    )
     unannotated: list[dict[str, object]]
     files_scanned: int
     scan_failures: list[ScanFailure] = Field(default_factory=list)

@@ -65,18 +65,23 @@ async def get_type_coverage(
                     "missing": missing_parts,
                 })
 
-    return_pct = (annotated_return / total_functions * 100) if total_functions else 100.0
-    param_pct = (annotated_params / total_params * 100) if total_params else 100.0
-
+    files_scanned = len(paths) - len(scan_failures)
     return TypeCoverageReport(
         file_path=file_path if len(paths) == 1 else None,
         total_functions=total_functions,
         annotated_return=annotated_return,
         annotated_params=annotated_params,
         total_params=total_params,
-        return_coverage_pct=round(return_pct, 1),
-        param_coverage_pct=round(param_pct, 1),
+        return_coverage_pct=_coverage_pct(annotated_return, total_functions, files_scanned),
+        param_coverage_pct=_coverage_pct(annotated_params, total_params, files_scanned),
         unannotated=unannotated,
-        files_scanned=len(paths) - len(scan_failures),
+        files_scanned=files_scanned,
         scan_failures=scan_failures,
     )
+
+
+def _coverage_pct(annotated: int, total: int, files_scanned: int) -> float | None:
+    """Return a rounded percentage over scanned files, or ``None`` when nothing was scanned."""
+    if files_scanned == 0:
+        return None
+    return round(annotated / total * 100, 1) if total else 100.0
