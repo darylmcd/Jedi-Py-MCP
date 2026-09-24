@@ -1,0 +1,1 @@
+- **Fixed:** `prepare_rename` computes ranges and placeholders in LSP UTF-16 units, so lines with astral characters before the identifier resolve correctly.

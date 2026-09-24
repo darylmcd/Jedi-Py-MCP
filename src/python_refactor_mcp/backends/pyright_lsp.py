@@ -88,6 +88,39 @@ def _filter_type_ignore(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
     return kept
 
 
+def _utf16_units(character: str) -> int:
+    """Return how many UTF-16 code units encode ``character`` (2 for astral code points)."""
+    return 2 if ord(character) > 0xFFFF else 1
+
+
+def _utf16_to_code_point_index(text: str, utf16_offset: int) -> int:
+    """Map an LSP UTF-16 ``character`` offset on ``text`` to a Python string index.
+
+    An offset inside a surrogate pair maps to the index of that code point. An
+    offset past the end of ``text`` keeps its excess, so callers range-checking
+    the result still see it as out of bounds.
+    """
+    if utf16_offset <= 0:
+        return utf16_offset
+    units = 0
+    for index, character in enumerate(text):
+        width = _utf16_units(character)
+        if units + width > utf16_offset:
+            return index
+        units += width
+        if units == utf16_offset:
+            return index + 1
+    return len(text) + (utf16_offset - units)
+
+
+def _code_point_to_utf16_offset(text: str, index: int) -> int:
+    """Map a Python string index on ``text`` to an LSP UTF-16 ``character`` offset."""
+    if index <= 0:
+        return index
+    prefix = text[:index]
+    return sum(_utf16_units(character) for character in prefix) + (index - len(prefix))
+
+
 def _convert_document_symbol(entry: JSONDict, fallback_path: str) -> SymbolOutlineItem | None:
     """Convert a single LSP DocumentSymbol or SymbolInformation to a model item."""
     name = as_str(entry.get("name"), "")
@@ -1219,7 +1252,9 @@ class PyrightLSPClient:
             def is_identifier_char(index: int) -> bool:
                 return 0 <= index < len(line_text) and (line_text[index].isalnum() or line_text[index] == "_")
 
-            anchor = char if is_identifier_char(char) else char - 1
+            # LSP ``character`` counts UTF-16 code units; scan the line by code point.
+            cursor = _utf16_to_code_point_index(line_text, char)
+            anchor = cursor if is_identifier_char(cursor) else cursor - 1
             if not is_identifier_char(anchor):
                 return None
             start_char = anchor
@@ -1229,8 +1264,8 @@ class PyrightLSPClient:
             while is_identifier_char(end_char):
                 end_char += 1
             range_value = {
-                "start": {"line": line, "character": start_char},
-                "end": {"line": line, "character": end_char},
+                "start": {"line": line, "character": _code_point_to_utf16_offset(line_text, start_char)},
+                "end": {"line": line, "character": _code_point_to_utf16_offset(line_text, end_char)},
             }
             placeholder = line_text[start_char:end_char]
         else:
@@ -1246,8 +1281,12 @@ class PyrightLSPClient:
                 start_line = mr.start.line
                 if 0 <= start_line < len(source_lines):
                     line_text = source_lines[start_line]
-                    start_char = mr.start.character
-                    end_char = mr.end.character if mr.end.line == start_line else len(line_text)
+                    start_char = _utf16_to_code_point_index(line_text, mr.start.character)
+                    end_char = (
+                        _utf16_to_code_point_index(line_text, mr.end.character)
+                        if mr.end.line == start_line
+                        else len(line_text)
+                    )
                     placeholder = line_text[start_char:end_char].strip() or Path(absolute_path).stem
                 else:
                     placeholder = Path(absolute_path).stem
