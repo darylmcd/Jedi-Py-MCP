@@ -11,6 +11,7 @@ from python_refactor_mcp.models import (
     ConstructorSite,
     DeadCodeItem,
     Diagnostic,
+    FileOperation,
     ImportSuggestion,
     Location,
     Position,
@@ -119,6 +120,28 @@ def test_refactor_result_default_applied_flag() -> None:
     """Verify refactor result defaults applied to False."""
     result = RefactorResult(edits=[], files_affected=[], description="placeholder")
     assert result.applied is False
+    assert result.file_operations == []
+
+
+def test_refactor_result_file_operations_round_trip() -> None:
+    """File operations survive serialization beside the text edits."""
+    result = RefactorResult(
+        edits=[],
+        files_affected=["C:/repo/pkg/__init__.py"],
+        description="module to package",
+        file_operations=[
+            FileOperation(kind="create_folder", path="C:/repo/pkg"),
+            FileOperation(kind="move", path="C:/repo/pkg.py", new_path="C:/repo/pkg/__init__.py"),
+        ],
+    )
+
+    assert RefactorResult.model_validate(result.model_dump()) == result
+    assert result.file_operations[0].new_path is None
+
+
+def test_file_operation_rejects_unknown_kind() -> None:
+    with pytest.raises(ValidationError):
+        FileOperation.model_validate({"kind": "copy", "path": "C:/repo/a.py"})
 
 
 def test_signature_operation_rejects_negative_index() -> None:
