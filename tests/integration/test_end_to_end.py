@@ -281,8 +281,10 @@ async def test_get_symbol_outline_returns_items(
 
     assert result.is_error is not True
     payload = _unwrap_result_payload(result.structured_content)
-    assert isinstance(payload, list)
-    assert any(str(item.get("name", "")) == "User" for item in payload)
+    assert isinstance(payload, dict)
+    assert any(str(item.get("name", "")) == "User" for item in payload["items"])
+    assert payload["truncated"] is False
+    assert payload["returned_nodes"] == payload["total_nodes"] >= 1
 
 
 @pytest.mark.asyncio

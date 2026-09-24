@@ -108,6 +108,13 @@ DESTRUCTIVE_ANNOTATIONS = ToolAnnotations(
 )
 ADDITIVE_ANNOTATIONS = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
 
+# Default payload bounds for workspace-scale tools. Advertised in each tool's
+# input schema; callers pass null to opt out and check ``truncated``.
+DEFAULT_SEARCH_SYMBOLS_LIMIT = 200
+DEFAULT_DEAD_CODE_LIMIT = 200
+DEFAULT_CODE_METRICS_LIMIT = 200
+DEFAULT_MODULE_DEPENDENCIES_LIMIT = 500
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Pure-delegation tool functions
@@ -1187,8 +1194,12 @@ async def find_constructors(
     return result
 
 
-async def search_symbols(ctx: Context, query: str, limit: int | None = None) -> SymbolSearchResult:
-    """Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi and reports partial-backend failures explicitly. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
+async def search_symbols(
+    ctx: Context,
+    query: str,
+    limit: int | None = DEFAULT_SEARCH_SYMBOLS_LIMIT,
+) -> SymbolSearchResult:
+    """Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi and reports partial-backend failures explicitly. limit defaults to 200 (pass null for all); check truncated and total_count. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
     app = get_current_backends()
     result = await search.search_symbols(app.pyright, app.jedi, query, limit)
     log = _LOGGER.warning if result.backend_failures else _LOGGER.debug
@@ -1234,9 +1245,9 @@ async def dead_code_detection(
     exclude_test_files: bool = True,
     file_paths: list[str] | None = None,
     offset: int = 0,
-    limit: int | None = None,
+    limit: int | None = DEFAULT_DEAD_CODE_LIMIT,
 ) -> PaginatedDeadCode:
-    """Find unreferenced functions, classes, and variables that may be dead code. Combines Pyright diagnostics (unused/not-accessed) with reference counting for module-level symbols. Set exclude_test_files=True to skip test files. Supports pagination via offset/limit. Returns confidence scores (high/medium/low). Related: get_diagnostics, find_references."""
+    """Find unreferenced functions, classes, and variables that may be dead code. Combines Pyright diagnostics (unused/not-accessed) with reference counting for module-level symbols. Set exclude_test_files=True to skip test files. Supports pagination via offset/limit; limit defaults to 200 (pass null for all) — check truncated and total_count. Returns confidence scores (high/medium/low). Related: get_diagnostics, find_references."""
     app = get_current_backends()
     result = await search.dead_code_detection(
         app.pyright,
@@ -1304,10 +1315,11 @@ async def code_metrics(
     ctx: Context,
     file_path: str,
     file_paths: list[str] | None = None,
+    limit: int | None = DEFAULT_CODE_METRICS_LIMIT,
 ) -> CodeMetricsResult:
-    """Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. Reports partial file scans through scan_failures. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
+    """Compute cyclomatic complexity, cognitive complexity, nesting depth, lines of code, and parameter count for all functions. functions is sorted by cyclomatic complexity (highest first) and capped by limit (default 200; pass null for all); total_functions/avg_cyclomatic/max_cyclomatic cover every function and truncated reports the cap. Reports partial file scans through scan_failures. Use to identify complexity hotspots that need refactoring. Related: dead_code_detection, get_type_coverage."""
     _ = get_current_backends()
-    result = await metrics.code_metrics(file_path, file_paths)
+    result = await metrics.code_metrics(file_path, file_paths, limit)
     log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
     log(
         "code_metrics functions=%s max_cc=%s scan_failures=%s",
@@ -1322,15 +1334,17 @@ async def get_module_dependencies(
     ctx: Context,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
+    limit: int | None = DEFAULT_MODULE_DEPENDENCIES_LIMIT,
 ) -> DependencyGraph:
-    """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths, reports each cyclic strongly connected component deterministically, and exposes partial file scans through scan_failures. Related: get_coupling_metrics, check_layer_violations."""
+    """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths, reports each cyclic strongly connected component deterministically, and exposes partial file scans through scan_failures. limit caps only the dependencies edge list (default 500; pass null for all) — modules and circular_dependencies always cover the full graph; check truncated and total_dependencies. Related: get_coupling_metrics, check_layer_violations."""
     app = get_current_backends()
-    result = await metrics.get_module_dependencies(app.config, file_path, file_paths)
+    result = await metrics.get_module_dependencies(app.config, file_path, file_paths, limit)
     log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
     log(
-        "get_module_dependencies modules=%s deps=%s cycles=%s scan_failures=%s",
+        "get_module_dependencies modules=%s deps=%s/%s cycles=%s scan_failures=%s",
         len(result.modules),
         len(result.dependencies),
+        result.total_dependencies,
         len(result.circular_dependencies),
         len(result.scan_failures),
     )

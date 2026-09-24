@@ -6,8 +6,10 @@ import ast
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import DependencyGraph, ModuleDependency, ScanFailure
 from python_refactor_mcp.util.file_filter import python_files
+from python_refactor_mcp.util.shared import apply_limit
 
 
 def _is_type_checking_guard(node: ast.expr) -> bool:
@@ -227,8 +229,16 @@ async def get_module_dependencies(
     config: ServerConfig,
     file_path: str | None = None,
     file_paths: list[str] | None = None,
+    limit: int | None = None,
 ) -> DependencyGraph:
-    """Parse import statements and build a dependency graph with cycle detection."""
+    """Parse import statements and build a dependency graph with cycle detection.
+
+    *limit* caps only the returned ``dependencies`` edge list; modules and cycles are
+    computed from the full graph. Internal consumers (layer/cycle analysis) must keep
+    the default ``None`` so they see every edge.
+    """
+    if limit is not None and limit < 1:
+        raise ToolInputError("limit must be greater than or equal to 1")
     workspace_root = config.workspace_root
     paths: list[Path]
     if file_paths:
@@ -297,10 +307,13 @@ async def get_module_dependencies(
                             graph[source].add(target)
 
     cycles = _find_cycles(graph)
+    dependencies, truncated = apply_limit(all_deps, limit)
     return DependencyGraph(
-        dependencies=all_deps,
+        dependencies=dependencies,
         modules=sorted(modules),
         circular_dependencies=cycles,
         files_scanned=len(paths) - len(scan_failures),
+        total_dependencies=len(all_deps),
+        truncated=truncated,
         scan_failures=scan_failures,
     )

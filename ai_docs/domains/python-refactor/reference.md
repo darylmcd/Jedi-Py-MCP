@@ -94,6 +94,19 @@ The canonical catalog is assembled from `tool_registry.py::TOOL_RECORDS` and
 - `Diagnostic`: `file_path`, `range`, `severity`, `message`, `code`.
 - `RefactorResult`: `edits` (list of `TextEdit`), `files_affected`, `applied`, `diagnostics_after`.
 - `SymbolOutlineItem`: `name`, `kind`, `file_path`, `range`, `selection_range`, `children`.
+- `SymbolOutlineResult` (`get_symbol_outline`): `items`, `total_count`, `offset`, `truncated`, `total_nodes`, `returned_nodes`.
+
+## Default Payload Bounds
+
+Callers pass `null` to opt out; always check `truncated`.
+
+| Tool | Bound | Default |
+|---|---|---|
+| `get_symbol_outline` (workspace scan only) | `limit` roots / `max_nodes` roots+descendants | 500 / 250 |
+| `search_symbols` | `limit` | 200 |
+| `dead_code_detection` | `limit` | 200 |
+| `code_metrics` | `limit` on `functions` (cyclomatic desc; aggregates uncapped) | 200 |
+| `get_module_dependencies` | `limit` on `dependencies` (`modules`/cycles uncapped) | 500 |
 - `DiffPreview`: `file_path`, `unified_diff`.
 
 ## Deep Historical Material

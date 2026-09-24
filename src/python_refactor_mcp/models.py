@@ -437,6 +437,19 @@ class PaginatedDeadCode(Paginated[DeadCodeItem]):
     scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
+class SymbolOutlineResult(Paginated[SymbolOutlineItem]):
+    """Outline page of root symbols, bounded by a root ``limit`` and a ``max_nodes`` budget.
+
+    ``total_count`` counts root items before ``offset``; ``total_nodes`` counts every
+    root plus descendant over the same set. ``returned_nodes`` counts nodes actually
+    returned. ``truncated`` is set when either the root limit or the node budget
+    dropped items (a root crossing the budget keeps a depth-first prefix of children).
+    """
+
+    total_nodes: int = 0
+    returned_nodes: int = 0
+
+
 class DiffPreview(BaseModel):
     """Unified diff preview for one file."""
 
@@ -541,13 +554,19 @@ class FunctionMetrics(BaseModel):
 
 
 class CodeMetricsResult(BaseModel):
-    """Code metrics for one or more files."""
+    """Code metrics for one or more files.
+
+    ``functions`` is sorted by cyclomatic complexity (descending) and capped by the
+    caller's ``limit``; ``total_functions``/``avg_cyclomatic``/``max_cyclomatic`` are
+    computed over every scanned function. ``truncated`` is set when the cap applied.
+    """
 
     functions: list[FunctionMetrics]
     total_functions: int
     avg_cyclomatic: float
     max_cyclomatic: int
     files_scanned: int
+    truncated: bool = False
     scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 
@@ -561,12 +580,19 @@ class ModuleDependency(BaseModel):
 
 
 class DependencyGraph(BaseModel):
-    """Module dependency graph with optional circular dependency detection."""
+    """Module dependency graph with optional circular dependency detection.
+
+    Only ``dependencies`` is capped by the caller's ``limit``; ``modules`` and
+    ``circular_dependencies`` always reflect the full graph. ``total_dependencies``
+    is the pre-cap edge count and ``truncated`` is set when the cap applied.
+    """
 
     dependencies: list[ModuleDependency]
     modules: list[str]
     circular_dependencies: list[list[str]]
     files_scanned: int
+    total_dependencies: int = 0
+    truncated: bool = False
     scan_failures: list[ScanFailure] = Field(default_factory=list)
 
 

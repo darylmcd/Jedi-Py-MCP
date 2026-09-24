@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ast
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import CodeMetricsResult, FunctionMetrics, ScanFailure
 from python_refactor_mcp.util.scan import parse_python_file
+from python_refactor_mcp.util.shared import apply_limit
 
 
 def _cyclomatic_complexity(node: ast.AST) -> int:
@@ -60,8 +62,15 @@ def _function_loc(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
 async def code_metrics(
     file_path: str,
     file_paths: list[str] | None = None,
+    limit: int | None = None,
 ) -> CodeMetricsResult:
-    """Compute cyclomatic/cognitive complexity, nesting depth, LoC, and param count."""
+    """Compute cyclomatic/cognitive complexity, nesting depth, LoC, and param count.
+
+    Aggregates cover every scanned function. ``functions`` is sorted by cyclomatic
+    complexity (descending), then path and line, and capped at *limit* when set.
+    """
+    if limit is not None and limit < 1:
+        raise ToolInputError("limit must be greater than or equal to 1")
     paths = [file_path] if file_paths is None else file_paths
     all_functions: list[FunctionMetrics] = []
     scan_failures: list[ScanFailure] = []
@@ -99,11 +108,15 @@ async def code_metrics(
     avg_cc = sum(f.cyclomatic_complexity for f in all_functions) / total if total else 0.0
     max_cc = max((f.cyclomatic_complexity for f in all_functions), default=0)
 
+    ranked = sorted(all_functions, key=lambda f: (-f.cyclomatic_complexity, f.file_path, f.line, f.name))
+    functions, truncated = apply_limit(ranked, limit)
+
     return CodeMetricsResult(
-        functions=all_functions,
+        functions=functions,
         total_functions=total,
         avg_cyclomatic=round(avg_cc, 2),
         max_cyclomatic=max_cc,
         files_scanned=len(paths) - len(scan_failures),
+        truncated=truncated,
         scan_failures=scan_failures,
     )
