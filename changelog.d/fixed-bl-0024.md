@@ -1,0 +1,1 @@
+- **Fixed:** `autoimport_search` reports unusable rope AutoImport output as a redacted `[ROPE_BACKEND]` error instead of leaking the raw statement.

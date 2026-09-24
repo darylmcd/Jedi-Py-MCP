@@ -609,6 +609,30 @@ async def test_autoimport_search_returns_suggestions() -> None:
     rope.autoimport_search.assert_awaited_once_with("Path")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("statement", "match"),
+    [
+        ("from pathlib import (", "unparseable"),
+        ("import os; import sys", "invalid"),
+        ("", "invalid"),
+        ("import os, sys", "unsupported"),
+        ("x = 1", "unsupported"),
+    ],
+)
+async def test_autoimport_search_unusable_statement_raises_rope_error(
+    statement: str, match: str
+) -> None:
+    """Unusable rope AutoImport output is a backend failure (RopeError), not a ValueError."""
+    rope = AsyncMock()
+    rope.autoimport_search.return_value = [(statement, "Path")]
+
+    with pytest.raises(RopeError, match=match) as excinfo:
+        await refactoring.autoimport_search(rope, "Path")
+
+    assert type(excinfo.value) is RopeError
+
+
 # ── PR 3-B: Invalid-input / failure-path unit tests ──
 
 
