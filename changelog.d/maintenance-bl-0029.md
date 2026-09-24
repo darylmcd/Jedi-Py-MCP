@@ -1,0 +1,1 @@
+- **Maintenance:** a unit test covers the `create_type_stubs` subprocess timeout/kill path.
