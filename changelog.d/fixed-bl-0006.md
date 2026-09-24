@@ -1,0 +1,1 @@
+- **Fixed:** `generate_code` now uses rope's `create_generate` factory; every kind previously failed with `AttributeError` against rope 1.14.

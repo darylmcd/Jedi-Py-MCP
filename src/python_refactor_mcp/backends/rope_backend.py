@@ -58,6 +58,8 @@ from python_refactor_mcp.util.shared import end_position_for_content as _end_pos
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
+# Kinds accepted by rope.contrib.generate.create_generate.
+_GENERATE_KINDS = ("class", "function", "variable", "module", "package")
 
 # Bounded set of position-based refactorings that may participate in a
 # ``refactor_transaction``. Each maps to a rope primitive that yields a
@@ -298,6 +300,27 @@ class RopeBackend:
                     write_atomic(path, originals[path])
             raise
         return changed_files
+
+    def _do_with_resource_changes(self, project: Project, changes: ChangeSet, description: str) -> RefactorResult:
+        """Apply a change set that creates resources through rope.
+
+        rope's ``ChangeSet.do`` undoes every change it completed when a later one
+        fails, so no manual rollback is layered on top (a manual one could delete a
+        resource that already existed before this call).
+        """
+        edits = self._changes_to_edits(changes)
+        created = [
+            _absolute_path(str(self._config.workspace_root / change.resource.path))
+            for change in changes.changes
+            if not isinstance(change, ChangeContents)
+        ]
+        project.do(changes)
+        return RefactorResult(
+            edits=edits,
+            files_affected=sorted({*(edit.file_path for edit in edits), *created}),
+            description=description,
+            applied=True,
+        )
 
     def _build_result(self, changes: ChangeSet | None, description: str, apply: bool) -> RefactorResult:
         """Build a model result from rope changes and apply mode."""
@@ -989,23 +1012,25 @@ class RopeBackend:
         """Generate a missing class, function, variable, module, or package from a usage site."""
 
         def _work() -> RefactorResult:
+            kind_lower = kind.strip().lower()
+            if kind_lower not in _GENERATE_KINDS:
+                raise RopeError(f"Unsupported generation kind: {kind}. Use: {', '.join(_GENERATE_KINDS)}")
             project = self._require_project()
             project.validate(project.root)
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
-            kind_lower = kind.strip().lower()
-            generators: dict[str, Any] = {
-                "class": rope_generate.create_class,  # pyright: ignore[reportAttributeAccessIssue]
-                "function": rope_generate.create_function,  # pyright: ignore[reportAttributeAccessIssue]
-                "variable": rope_generate.create_variable,  # pyright: ignore[reportAttributeAccessIssue]
-                "module": rope_generate.create_module,
-                "package": rope_generate.create_package,
-            }
-            creator = generators.get(kind_lower)
-            if creator is None:
-                raise RopeError(f"Unsupported generation kind: {kind}. Use: {', '.join(generators)}")
-            changes = cast(ChangeSet | None, creator(project, resource, offset))
-            return self._build_result(changes, f"Generated {kind_lower}", apply)
+            # rope's factory builds the matching _Generate subclass from the usage site;
+            # module/package kinds carry resource-creation changes beside the import edit.
+            generator = rope_generate.create_generate(kind_lower, project, resource, offset)
+            changes = generator.get_changes()
+            description = f"Generated {kind_lower}"
+            if apply and self._change_stack is None and any(
+                not isinstance(change, ChangeContents) for change in changes.changes
+            ):
+                # _build_result writes only text edits; module/package generation must also
+                # create the new file or package, so let rope apply the whole change set.
+                return self._do_with_resource_changes(project, changes, description)
+            return self._build_result(changes, description, apply)
 
         return await run_in_thread(
             _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.generate_code", logger=_LOGGER,
