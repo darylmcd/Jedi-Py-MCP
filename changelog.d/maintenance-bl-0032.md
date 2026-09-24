@@ -1,0 +1,1 @@
+- **Maintenance:** AGENTS.md and the doc-audit context record the repo as PUBLIC with the 2026-09-24 breaking-change ruling.

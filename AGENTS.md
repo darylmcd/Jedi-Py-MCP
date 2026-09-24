@@ -13,7 +13,7 @@ Restated from `~/.claude/CLAUDE.md` (canonical source). These eight directive **
 1. **Correct fix > quick fix.** Choose the root-cause fix over the symptom patch. A quick fix is acceptable only when the correct fix is genuinely out of scope — then say why and file a backlog row (per #3) before shipping it.
 2. **Optimize for AI consumption by default.** Write AI-facing files (`AGENTS.md`, `ai_docs/**`, prompts, planning/runtime/audit docs) as machine input: tables over prose, structured data over paragraphs, pointers over duplication. Human-facing files (`README.md` landing pages, `docs/**`) get prose.
 3. **Bad code is never silent.** When you observe bad code in ANY file you touch (the edit target, an adjacent file, an import, a test), (a) call it out and (b) recommend an appropriately-sized backlog row (≤4 prod files, ≤3 test files, one regression shape). Editing a bad section does not absolve the obligation to flag it.
-4. **Private repos accept breaking changes.** For private repos (everything under `C:/Code-Repo/` EXCEPT `Roslyn-Backed-MCP`), breaking changes are the standing default when pursuing #1 or #3 — rip it out. "External consumer" = outside your ownership (a published artifact or third party); another local repo, an owned DB, or internal cross-repo coupling do NOT count. Only publication flips a repo into ADR + migration mode.
+4. **Private repos accept breaking changes.** For private repos, breaking changes and large refactors are the standing default when pursuing #1 or #3 — rip it out, don't band-aid to avoid churn. "External consumer" = outside your ownership (a published artifact or third party); another local repo, an owned DB, or internal cross-repo coupling do NOT count. Only publication flips a repo into ADR + migration mode. This repo is PUBLIC on GitHub and its contract-care status is an open operator decision — see **Breaking-change posture** below.
 5. **Never assume prior agent work is correct — re-derive, don't inherit.** Work labeled done/verified/shipped carries no presumption of correctness; check it against current ground truth (read the code, re-run the reasoning, confirm cited paths still resolve). Fires with special force on model-handoff reviews.
 6. **Match change size to task value.** Correct ≠ maximal. #1 and #4 license root-cause fixes and breaking changes but do not mandate gold-plating — the smallest change that fully fixes the root cause wins. Flag adjacent bad code per #3 rather than fixing it inline.
 7. **Verify your own work before declaring done.** Don't claim done/fixed/passing without evidence you generated this session (ran the test, read the output, exercised the path). Can't verify? Say so — don't imply success you didn't observe.
@@ -67,4 +67,12 @@ Next-step protocol:
 
 ## Breaking-change posture
 
-This is a **private repo** (per `.ai-doc-audit.md` `repo_class: private`). Breaking changes and large refactors are ALWAYS acceptable when pursuing Standing Directive #1 (correct fix) or #3 (bad code remediation). There are no external consumers to break. Do not band-aid problems to avoid churn — rip them out.
+| Fact | Value |
+|---|---|
+| GitHub visibility | **PUBLIC** (`darylmcd/Jedi-Py-MCP`) |
+| Registry publication | None — not on PyPI; consumed via user-scope `python-refactor` / `python-analysis` MCP entries |
+| Contract-care status (Directive #4) | **Open operator decision** — neither "private: breaking always OK" nor contract-care (ADR + migration) until decided |
+| Operator ruling 2026-09-24 | Breaking tool-contract fixes MAY ship when pursuing Directive #1 / #3; no ADR or migration note required |
+| Ruling conditions | A change that removes/renames a tool or parameter, or rejects previously accepted input, MUST be called out in the PR body AND use a `changed-breaking-*` changelog fragment |
+
+Do not band-aid problems to avoid churn — ship the correct fix under the conditions above.
