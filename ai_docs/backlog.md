@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-24T13:19:31Z
+**updated_at:** 2026-09-24T14:22:54Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -52,9 +52,7 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0002` | High | — | **Opaque tool errors drop the reason** — map caller-safe exceptions (ValueError/FileNotFoundError/new input-error class) to `ToolError` with the message in `tool_error_boundary`; `apply_code_action` with no actions returns `[]`. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0002.md |
 | `bl-0003` | High | bl-0002 | **Caller-input errors reported as backend outages** — add a caller-safe input-error class; preflight position/file in `_position_request`; rope history/stack/transaction misuse raises it, not `RopeError`. Regression of e93207e. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0003.md |
-| `bl-0004` | High | — | **`prepare_rename` always returns null** — accept Pyright's bare-`Range` reply (and `{range, placeholder}`; derive the range only for `{defaultBehavior}`); tighten the integration test to assert a range. [type: bug] [source: mcp-surface-audit-20260923] | S | items/bl-0004.md |
 | `bl-0005` | High | — | **selection_range / inlay hints / semantic tokens silently empty** — record Pyright `initialize` capabilities; return an explicit unsupported-by-backend error (or an AST fallback) not `[]`; stop `apply_type_annotations` depending on inlay hints. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0005.md |
 | `bl-0006` | High | — | **`generate_code` fails for every kind** — switch to rope `create_generate(kind, …)` (module/package via their real signatures), drop the masking `pyright: ignore`, add an unmocked rope test per kind. [type: bug] [source: mcp-surface-audit-20260923] | S | items/bl-0006.md |
 | `bl-0007` | High | — | **`create_type_stubs` reports success without output** — send Pyright's real `createtypestub` argument shape, verify stub files exist, return the created paths and error when none; define `output_dir` semantics. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0007.md |
@@ -63,8 +61,6 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0001` | Medium | — | **`dead_code_detection` reports every once-referenced symbol as dead** — references are fetched with `include_declaration=False` but the `same_file_count > 1` threshold assumes the declaration was counted; 306 false positives on this repo's `src/`. [type: bug] [source: refactor-audit-smoke-20260902] | S | items/bl-0001.md |
-| `bl-0008` | Medium | — | **Failure IDs are untraceable** — install a stderr log formatter that renders the `extra` fields (exception types, traceback locations) of `tool_backend_failure` events, keyed by Failure ID. [type: reliability] [source: mcp-surface-audit-20260923] | S | items/bl-0008.md |
 | `bl-0009` | Medium | bl-0001 | **Dead-code sweeps exceed 30 s on a 137-file repo** — batch or bound-concurrently run the per-symbol reference lookups in `dead_code_detection` and `unused_symbol_sweep`; target < 10 s on this repo. [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
 | `bl-0010` | Medium | — | **Unbounded tool payloads (7.5 MB outline)** — make `get_symbol_outline`'s default cap count all nodes; add default limits + `truncated` to module dependencies, code metrics, dead code and symbol search. [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0010.md |
 | `bl-0011` | Medium | — | **`check_layer_violations` false-clean on dotted patterns** — prefix-match dotted module patterns, check every `import` alias, resolve relative imports, and warn when a declared layer matches no file. [type: bug] [source: mcp-surface-audit-20260923] | S | items/bl-0011.md |

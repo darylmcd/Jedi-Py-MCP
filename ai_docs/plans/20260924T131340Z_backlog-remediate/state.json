@@ -13,7 +13,7 @@
     {
       "id": "bl-0002",
       "order": 1,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0002"
       ],
@@ -45,19 +45,29 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
+      "branch": "remediation/bl-0002",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/112",
+      "mergedAt": "2026-09-24T14:16:37Z",
       "notes": null,
       "fileSetHash": "22ee06eb4f51fb9f991dae21186b35f3d27df6db6c0f6ac2c4b11d8c42fe0752",
       "stanzaHash": "a72358a0a8272d816a81c5c8eb3436a1d69af54708e4e77e38623638aa8aa92e",
-      "reviewedStanzaHash": "a72358a0a8272d816a81c5c8eb3436a1d69af54708e4e77e38623638aa8aa92e"
+      "reviewedStanzaHash": "a72358a0a8272d816a81c5c8eb3436a1d69af54708e4e77e38623638aa8aa92e",
+      "integrationGate": {
+        "pr": 112,
+        "base": "main",
+        "mainOid": "df43af8dfa1f2a98e3300224ff7b8c24ff85a6c7",
+        "headOid": "306ee9c7f4cb3b4b1125fe7c81db203d74890c0e",
+        "gatedTree": "08790afb1409525b7d720cdd36481fa67fd2af42",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0002-pr112-20260924T141348438Z-56740.log",
+        "gatedAt": "2026-09-24T14:16:20.634Z"
+      }
     },
     {
       "id": "bl-0004",
       "order": 2,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0004"
       ],
@@ -84,14 +94,24 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
+      "branch": "remediation/bl-0004",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/113",
+      "mergedAt": "2026-09-24T14:19:32Z",
       "notes": null,
       "fileSetHash": "3713c2806b537bd0563ecddbb1827e329078adbea6d8177d3c907703b6c4b6db",
       "stanzaHash": "de74eae0e74a20f94a866caeeb56a9846b9ac83ab2c082246f2485b04f4dab09",
-      "reviewedStanzaHash": "de74eae0e74a20f94a866caeeb56a9846b9ac83ab2c082246f2485b04f4dab09"
+      "reviewedStanzaHash": "de74eae0e74a20f94a866caeeb56a9846b9ac83ab2c082246f2485b04f4dab09",
+      "integrationGate": {
+        "pr": 113,
+        "base": "main",
+        "mainOid": "fe9f8c448e4da8724582710722ec90a87dbae54c",
+        "headOid": "5547607d22f7bbeffd1cb42deab60d30cb742b67",
+        "gatedTree": "40b6e801d67526e103330723fc7947e3949346a0",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0004-pr113-20260924T141643588Z-37032.log",
+        "gatedAt": "2026-09-24T14:19:17.721Z"
+      }
     },
     {
       "id": "bl-0005",
@@ -137,7 +157,7 @@
     {
       "id": "bl-0006",
       "order": 4,
-      "status": "pending",
+      "status": "in-review",
       "backlogRowsClosed": [
         "bl-0006"
       ],
@@ -163,11 +183,11 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
+      "branch": "remediation/bl-0006",
+      "worktreePath": ".worktrees/bl-0006",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/111",
       "mergedAt": null,
-      "notes": null,
+      "notes": "review fail (module/package apply) fixed inline in 6850ad2; awaits cold re-review (usage limit until 2026-09-28)",
       "fileSetHash": "ddceb903f6b028e2477665bd453dfb6a766c39fca58b8bbd376c55f19c012ad5",
       "stanzaHash": "12215bd5eee674e8f412c494f352352f949d130c2be9862ee94a7291fbc88f1c",
       "reviewedStanzaHash": "12215bd5eee674e8f412c494f352352f949d130c2be9862ee94a7291fbc88f1c"
@@ -221,7 +241,7 @@
     {
       "id": "bl-0001",
       "order": 6,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0001"
       ],
@@ -247,19 +267,29 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
+      "branch": "remediation/bl-0001",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/110",
+      "mergedAt": "2026-09-24T14:13:28Z",
       "notes": null,
       "fileSetHash": "01c698269b5a07309b4b27f2921a1e91ce8ba9863eb90dba294e6d6e39d22dbd",
       "stanzaHash": "cc48f10b259615f80b584166a1782e31d2214c869c37b11d929b11d57e9cb91f",
-      "reviewedStanzaHash": "cc48f10b259615f80b584166a1782e31d2214c869c37b11d929b11d57e9cb91f"
+      "reviewedStanzaHash": "cc48f10b259615f80b584166a1782e31d2214c869c37b11d929b11d57e9cb91f",
+      "integrationGate": {
+        "pr": 110,
+        "base": "main",
+        "mainOid": "0fa7b015121043b9901fe5ffd2f70eb2df6e74ef",
+        "headOid": "1e3aa6ec519b9b815bc27a7bc3e4fca47e744a60",
+        "gatedTree": "986f4bc5236a4c8f8ae9a43af75fd3feab729e40",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0001-pr110-20260924T141025062Z-54628.log",
+        "gatedAt": "2026-09-24T14:13:03.853Z"
+      }
     },
     {
       "id": "bl-0008",
       "order": 7,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0008"
       ],
@@ -285,14 +315,24 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
+      "branch": "remediation/bl-0008",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/114",
+      "mergedAt": "2026-09-24T14:22:27Z",
       "notes": null,
       "fileSetHash": "745922b36d3f68ad4db2a695e19b348065ee5a7e9ae7b8db3de9074b72b321d5",
       "stanzaHash": "7dd1a8009b6e748a2f3af9a99db3793092693b6248a3b5bdd18b67956a196069",
-      "reviewedStanzaHash": "7dd1a8009b6e748a2f3af9a99db3793092693b6248a3b5bdd18b67956a196069"
+      "reviewedStanzaHash": "7dd1a8009b6e748a2f3af9a99db3793092693b6248a3b5bdd18b67956a196069",
+      "integrationGate": {
+        "pr": 114,
+        "base": "main",
+        "mainOid": "94abebebb3766e85025e0d802895c9a7a5502fb7",
+        "headOid": "af531316d100a87fe39ca450cb55ee55e858411d",
+        "gatedTree": "e749fc132e58a0444aa259baf2c42be059d83435",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0008-pr114-20260924T141938485Z-32000.log",
+        "gatedAt": "2026-09-24T14:22:12.889Z"
+      }
     },
     {
       "id": "bl-0010",
