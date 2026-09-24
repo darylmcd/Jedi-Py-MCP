@@ -155,3 +155,82 @@ async def test_unused_imports_use_per_file_fallback_and_report_parse_failures(tm
     assert len(result.scan_failures) == 1
     assert result.scan_failures[0].file_path == str(invalid.resolve())
     assert result.scan_failures[0].error_type == "SyntaxError"
+
+
+def _layered_package(root: Path) -> Path:
+    """Create ``pkg`` with a ``backends`` layer importing the higher ``tools`` layer."""
+    pkg = root / "pkg"
+    (pkg / "tools").mkdir(parents=True)
+    (pkg / "backends").mkdir()
+    for init in (pkg / "__init__.py", pkg / "tools" / "__init__.py", pkg / "backends" / "__init__.py"):
+        init.write_text("", encoding="utf-8")
+    (pkg / "tools" / "api.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (pkg / "backends" / "store.py").write_text(
+        "import os, pkg.tools.api\nfrom ..tools import api\nfrom . import sibling\n",
+        encoding="utf-8",
+    )
+    (pkg / "backends" / "sibling.py").write_text("", encoding="utf-8")
+    return pkg
+
+
+def _violation_keys(result: object) -> list[tuple[str, str, int, int, int]]:
+    return sorted(
+        (Path(v.source_module).name, v.target_module, v.source_layer, v.target_layer, v.import_line)
+        for v in result.items  # type: ignore[attr-defined]
+    )
+
+
+@pytest.mark.asyncio
+async def test_layer_dotted_patterns_match_component_patterns(tmp_path: Path) -> None:
+    _layered_package(tmp_path)
+    config = make_config(tmp_path)
+
+    dotted = await metrics.check_layer_violations(config, [["pkg.tools"], ["pkg.backends"]])
+    component = await metrics.check_layer_violations(config, [["tools"], ["backends"]])
+
+    expected = [
+        ("store.py", "pkg.tools", 1, 0, 1),
+        ("store.py", "pkg.tools.api", 1, 0, 0),
+    ]
+    assert _violation_keys(dotted) == expected
+    assert _violation_keys(component) == expected
+    assert dotted.unmatched_layer_patterns == []
+    assert component.unmatched_layer_patterns == []
+
+
+@pytest.mark.asyncio
+async def test_layer_dotted_patterns_honour_src_layout(tmp_path: Path) -> None:
+    _layered_package(tmp_path / "src")
+
+    result = await metrics.check_layer_violations(
+        make_config(tmp_path), [["pkg.tools"], ["pkg.backends"]]
+    )
+
+    assert _violation_keys(result) == [
+        ("store.py", "pkg.tools", 1, 0, 1),
+        ("store.py", "pkg.tools.api", 1, 0, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_layer_import_checks_every_alias(tmp_path: Path) -> None:
+    _layered_package(tmp_path)
+    store = tmp_path / "pkg" / "backends" / "store.py"
+    store.write_text("import pkg.tools.api, os\n", encoding="utf-8")
+
+    result = await metrics.check_layer_violations(
+        make_config(tmp_path), [["tools"], ["backends"]], [str(store)]
+    )
+
+    assert _violation_keys(result) == [("store.py", "pkg.tools.api", 1, 0, 0)]
+
+
+@pytest.mark.asyncio
+async def test_layer_reports_patterns_matching_no_scanned_module(tmp_path: Path) -> None:
+    _layered_package(tmp_path)
+
+    result = await metrics.check_layer_violations(
+        make_config(tmp_path), [["pkg.tools", "pkg.web"], ["pkg.backends"], ["domain"]]
+    )
+
+    assert result.unmatched_layer_patterns == ["pkg.web", "domain"]

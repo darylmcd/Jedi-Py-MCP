@@ -64,6 +64,49 @@ async def get_coupling_metrics(
     )
 
 
+def _layer_import_roots(workspace_root: Path) -> tuple[Path, ...]:
+    """Return import roots in resolution order: ``src``/``lib`` layouts before the root."""
+    roots = [workspace_root / name for name in ("src", "lib")]
+    return tuple(root.resolve() for root in (*roots, workspace_root) if root.is_dir())
+
+
+def _source_module_parts(source: Path, import_roots: tuple[Path, ...]) -> tuple[str, ...] | None:
+    """Return the dotted module parts of ``source`` relative to its import root."""
+    resolved = source.resolve()
+    for root in import_roots:
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError:
+            continue
+        parts = relative.with_suffix("").parts
+        return parts[:-1] if parts and parts[-1] == "__init__" else parts
+    return None
+
+
+def _source_package_parts(source: Path, module_parts: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the package a relative import in ``source`` is resolved against."""
+    return module_parts if source.name == "__init__.py" else module_parts[:-1]
+
+
+def _absolute_import_base(node: ast.ImportFrom, package: tuple[str, ...] | None) -> str | None:
+    """Resolve an ``ImportFrom`` module (including relative levels) to a dotted name."""
+    if node.level == 0:
+        return node.module
+    if package is None or node.level > len(package):
+        return None
+    base = package[: len(package) - (node.level - 1)]
+    if node.module:
+        base = (*base, *node.module.split("."))
+    return ".".join(base)
+
+
+def _pattern_matches(pattern: str, dotted_name: str | None, components: tuple[str, ...]) -> bool:
+    """Match a dotted pattern by dotted prefix and a plain pattern by component."""
+    if "." in pattern:
+        return dotted_name is not None and (dotted_name == pattern or dotted_name.startswith(pattern + "."))
+    return pattern in components
+
+
 async def check_layer_violations(
     config: ServerConfig,
     layers: list[list[str]],
@@ -74,26 +117,34 @@ async def check_layer_violations(
     ``layers`` is ordered from highest to lowest layer.
     layers[0] is the top layer (e.g., presentation), layers[-1] is the bottom (e.g., domain).
     Imports from lower layers to higher layers are violations.
+
+    A dotted pattern (``pkg.tools``) matches a module whose dotted name equals it or
+    starts with it; a plain pattern (``tools``) matches any single name component.
+    Patterns that match no scanned source module are reported in
+    ``unmatched_layer_patterns``.
     """
     workspace_root = config.workspace_root
+    import_roots = _layer_import_roots(workspace_root)
     # Build layer index: module_pattern -> layer_number
     layer_index: dict[str, int] = {}
     for layer_num, patterns in enumerate(layers):
         for pattern in patterns:
             layer_index[pattern] = layer_num
+    matched_patterns: set[str] = set()
 
-    def _get_layer(module_path: str) -> int | None:
-        """Find the layer number for a module path or name.
+    def _get_layer(dotted_name: str | None, components: tuple[str, ...]) -> int | None:
+        """Return the layer of the first pattern matching the module, if any.
 
-        Uses path-component matching to avoid false positives from stdlib
-        or third-party modules whose names happen to contain a layer keyword.
+        Component matching avoids false positives from stdlib or third-party
+        modules whose names merely contain a layer keyword.
         """
-        # Split into path parts for component-level matching.
-        parts = Path(module_path).parts if "/" in module_path or "\\" in module_path else module_path.split(".")
         for pattern, layer_num in layer_index.items():
-            if pattern in parts:
+            if _pattern_matches(pattern, dotted_name, components):
                 return layer_num
         return None
+
+    def _target_layer(name: str) -> int | None:
+        return _get_layer(name, tuple(name.split(".")))
 
     violations: list[LayerViolation] = []
     scan_failures: list[ScanFailure] = []
@@ -111,41 +162,59 @@ async def check_layer_violations(
             continue
 
         source_str = str(parsed.path)
-        source_layer = _get_layer(source_str)
+        module_parts = _source_module_parts(parsed.path, import_roots)
+        source_dotted = ".".join(module_parts) if module_parts else None
+        source_components = Path(source_str).parts
+        matched_patterns.update(
+            pattern for pattern in layer_index if _pattern_matches(pattern, source_dotted, source_components)
+        )
+        source_layer = _get_layer(source_dotted, source_components)
         if source_layer is None:
             continue
+        package = _source_package_parts(parsed.path, module_parts) if module_parts is not None else None
 
         for node in ast.walk(parsed.tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
-            target_name: str | None = None
+            targets: list[tuple[str, int]] = []
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    target_name = alias.name
+                    layer = _target_layer(alias.name)
+                    if layer is not None:
+                        targets.append((alias.name, layer))
             else:
-                target_name = node.module
+                base = _absolute_import_base(node, package)
+                if not base:
+                    continue
+                base_layer = _target_layer(base)
+                if base_layer is not None:
+                    targets.append((base, base_layer))
+                else:
+                    # ``from pkg import tools`` / ``from .. import tools`` may import a layer module.
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        child = f"{base}.{alias.name}"
+                        layer = _target_layer(child)
+                        if layer is not None:
+                            targets.append((child, layer))
 
-            if target_name is None:
-                continue
-
-            target_layer = _get_layer(target_name)
-            if target_layer is None:
-                continue
-
-            # Violation: lower layer (higher index) importing from higher layer (lower index)
-            if source_layer > target_layer:
-                violations.append(LayerViolation(
-                    source_module=source_str,
-                    target_module=target_name,
-                    source_layer=source_layer,
-                    target_layer=target_layer,
-                    import_line=node.lineno - 1,
-                ))
+            for target_name, target_layer in targets:
+                # Violation: lower layer (higher index) importing from higher layer (lower index)
+                if source_layer > target_layer:
+                    violations.append(LayerViolation(
+                        source_module=source_str,
+                        target_module=target_name,
+                        source_layer=source_layer,
+                        target_layer=target_layer,
+                        import_line=node.lineno - 1,
+                    ))
 
     return LayerViolationResult(
         items=violations,
         files_scanned=len(paths) - len(scan_failures),
         scan_failures=scan_failures,
+        unmatched_layer_patterns=[pattern for pattern in layer_index if pattern not in matched_patterns],
     )
 
 

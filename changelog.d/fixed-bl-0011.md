@@ -1,0 +1,1 @@
+- **Fixed:** `check_layer_violations` now matches dotted layer patterns, checks every alias of `import a, b`, resolves relative imports, and reports layer patterns that match no scanned module in `unmatched_layer_patterns`.
