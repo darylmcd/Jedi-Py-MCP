@@ -13,7 +13,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, cast
 
-from rope.base.change import ChangeContents, ChangeSet  # type: ignore[import-untyped]
+from rope.base.change import (  # type: ignore[import-untyped]
+    ChangeContents,
+    ChangeSet,
+    CreateResource,
+    MoveResource,
+    RemoveResource,
+)
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
 from rope.contrib import generate as rope_generate  # type: ignore[import-untyped]
@@ -45,7 +51,15 @@ from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped
 from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError, ToolInputError
-from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
+from python_refactor_mcp.models import (
+    FileOperation,
+    HistoryEntry,
+    Position,
+    Range,
+    RefactorResult,
+    SignatureOperation,
+    TextEdit,
+)
 from python_refactor_mcp.util.diff import (
     apply_text_edits,
     apply_text_edits_atomically,
@@ -77,6 +91,25 @@ TRANSACTION_TOOLS: tuple[str, ...] = (
 def _absolute_path(path: str) -> str:
     """Return normalized absolute path string."""
     return normalize_path(path)
+
+
+def _basic_changes(changes: Any) -> list[Any]:
+    """Flatten nested rope ``ChangeSet``s into leaf changes, as rope's ``ChangeStack.merged`` does."""
+    if isinstance(changes, ChangeSet):
+        return [leaf for child in changes.changes for leaf in _basic_changes(child)]
+    return [changes]
+
+
+def _is_within(path: str, root: str) -> bool:
+    """Whether *path* is *root* itself or lies beneath it."""
+    return path == root or path.startswith(root + os.sep)
+
+
+def _relocated(path: str, source: str, target: str) -> str:
+    """Return where *path* lands when the resource at *source* moves to *target*."""
+    if not _is_within(path, source):
+        return path
+    return target + path[len(source):]
 
 
 def _build_add(op: SignatureOperation) -> list[object]:
@@ -299,14 +332,29 @@ class RopeBackend:
         last_newline = prefix.rfind("\n")
         return Position(line=line, character=len(prefix) - last_newline - 1)
 
+    def _workspace_path(self, resource: Resource) -> str:
+        """Return the normalized absolute path of a rope resource.
+
+        Uses rope's own path join: generated resources in the project root carry a
+        leading ``/`` (``"/helpers.py"``) that ``Path`` joining would treat as absolute.
+        """
+        return _absolute_path(resource.real_path)
+
     def _changes_to_edits(self, changes: ChangeSet) -> list[TextEdit]:
-        """Convert rope changes into full-file replacement text edits."""
+        """Convert rope content changes into full-file replacement text edits.
+
+        Resource creations, moves and removals are reported by
+        ``_changes_to_file_operations`` instead.
+        """
         edits: list[TextEdit] = []
-        for change in changes.changes:
+        for change in _basic_changes(changes):
             if not isinstance(change, ChangeContents):
                 continue
-            absolute_file = _absolute_path(str(self._config.workspace_root / change.resource.path))
+            absolute_file = self._workspace_path(change.resource)
             old_content = Path(absolute_file).read_text(encoding="utf-8")
+            if change.new_contents == old_content:
+                # rope emits identity rewrites (e.g. ModuleToPackage) that change nothing.
+                continue
             end = _end_position_for_content(old_content)
             edits.append(
                 TextEdit(
@@ -319,6 +367,53 @@ class RopeBackend:
                 )
             )
         return edits
+
+    def _changes_to_file_operations(self, changes: ChangeSet) -> list[FileOperation]:
+        """Convert rope resource creations, moves and removals into file operations."""
+        operations: list[FileOperation] = []
+        for change in _basic_changes(changes):
+            if isinstance(change, MoveResource):
+                operations.append(FileOperation(
+                    kind="move",
+                    path=self._workspace_path(change.resource),
+                    new_path=self._workspace_path(change.new_resource),
+                ))
+            elif isinstance(change, CreateResource):
+                operations.append(FileOperation(
+                    kind="create_folder" if change.resource.is_folder() else "create_file",
+                    path=self._workspace_path(change.resource),
+                ))
+            elif isinstance(change, RemoveResource):
+                operations.append(FileOperation(kind="remove", path=self._workspace_path(change.resource)))
+        return operations
+
+    def _files_after(self, changes: ChangeSet, edits: list[TextEdit]) -> list[str]:
+        """Return the files a change set touches, at their paths after it runs.
+
+        Walks rope's changes in order so an edited module that is later moved is
+        reported at its destination, and removed resources drop out; folders are
+        never listed.
+        """
+        edited = {edit.file_path for edit in edits}
+        files: set[str] = set()
+        for change in _basic_changes(changes):
+            if isinstance(change, ChangeContents):
+                path = self._workspace_path(change.resource)
+                if path in edited:
+                    files.add(path)
+            elif isinstance(change, MoveResource):
+                source = self._workspace_path(change.resource)
+                target = self._workspace_path(change.new_resource)
+                files = {_relocated(path, source, target) for path in files}
+                if not change.new_resource.is_folder():
+                    files.add(target)
+            elif isinstance(change, CreateResource):
+                if not change.resource.is_folder():
+                    files.add(self._workspace_path(change.resource))
+            elif isinstance(change, RemoveResource):
+                removed = self._workspace_path(change.resource)
+                files = {path for path in files if not _is_within(path, removed)}
+        return sorted(files)
 
     def apply_edits(self, edits: list[TextEdit]) -> list[str]:
         """Apply pre-computed text edits to disk with rollback on failure.
@@ -351,55 +446,34 @@ class RopeBackend:
             raise
         return changed_files
 
-    def _do_with_resource_changes(self, project: Project, changes: ChangeSet, description: str) -> RefactorResult:
-        """Apply a change set that creates resources through rope.
-
-        rope's ``ChangeSet.do`` undoes every change it completed when a later one
-        fails, so no manual rollback is layered on top (a manual one could delete a
-        resource that already existed before this call).
-        """
-        edits = self._changes_to_edits(changes)
-        created = [
-            _absolute_path(str(self._config.workspace_root / change.resource.path))
-            for change in changes.changes
-            if not isinstance(change, ChangeContents)
-        ]
-        project.do(changes)
-        return RefactorResult(
-            edits=edits,
-            files_affected=sorted({*(edit.file_path for edit in edits), *created}),
-            description=description,
-            applied=True,
-        )
-
     def _build_result(self, changes: ChangeSet | None, description: str, apply: bool) -> RefactorResult:
         """Build a model result from rope changes and apply mode."""
         if changes is None:
             return RefactorResult(edits=[], files_affected=[], description=description, applied=False)
         edits = self._changes_to_edits(changes)
+        file_operations = self._changes_to_file_operations(changes)
+        files_affected = self._files_after(changes, edits)
         if apply:
             if self._change_stack is not None:
                 for edit in edits:
                     if edit.file_path not in self._change_stack_originals:
                         self._change_stack_originals[edit.file_path] = Path(edit.file_path).read_bytes()
                 self._change_stack.push(changes)
-                files_affected = sorted({edit.file_path for edit in edits})
-                return RefactorResult(
-                    edits=edits,
-                    files_affected=files_affected,
-                    description=description,
-                    applied=True,
-                )
-            files_affected = self._apply_edits(edits)
-            return RefactorResult(
-                edits=edits,
-                files_affected=files_affected,
-                description=description,
-                applied=True,
-            )
-
-        files = sorted({edit.file_path for edit in edits})
-        return RefactorResult(edits=edits, files_affected=files, description=description, applied=False)
+            elif file_operations:
+                # Text-edit writes cannot create, move or remove resources, so rope
+                # performs the whole set. ``ChangeSet.do`` undoes every change it
+                # completed when a later one fails, so no manual rollback is layered
+                # on top (one could delete a resource that existed before this call).
+                self._require_project().do(changes)
+            else:
+                self._apply_edits(edits)
+        return RefactorResult(
+            edits=edits,
+            files_affected=files_affected,
+            description=description,
+            applied=apply,
+            file_operations=file_operations,
+        )
 
     def _find_symbol_offset(self, source_file: str, symbol_name: str) -> int:
         """Find the source offset for a module-level symbol definition by name."""
@@ -1082,14 +1156,7 @@ class RopeBackend:
             # module/package kinds carry resource-creation changes beside the import edit.
             generator = rope_generate.create_generate(kind_lower, project, resource, offset)
             changes = generator.get_changes()
-            description = f"Generated {kind_lower}"
-            if apply and self._change_stack is None and any(
-                not isinstance(change, ChangeContents) for change in changes.changes
-            ):
-                # _build_result writes only text edits; module/package generation must also
-                # create the new file or package, so let rope apply the whole change set.
-                return self._do_with_resource_changes(project, changes, description)
-            return self._build_result(changes, description, apply)
+            return self._build_result(changes, f"Generated {kind_lower}", apply)
 
         return await run_in_thread(
             _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.generate_code", logger=_LOGGER,
@@ -1306,6 +1373,8 @@ class RopeBackend:
                 # so rope history contains one atomic command.
                 stack.pop_all()
                 edits = self._changes_to_edits(merged)
+                file_operations = self._changes_to_file_operations(merged)
+                files_affected = self._files_after(merged, edits)
                 project.do(merged)
             except Exception:
                 for file_path, original in originals.items():
@@ -1316,9 +1385,10 @@ class RopeBackend:
                 self._change_stack_originals = {}
             return RefactorResult(
                 edits=edits,
-                files_affected=sorted({edit.file_path for edit in edits}),
+                files_affected=files_affected,
                 description="Change stack committed",
                 applied=True,
+                file_operations=file_operations,
             )
 
         return await run_in_thread(

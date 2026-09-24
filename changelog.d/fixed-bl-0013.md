@@ -1,0 +1,1 @@
+- **Fixed:** `move_module`, `module_to_package` and other rope file-moving refactors now list file moves and creations in a new `RefactorResult.file_operations` field in preview, report `files_affected` at post-move paths, and `apply=True` performs those moves instead of writing only the content edits.

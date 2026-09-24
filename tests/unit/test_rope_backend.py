@@ -11,7 +11,7 @@ from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-unt
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError, ToolInputError
-from python_refactor_mcp.models import SignatureOperation
+from python_refactor_mcp.models import RefactorResult, SignatureOperation
 from python_refactor_mcp.tools.refactoring.signature_annotations import restore_signature_metadata
 
 
@@ -507,6 +507,9 @@ async def test_generate_code_module_and_package_apply_creates_resource(
     assert (tmp_path / created).is_file()
     assert "import helpers" in module.read_text(encoding="utf-8")
     assert str(module.resolve()) in {str(Path(path).resolve()) for path in result.files_affected}
+    # Post-apply diagnostics read every listed path, so folders are never listed.
+    assert all(Path(path).is_file() for path in result.files_affected)
+    assert (tmp_path / created).resolve() in {Path(op.path).resolve() for op in result.file_operations}
 
 
 @pytest.mark.asyncio
@@ -530,3 +533,113 @@ async def test_generate_code_rejects_unknown_kind(tmp_path: Path) -> None:
 
     with pytest.raises(RopeError, match="Unsupported generation kind: method"):
         await backend.generate_code(str(module), 0, 8, "method", apply=False)
+
+
+def _resolved(path: str | None) -> Path | None:
+    return None if path is None else Path(path).resolve()
+
+
+def _file_ops(result: RefactorResult) -> list[tuple[str, Path | None, Path | None]]:
+    return [(op.kind, _resolved(op.path), _resolved(op.new_path)) for op in result.file_operations]
+
+
+def _move_fixture(tmp_path: Path, *, importer: bool) -> tuple[RopeBackend, Path, Path]:
+    module = tmp_path / "mod.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / "__init__.py").write_text("", encoding="utf-8")
+    if importer:
+        (tmp_path / "user.py").write_text("import mod\n\nprint(mod.VALUE)\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return backend, module, dest
+
+
+@pytest.mark.asyncio
+async def test_module_to_package_preview_lists_folder_and_move(tmp_path: Path) -> None:
+    """Real rope: the preview names the new package folder and the module move, not an identity edit."""
+    module = tmp_path / "pkgmod.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    result = await backend.module_to_package(str(module), apply=False)
+
+    root = tmp_path.resolve()
+    assert result.applied is False
+    assert result.edits == []
+    assert _file_ops(result) == [
+        ("create_folder", root / "pkgmod", None),
+        ("move", root / "pkgmod.py", root / "pkgmod" / "__init__.py"),
+    ]
+    assert [Path(path).resolve() for path in result.files_affected] == [root / "pkgmod" / "__init__.py"]
+    assert module.is_file()
+    assert not (tmp_path / "pkgmod").exists()
+
+
+@pytest.mark.asyncio
+async def test_module_to_package_apply_creates_package(tmp_path: Path) -> None:
+    module = tmp_path / "pkgmod.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    result = await backend.module_to_package(str(module), apply=True)
+
+    assert result.applied is True
+    assert not module.exists()
+    assert (tmp_path / "pkgmod" / "__init__.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert [Path(path).resolve() for path in result.files_affected] == [
+        (tmp_path / "pkgmod" / "__init__.py").resolve(),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_move_module_preview_lists_move_without_importers(tmp_path: Path) -> None:
+    """Real rope: a module nobody imports still reports its move in preview."""
+    backend, module, dest = _move_fixture(tmp_path, importer=False)
+
+    result = await backend.move_module(str(module), str(dest), apply=False)
+
+    assert result.applied is False
+    assert result.edits == []
+    assert _file_ops(result) == [("move", module.resolve(), (dest / "mod.py").resolve())]
+    assert [Path(path).resolve() for path in result.files_affected] == [(dest / "mod.py").resolve()]
+    assert module.is_file()
+    assert not (dest / "mod.py").exists()
+
+
+@pytest.mark.asyncio
+async def test_move_module_apply_moves_file_and_rewrites_importers(tmp_path: Path) -> None:
+    """apply=True performs rope's move instead of writing only the importer edits."""
+    backend, module, dest = _move_fixture(tmp_path, importer=True)
+    user = tmp_path / "user.py"
+
+    result = await backend.move_module(str(module), str(dest), apply=True)
+
+    assert result.applied is True
+    assert not module.exists()
+    assert (dest / "mod.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert "dest.mod" in user.read_text(encoding="utf-8")
+    assert _file_ops(result) == [("move", module.resolve(), (dest / "mod.py").resolve())]
+    assert sorted(Path(path).resolve() for path in result.files_affected) == sorted(
+        [(dest / "mod.py").resolve(), user.resolve()]
+    )
+
+
+@pytest.mark.asyncio
+async def test_commit_change_stack_reports_file_operations(tmp_path: Path) -> None:
+    """A move made under a change stack is kept on commit and listed in the committed result."""
+    backend, module, dest = _move_fixture(tmp_path, importer=False)
+
+    await backend.begin_change_stack()
+    staged = await backend.move_module(str(module), str(dest), apply=True)
+    committed = await backend.commit_change_stack()
+
+    expected = [("move", module.resolve(), (dest / "mod.py").resolve())]
+    assert _file_ops(staged) == expected
+    assert _file_ops(committed) == expected
+    assert [Path(path).resolve() for path in committed.files_affected] == [(dest / "mod.py").resolve()]
+    assert not module.exists()
+    assert (dest / "mod.py").is_file()
