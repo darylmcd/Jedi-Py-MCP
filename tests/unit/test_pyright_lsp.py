@@ -619,6 +619,56 @@ async def test_prepare_rename_maps_every_lsp_reply_shape(
     assert rename.placeholder == expected_placeholder
 
 
+# "s = '<astral>' + other": the astral code point is 1 Python char but 2 UTF-16
+# units, so ``other`` spans code points 10-15 and LSP characters 11-16.
+_ASTRAL_LINE = "s = '\U0001f600' + other\n"
+_ASTRAL_OTHER_RANGE: dict[str, JSONValue] = {
+    "start": {"line": 0, "character": 11},
+    "end": {"line": 0, "character": 16},
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result", "character"),
+    [
+        pytest.param({"defaultBehavior": True}, 13, id="default-behavior-inside-word"),
+        pytest.param({"defaultBehavior": True}, 11, id="default-behavior-word-start"),
+        pytest.param(_ASTRAL_OTHER_RANGE, 13, id="bare-range-placeholder-slice"),
+    ],
+)
+async def test_prepare_rename_uses_utf16_columns_after_astral_character(
+    tmp_path: Path,
+    result: JSONValue,
+    character: int,
+) -> None:
+    """Verify an astral character before the identifier keeps range and placeholder aligned."""
+    backend, _, sample = _position_harness(
+        tmp_path,
+        {"textDocument/prepareRename": {"jsonrpc": "2.0", "id": 1, "result": result}},
+    )
+    sample.write_text(_ASTRAL_LINE, encoding="utf-8")
+
+    rename = await backend.prepare_rename(str(sample), 0, character)
+
+    assert rename is not None
+    assert rename.range.start == Position(line=0, character=11)
+    assert rename.range.end == Position(line=0, character=16)
+    assert rename.placeholder == "other"
+
+
+@pytest.mark.asyncio
+async def test_prepare_rename_rejects_cursor_on_astral_character(tmp_path: Path) -> None:
+    """Verify a cursor on the surrogate pair itself is not mistaken for an identifier."""
+    backend, _, sample = _position_harness(
+        tmp_path,
+        {"textDocument/prepareRename": {"jsonrpc": "2.0", "id": 1, "result": {"defaultBehavior": True}}},
+    )
+    sample.write_text(_ASTRAL_LINE, encoding="utf-8")
+
+    assert await backend.prepare_rename(str(sample), 0, 6) is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("result", "character"),
