@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `apply_code_action` called without `action_title` now returns the available action titles in a new `available_actions` field (`CodeActionResult`). It no longer silently previews or applies the first action, matching its documented contract.

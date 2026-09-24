@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from python_refactor_mcp.errors import ToolInputError
-from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
+from python_refactor_mcp.models import CodeActionResult, Position, Range, RefactorResult, TextEdit
 
 from .helpers import (
     full_file_range,
@@ -19,14 +19,17 @@ if TYPE_CHECKING:
     from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 
 
-def _pick_code_action(actions: list[dict[str, object]], action_title: str | None = None) -> dict[str, object]:
-    """Select a code action by title or fall back to the first available action.
+def _action_titles(actions: list[dict[str, object]]) -> list[str]:
+    """Return the string titles of *actions*, in the order Pyright offered them."""
+    return [title for action in actions if isinstance(title := action.get("title"), str)]
 
-    *actions* must be non-empty; callers handle the no-actions case themselves.
+
+def _pick_code_action(actions: list[dict[str, object]], action_title: str) -> dict[str, object]:
+    """Select the code action whose title matches *action_title*.
+
+    An exact case-insensitive match wins over a substring match. Raises
+    ``ToolInputError`` naming the available titles when nothing matches.
     """
-    if action_title is None:
-        return actions[0]
-
     lowered_title = action_title.strip().lower()
     for action in actions:
         title = action.get("title")
@@ -36,7 +39,7 @@ def _pick_code_action(actions: list[dict[str, object]], action_title: str | None
         title = action.get("title")
         if isinstance(title, str) and lowered_title in title.strip().lower():
             return action
-    available = [title for action in actions if isinstance(title := action.get("title"), str)]
+    available = _action_titles(actions)
     raise ToolInputError(
         f"No code action matches action_title '{action_title}'. "
         f"Available titles: {', '.join(repr(title) for title in available) or 'none'}."
@@ -50,8 +53,13 @@ async def apply_code_action(
     character: int,
     action_title: str | None = None,
     apply: bool = False,
-) -> RefactorResult:
-    """Apply or preview a Pyright code action at a source position."""
+) -> CodeActionResult:
+    """Preview or apply a Pyright code action at a source position.
+
+    With ``action_title`` omitted, return the offered titles in
+    ``available_actions`` without previewing or applying anything, even when
+    ``apply=True``.
+    """
     diagnostics = await pyright.get_diagnostics(file_path)
     selected_diagnostics = [
         diagnostic
@@ -64,11 +72,21 @@ async def apply_code_action(
     )
     actions = await pyright.get_code_actions(file_path, request_range, selected_diagnostics)
     if not actions:
-        return RefactorResult(
+        return CodeActionResult(
             edits=[],
             files_affected=[],
             description="No code actions available at the requested position",
             applied=False,
+            available_actions=[],
+        )
+    titles = _action_titles(actions)
+    if action_title is None:
+        return CodeActionResult(
+            edits=[],
+            files_affected=[],
+            description=f"{len(titles)} code action(s) available; pass action_title to preview or apply one",
+            applied=False,
+            available_actions=titles,
         )
     selected = _pick_code_action(actions, action_title)
     title = selected.get("title")
@@ -79,8 +97,8 @@ async def apply_code_action(
             f"Code action '{description}' does not provide editable workspace changes; "
             "choose a different action_title."
         )
-    result = result_from_text_edits(edits, description, apply)
-    return await post_apply_diagnostics(pyright, result)
+    result = await post_apply_diagnostics(pyright, result_from_text_edits(edits, description, apply))
+    return CodeActionResult.model_validate({**result.model_dump(), "available_actions": titles})
 
 
 async def organize_imports(
