@@ -6,6 +6,7 @@ import keyword
 from pathlib import Path
 from typing import Protocol
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Diagnostic, Location, Position, RefactorResult
 
 
@@ -30,7 +31,7 @@ def apply_limit[T](items: list[T], limit: int | None) -> tuple[list[T], bool]:
     if limit is None:
         return items, False
     if limit < 1:
-        raise ValueError("limit must be greater than or equal to 1")
+        raise ToolInputError("limit must be greater than or equal to 1")
     if len(items) <= limit:
         return items, False
     return items[:limit], True
@@ -100,26 +101,28 @@ def end_position_for_content(content: str) -> Position:
 def validate_identifier(name: str, param_label: str) -> str:
     """Validate that *name* is a legal Python identifier and not a keyword.
 
-    Returns *name* unchanged.  Raises ``ValueError`` on failure.
+    Returns *name* unchanged.  Raises ``ToolInputError`` on failure.
     """
     if not name.isidentifier():
-        raise ValueError(f"'{name}' is not a valid Python identifier (parameter: {param_label})")
+        raise ToolInputError(f"'{name}' is not a valid Python identifier (parameter: {param_label})")
     if keyword.iskeyword(name):
-        raise ValueError(f"'{name}' is a Python keyword and cannot be used as an identifier (parameter: {param_label})")
+        raise ToolInputError(
+            f"'{name}' is a Python keyword and cannot be used as an identifier (parameter: {param_label})"
+        )
     return name
 
 
 def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
     """Resolve *file_path* and verify it is under *workspace_root*.
 
-    Returns the resolved absolute path string.  Raises ``ValueError`` if the
+    Returns the resolved absolute path string.  Raises ``ToolInputError`` if the
     path is outside the workspace boundary.
     """
     resolved = Path(file_path).resolve()
     try:
         resolved.relative_to(workspace_root.resolve())
     except ValueError as exc:
-        raise ValueError(
+        raise ToolInputError(
             f"File path is outside the workspace root: {resolved} is not under {workspace_root}"
         ) from exc
     return str(resolved)

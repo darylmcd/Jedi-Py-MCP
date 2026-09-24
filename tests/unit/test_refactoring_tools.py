@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import BackendError, RopeError
+from python_refactor_mcp.errors import BackendError, RopeError, ToolInputError
 from python_refactor_mcp.models import (
     Diagnostic,
     InlayHint,
@@ -253,6 +253,47 @@ async def test_apply_code_action_applies_workspace_edits(tmp_path: Path) -> None
     applied = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=True)
     assert applied.applied is True
     assert "THING" in target.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_apply_code_action_without_actions_returns_empty_result(tmp_path: Path) -> None:
+    """A position with no code actions yields an empty, unapplied result instead of an error."""
+    target = tmp_path / "sample.py"
+    target.write_text("\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_code_actions.return_value = []
+
+    result = await refactoring.apply_code_action(pyright, str(target), 0, 0, apply=True)
+
+    assert result.edits == []
+    assert result.files_affected == []
+    assert result.applied is False
+    assert result.description == "No code actions available at the requested position"
+    assert target.read_text(encoding="utf-8") == "\n"
+
+
+@pytest.mark.asyncio
+async def test_apply_code_action_unmatched_title_lists_available_titles(tmp_path: Path) -> None:
+    """An action_title matching nothing is a caller-input error naming the available titles."""
+    target = tmp_path / "sample.py"
+    target.write_text("value = thing\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_code_actions.return_value = [
+        {"title": "Add import thing", "edit": {}},
+        {"title": "Ignore this error", "edit": {}},
+    ]
+
+    with pytest.raises(ToolInputError) as raised:
+        await refactoring.apply_code_action(pyright, str(target), 0, 9, action_title="rename")
+
+    message = str(raised.value)
+    assert "action_title 'rename'" in message
+    assert "'Add import thing'" in message
+    assert "'Ignore this error'" in message
 
 
 @pytest.mark.asyncio

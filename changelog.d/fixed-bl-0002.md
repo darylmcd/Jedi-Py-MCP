@@ -1,0 +1,1 @@
+- **Fixed:** Caller-input errors (invalid identifiers, out-of-workspace paths, missing stub files, unmatched code-action titles) now return an `[INVALID_INPUT]` tool error with the reason instead of a bare `Error executing tool <name>`; `apply_code_action` returns an empty result when no actions exist. Backend-failure redaction is unchanged.

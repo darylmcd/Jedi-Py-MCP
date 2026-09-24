@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.tools.analysis.type_stubs import check_type_stub_freshness
 
 
@@ -66,3 +69,21 @@ def test_overloads_and_protocols_are_conservative_skips(tmp_path: Path) -> None:
     assert result.signature_mismatches == []
     assert result.skipped_overloads == ["parse"]
     assert result.skipped_protocols == ["Reader"]
+
+
+def test_missing_default_stub_is_caller_input_error(tmp_path: Path) -> None:
+    source = tmp_path / "service.py"
+    source.write_text("def load() -> None:\n    return None\n", encoding="utf-8")
+
+    with pytest.raises(ToolInputError, match=r"^Stub file not found: ") as raised:
+        check_type_stub_freshness(str(source))
+
+    message = str(raised.value)
+    assert "service.pyi" in message
+    assert "parameter: stub_file" in message
+    assert "adjacent to source_file" in message
+
+
+def test_missing_source_is_caller_input_error(tmp_path: Path) -> None:
+    with pytest.raises(ToolInputError, match=r"^Source file not found: .*\(parameter: source_file\)$"):
+        check_type_stub_freshness(str(tmp_path / "absent.py"))
