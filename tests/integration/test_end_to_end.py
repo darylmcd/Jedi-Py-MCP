@@ -327,26 +327,32 @@ async def test_get_workspace_diagnostics_returns_summary(
 
 
 @pytest.mark.asyncio
-async def test_prepare_rename_and_followup_refactor(
+async def test_prepare_rename_returns_class_identifier_range(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure prepare_rename validates a symbol and supports downstream rename flow."""
-    service_path = sample_workspace / "src" / "service.py"
-    line, character = _find_position(service_path, "invoice")
+    """Ensure prepare_rename returns the identifier range and placeholder for a class name."""
+    models_path = sample_workspace / "src" / "models.py"
+    line, character = _find_position(models_path, "class User")
+    character += len("class ")
 
     prepared = await mcp_session.call_tool(
         "prepare_rename",
         {
-            "file_path": str(service_path),
+            "file_path": str(models_path),
             "line": line,
-            "character": character,
+            "character": character + 1,
         },
     )
 
     assert prepared.is_error is not True
-    payload = prepared.structured_content
-    assert payload is None or isinstance(payload, dict)
+    payload = _unwrap_result_payload(prepared.structured_content)
+    assert isinstance(payload, dict), f"prepare_rename returned no range: {payload!r}"
+    assert payload["placeholder"] == "User"
+    assert payload["range"] == {
+        "start": {"line": line, "character": character},
+        "end": {"line": line, "character": character + len("User")},
+    }
 
 
 @pytest.mark.asyncio

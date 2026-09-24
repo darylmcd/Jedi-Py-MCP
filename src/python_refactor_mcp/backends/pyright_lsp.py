@@ -1184,18 +1184,48 @@ class PyrightLSPClient:
             raise PyrightError(f"prepareRename request failed: {response['error']}")
 
         result = response.get("result")
-        if result is None:
+        if not isinstance(result, dict):
             return None
 
-        if isinstance(result, dict) and "range" not in result:
-            return None
-
-        if isinstance(result, dict):
+        # LSP PrepareRenameResult has three shapes: `{range, placeholder}`, a bare
+        # `Range` (`{start, end}`), and `{defaultBehavior: true}`.
+        range_value: JSONValue
+        if "range" in result:
             range_value = result.get("range")
             placeholder = as_str(result.get("placeholder"), "")
-        else:
+        elif "start" in result and "end" in result:
             range_value = result
             placeholder = ""
+        elif result.get("defaultBehavior") is True:
+            # The server accepts the position but leaves range computation to the
+            # client: derive the identifier span under the cursor.
+            try:
+                source_lines = Path(absolute_path).read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeError):
+                return None
+            if not 0 <= line < len(source_lines):
+                return None
+            line_text = source_lines[line]
+
+            def is_identifier_char(index: int) -> bool:
+                return 0 <= index < len(line_text) and (line_text[index].isalnum() or line_text[index] == "_")
+
+            anchor = char if is_identifier_char(char) else char - 1
+            if not is_identifier_char(anchor):
+                return None
+            start_char = anchor
+            while is_identifier_char(start_char - 1):
+                start_char -= 1
+            end_char = anchor + 1
+            while is_identifier_char(end_char):
+                end_char += 1
+            range_value = {
+                "start": {"line": line, "character": start_char},
+                "end": {"line": line, "character": end_char},
+            }
+            placeholder = line_text[start_char:end_char]
+        else:
+            return None
 
         if not isinstance(range_value, dict):
             return None
