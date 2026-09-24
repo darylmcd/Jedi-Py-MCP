@@ -559,9 +559,262 @@
   ],
   "anchorVerification": "pending",
   "conflictGraph": {
-    "edges": [],
-    "degrees": {},
-    "zeroDegreeInitiatives": []
+    "edges": [
+      {
+        "a": 1,
+        "b": 3,
+        "sharedFiles": [
+          "src/python_refactor_mcp/errors.py",
+          "tests/unit/test_refactoring_tools.py"
+        ]
+      },
+      {
+        "a": 1,
+        "b": 5,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tools/analysis/type_stubs.py"
+        ]
+      },
+      {
+        "a": 2,
+        "b": 3,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/pyright_lsp.py",
+          "tests/integration/test_end_to_end.py",
+          "tests/unit/test_pyright_lsp.py"
+        ]
+      },
+      {
+        "a": 2,
+        "b": 5,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/pyright_lsp.py",
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 2,
+        "b": 8,
+        "sharedFiles": [
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 2,
+        "b": 10,
+        "sharedFiles": [
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 5,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/pyright_lsp.py",
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 8,
+        "sharedFiles": [
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 10,
+        "sharedFiles": [
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 4,
+        "b": 10,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/rope_backend.py",
+          "tests/unit/test_rope_backend.py"
+        ]
+      },
+      {
+        "a": 4,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/rope_backend.py",
+          "tests/unit/test_rope_backend.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 8,
+        "sharedFiles": [
+          "docs/tool-reference.md",
+          "src/python_refactor_mcp/models.py",
+          "src/python_refactor_mcp/tool_registry.py",
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 9,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 10,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py",
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 5,
+        "b": 14,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tool_registry.py"
+        ]
+      },
+      {
+        "a": 6,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tools/search/dead_code.py",
+          "tests/unit/test_search_tools.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 9,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py",
+          "tests/unit/test_metrics_tools.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 10,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py",
+          "src/python_refactor_mcp/server.py",
+          "tests/integration/test_end_to_end.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py",
+          "src/python_refactor_mcp/tools/navigation/outline.py",
+          "tests/unit/test_metrics_tools.py",
+          "tests/unit/test_navigation_tools.py"
+        ]
+      },
+      {
+        "a": 8,
+        "b": 14,
+        "sharedFiles": [
+          "src/python_refactor_mcp/server.py",
+          "src/python_refactor_mcp/tool_registry.py",
+          "tests/contract/test_mcp_protocol.py"
+        ]
+      },
+      {
+        "a": 9,
+        "b": 10,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 9,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 9,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py",
+          "tests/unit/test_metrics_tools.py"
+        ]
+      },
+      {
+        "a": 10,
+        "b": 11,
+        "sharedFiles": [
+          "src/python_refactor_mcp/backends/rope_backend.py",
+          "src/python_refactor_mcp/models.py",
+          "tests/unit/test_models.py",
+          "tests/unit/test_rope_backend.py"
+        ]
+      },
+      {
+        "a": 10,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      },
+      {
+        "a": 10,
+        "b": 14,
+        "sharedFiles": [
+          "src/python_refactor_mcp/server.py"
+        ]
+      },
+      {
+        "a": 11,
+        "b": 12,
+        "sharedFiles": [
+          "src/python_refactor_mcp/models.py"
+        ]
+      }
+    ],
+    "degrees": {
+      "1": 2,
+      "2": 4,
+      "3": 5,
+      "4": 2,
+      "5": 9,
+      "6": 1,
+      "7": 0,
+      "8": 8,
+      "9": 5,
+      "10": 9,
+      "11": 6,
+      "12": 6,
+      "13": 0,
+      "14": 3
+    },
+    "zeroDegreeInitiatives": [
+      7,
+      13
+    ]
   },
   "selection": {
     "requestedCount": 15,
