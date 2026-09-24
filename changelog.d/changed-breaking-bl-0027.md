@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `change_signature` rejects negative `new_order` indexes with a validation error naming `new_order`, instead of silently dropping them.

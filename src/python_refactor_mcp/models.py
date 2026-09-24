@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -358,7 +358,7 @@ class SignatureOperation(BaseModel):
     name: str | None = None
     new_name: str | None = None
     default: str | None = None
-    new_order: list[int] | None = None
+    new_order: list[Annotated[int, Field(ge=0)]] | None = None
 
     @field_validator("op")
     @classmethod
