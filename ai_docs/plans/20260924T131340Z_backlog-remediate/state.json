@@ -367,7 +367,7 @@
     {
       "id": "bl-0010",
       "order": 8,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0010"
       ],
@@ -404,14 +404,24 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
+      "branch": "remediation/bl-0010",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/123",
+      "mergedAt": "2026-09-24T16:38:34Z",
       "notes": null,
       "fileSetHash": "e4c60f93920559ea6ea31a7316fbc857bbb1d689aa6ce1cbcc805ab861d104a8",
       "stanzaHash": "d97c2e6c072ccb49c7e6f91ddb7096361836addbf4a0c3d1da1743b327cebd3d",
-      "reviewedStanzaHash": "d97c2e6c072ccb49c7e6f91ddb7096361836addbf4a0c3d1da1743b327cebd3d"
+      "reviewedStanzaHash": "d97c2e6c072ccb49c7e6f91ddb7096361836addbf4a0c3d1da1743b327cebd3d",
+      "integrationGate": {
+        "pr": 123,
+        "base": "main",
+        "mainOid": "58f388d31000aef08375958e9be96476f0fc8a76",
+        "headOid": "d5e4106c63bef10b8c50790d32ac282590fe9c7b",
+        "gatedTree": "49585b5b20aa38e663e85f3dd0a2a125955c4a0e",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0010-pr123-20260924T163440767Z-17924.log",
+        "gatedAt": "2026-09-24T16:38:22.221Z"
+      }
     },
     {
       "id": "bl-0011",
