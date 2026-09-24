@@ -34,7 +34,9 @@ runtime schema generation.
 
 from __future__ import annotations
 
+import inspect
 import logging
+import re
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -667,7 +669,7 @@ async def apply_type_annotations(
     apply: bool = False,
     file_paths: list[str] | None = None,
 ) -> RefactorResult:
-    """Materialize Pyright-inferred type hints into real source-level annotations. Pulls type-kind inlay hints across each target file and inserts them at the exact positions Pyright reports (return types, parameter annotations, variable annotations). Files where Pyright surfaces no type hints are silently dropped. Defaults to preview mode. Closes the loop with `get_inlay_hints` (read) and `get_type_coverage` (measure). Related: get_inlay_hints, get_type_coverage, format_code."""
+    """Materialize Pyright-inferred type hints into real source-level annotations. Pulls type-kind inlay hints across each target file and inserts them at the exact positions Pyright reports (return types, parameter annotations, variable annotations). Files where Pyright surfaces no type hints are silently dropped. Defaults to preview mode. Related: get_inlay_hints, get_type_coverage, format_code."""
     app = get_current_backends()
     result = await refactoring.apply_type_annotations(app.pyright, file_path, apply, file_paths)
     _LOGGER.debug(
@@ -943,7 +945,7 @@ async def autoimport_search(
 
 
 async def prepare_rename(ctx: Context, file_path: str, line: int, character: int) -> PrepareRenameResult | None:
-    """Check if a symbol at a position can be renamed and return the editable range. Use before rename_symbol to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, find_references. Positions are 0-based (line and character offsets, LSP convention)."""
+    """Check if a symbol at a position can be renamed and return the editable range. Use before renaming to verify the operation is valid and to get the current symbol name and range. Returns None if the position is not renameable. Related: rename_symbol, find_references. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     result = await refactoring.prepare_rename(app.pyright, file_path, line, character)
     _LOGGER.debug("prepare_rename valid=%s", result is not None)
@@ -1218,7 +1220,7 @@ async def structural_search(
     language: str = "python",
     limit: int | None = None,
 ) -> StructuralSearchResult:
-    """Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Check files_scanned in the response to distinguish "found nothing" from "failed to scan". Related: restructure (pattern-based replace), dead_code_detection."""
+    """Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Check files_scanned in the response to distinguish "found nothing" from "failed to scan". The language parameter accepts only "python" (the default); any other value is rejected. Related: restructure (pattern-based replace), dead_code_detection."""
     app = get_current_backends()
     matches, files_scanned, scan_failures = await search.structural_search(
         app.config, pattern, file_path, language, limit
@@ -1459,7 +1461,7 @@ async def diff_preview(ctx: Context, edits: list[TextEdit]) -> list[DiffPreview]
 
 
 async def refactor_transaction(ctx: Context, steps: list[dict[str, Any]]) -> TransactionResult:
-    """Apply an ordered list of refactorings atomically under one change stack — commit all on success, roll back all on any failure. Each step is an object `{"tool": <name>, "args": {...}}`; steps run in order, and each is previewed against the RUNNING (partially-edited) source so later steps see earlier edits. Supported tools: rename_symbol, extract_method, extract_variable, inline_variable, inline_method (their `args` mirror each standalone tool, minus `apply`). Two failure contracts: (1) INPUT errors RAISE before anything is applied — an empty step list, a malformed step, an unsupported tool name, or a step missing `file_path` (all steps are validated up front). (2) EXECUTION failures RETURN a rolled-back result — if a step's refactoring raises mid-sequence or two steps touch overlapping character spans, the entire transaction is reverted and a TransactionResult with `applied=false`, `rolled_back=true` is returned: completed steps are marked `rolled_back`, the failing step `failed` with its `error` populated, the rest `skipped`. Disk is left byte-identical to the start in both cases. On success, returns per-step `applied` status plus a unified-diff summary of the committed changes. Related: begin_change_stack, commit_change_stack, diff_preview."""
+    """Apply an ordered list of refactorings atomically under one change stack — commit all on success, roll back all on any failure. Each step is an object `{"tool": <name>, "args": {...}}`; steps run in order, and each is previewed against the RUNNING (partially-edited) source so later steps see earlier edits. Supported tools: rename_symbol, extract_method, extract_variable, inline_variable, inline_method (their `args` mirror each standalone tool, minus `apply`). Two failure contracts: (1) INPUT errors RAISE before anything is applied — an empty step list, a malformed step, an unsupported tool name, or a step missing `file_path` (all steps are validated up front). (2) EXECUTION failures RETURN a rolled-back result — if a step's refactoring raises mid-sequence or two steps touch overlapping character spans, the entire transaction is reverted and a TransactionResult with `applied=false`, `rolled_back=true` is returned: completed steps are marked `rolled_back`, the failing step `failed` with its `error` populated, the rest `skipped`. Disk is left byte-identical to the start in both cases. On success, returns per-step `applied` status plus a unified-diff summary of the committed changes. Acts immediately — no preview; there is no apply parameter; commits on success. Related: begin_change_stack, commit_change_stack, diff_preview."""
     app = get_current_backends()
     result = await composite.refactor_transaction(app.rope, steps)
     _LOGGER.debug("refactor_transaction steps=%s applied=%s", len(result.steps), result.applied)
@@ -1506,7 +1508,7 @@ async def simulate_execution(
 
 
 async def list_environments(ctx: Context) -> list[EnvironmentInfo]:
-    """Discover and list Python environments and virtualenvs. Uses Jedi environment detection. Related: get_context."""
+    """Discover and list Python environments and virtualenvs. Uses Jedi environment detection. Related: server_status."""
     app = get_current_backends()
     result = await app.jedi.list_environments()
     _LOGGER.debug("list_environments count=%s", len(result))
@@ -1518,7 +1520,7 @@ async def project_search(
     query: str,
     complete: bool = False,
 ) -> list[SymbolInfo]:
-    """Project-wide semantic search using Jedi analysis engine. Complements workspace/symbol with Jedi Project.search(). Set complete=True for completion-style search. Related: search_symbols."""
+    """Project-wide semantic search using Jedi analysis engine. Complements search_symbols (Pyright workspace/symbol) with Jedi Project.search(). Set complete=True for completion-style search. Related: search_symbols."""
     app = get_current_backends()
     result = await app.jedi.project_search(query, complete)
     _LOGGER.debug("project_search count=%s", len(result))
@@ -1526,7 +1528,7 @@ async def project_search(
 
 
 async def restart_server(ctx: Context) -> str:
-    """Discard cached type info and restart Pyright analysis. Use when type information appears stale or after significant external file changes. Related: get_diagnostics."""
+    """Discard cached type info and restart Pyright analysis. Use when type information appears stale or after significant external file changes. Acts immediately — no preview; there is no apply parameter. Related: get_diagnostics."""
     app = get_current_backends()
     result = await app.pyright.restart_server()
     _LOGGER.debug("restart_server result=%s", result)
@@ -1534,7 +1536,7 @@ async def restart_server(ctx: Context) -> str:
 
 
 async def undo_refactoring(ctx: Context, count: int = 1) -> RefactorResult:
-    """Undo the last refactoring operations. Uses Rope history. Related: redo_refactoring, get_refactoring_history."""
+    """Undo the last refactoring operations. Uses Rope history. Acts immediately — no preview; there is no apply parameter. Related: redo_refactoring, get_refactoring_history."""
     app = get_current_backends()
     result = await app.rope.undo(count)
     _LOGGER.debug("undo_refactoring count=%s", count)
@@ -1542,7 +1544,7 @@ async def undo_refactoring(ctx: Context, count: int = 1) -> RefactorResult:
 
 
 async def redo_refactoring(ctx: Context, count: int = 1) -> RefactorResult:
-    """Redo previously undone refactoring operations. Uses Rope history. Related: undo_refactoring, get_refactoring_history."""
+    """Redo previously undone refactoring operations. Uses Rope history. Acts immediately — no preview; there is no apply parameter. Related: undo_refactoring, get_refactoring_history."""
     app = get_current_backends()
     result = await app.rope.redo(count)
     _LOGGER.debug("redo_refactoring count=%s", count)
@@ -1566,7 +1568,7 @@ async def begin_change_stack(ctx: Context) -> str:
 
 
 async def commit_change_stack(ctx: Context) -> RefactorResult:
-    """Commit and apply the current change stack atomically. Related: begin_change_stack, rollback_change_stack."""
+    """Commit and apply the current change stack atomically. Acts immediately — no preview; there is no apply parameter. Related: begin_change_stack, rollback_change_stack."""
     app = get_current_backends()
     result = await app.rope.commit_change_stack()
     _LOGGER.debug("commit_change_stack: applied=%s", result.applied)
@@ -1775,6 +1777,73 @@ def tool_names_for_profile(
     return frozenset(record.func.__name__ for record in records if _profile_includes(record, profile))
 
 
+_RELATED_MARKER = "Related:"
+_LEADING_IDENTIFIER = re.compile(r"`?([A-Za-z_]\w*)")
+
+
+def _related_clause_end(text: str, start: int) -> int:
+    """Return the index of the ``.`` closing the clause at *start*, else ``len(text)``.
+
+    A clause ends at the first top-level period followed by whitespace or the
+    end of text; periods inside parentheses belong to the clause.
+    """
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        elif char == "." and depth == 0 and (index + 1 == len(text) or text[index + 1].isspace()):
+            return index
+    return len(text)
+
+
+def _split_related_items(clause: str) -> list[str]:
+    """Split a ``Related:`` clause on top-level commas, keeping parentheticals whole."""
+    items: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in clause:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        if char == "," and depth == 0:
+            items.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    items.append("".join(current).strip())
+    return [item for item in items if item]
+
+
+def profile_description(doc: str, advertised: frozenset[str]) -> str:
+    """Return *doc* with its ``Related:`` clause pruned to *advertised* tools.
+
+    Each clause item is kept only when its leading identifier names an
+    advertised tool; a kept item's parenthetical travels with it. A clause left
+    empty is removed entirely. Text after the clause (for example the 0-based
+    positions sentence) is preserved verbatim.
+    """
+    marker = doc.find(_RELATED_MARKER)
+    if marker < 0:
+        return doc
+    clause_start = marker + len(_RELATED_MARKER)
+    clause_end = _related_clause_end(doc, clause_start)
+    kept = [
+        item
+        for item in _split_related_items(doc[clause_start:clause_end])
+        if (match := _LEADING_IDENTIFIER.match(item)) is not None and match.group(1) in advertised
+    ]
+    trailing = doc[clause_end:]
+    if kept:
+        return f"{doc[:marker]}{_RELATED_MARKER} {', '.join(kept)}{trailing}"
+    head = doc[:marker].rstrip()
+    rest = trailing[1:].strip() if trailing.startswith(".") else trailing.strip()
+    return f"{head} {rest}" if head and rest else head or rest
+
+
 def register_tools(
     mcp_instance: MCPServer,
     profile: ToolProfile,
@@ -1789,7 +1858,9 @@ def register_tools(
     ``server.py`` so one policy controls the complete advertised surface.
 
     Backend lookup and error handling come from ``tool_runtime`` so registry
-    import order cannot depend on the server shell.
+    import order cannot depend on the server shell. Each advertised description
+    passes through :func:`profile_description` so ``Related:`` hints never cite a
+    tool the selected profile hides.
     """
     selected_names = tool_names_for_profile(profile, extra_records=extra_records)
     if len(selected_names) >= MAX_TOOLS_PER_PROFILE:
@@ -1803,5 +1874,6 @@ def register_tools(
             continue
         mcp_instance.add_tool(
             tool_error_boundary(record.func),
+            description=profile_description(inspect.getdoc(record.func) or "", selected_names),
             annotations=record.annotations,
         )
