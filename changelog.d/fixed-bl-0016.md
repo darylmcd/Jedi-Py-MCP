@@ -1,0 +1,1 @@
+- **Fixed:** Server instructions and tool `Related:` hints are profile-aware, so they never cite tools the active profile does not advertise; tools that act immediately (undo/redo, commit, transaction, restart) now say they skip preview.

@@ -6,6 +6,7 @@ annotations, and schema shapes per the MCP specification.
 
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 import pytest
@@ -57,6 +58,58 @@ def test_profile_policy_counts_are_explicit() -> None:
         for profile in TOOL_PROFILES
     }
     assert counts == {"analysis": 56, "refactoring": 75}
+
+
+# (profile, surface, tool name) triples where prose legitimately matches a hidden
+# tool name. Kept explicit and empty so any new off-profile citation fails loudly.
+_OFF_PROFILE_PROSE_ALLOWLIST: frozenset[tuple[str, str, str]] = frozenset()
+
+# Tools that write immediately with no apply parameter must say so.
+_IMMEDIATE_WRITE_TOOLS = (
+    "create_type_stubs",
+    "restart_server",
+    "undo_refactoring",
+    "redo_refactoring",
+    "commit_change_stack",
+    "refactor_transaction",
+)
+
+
+def _cited_hidden_tools(text: str, hidden: set[str]) -> set[str]:
+    return {name for name in hidden if re.search(rf"\b{re.escape(name)}\b", text)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", TOOL_PROFILES)
+async def test_profile_surface_cites_only_advertised_tools(profile: ToolProfile) -> None:
+    """Descriptions and server instructions never name a tool the profile hides."""
+    catalog = {record.func.__name__ for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)}
+    tools = await _profile_tools(profile)
+    advertised = frozenset(tool.name for tool in tools)
+    hidden = catalog - advertised
+    assert hidden, "each profile must hide at least one tool for this gate to be meaningful"
+
+    leaks = {
+        (profile, tool.name, name)
+        for tool in tools
+        for name in _cited_hidden_tools(tool.description or "", hidden)
+    }
+    instructions = server.build_server_instructions(profile, advertised)
+    leaks |= {(profile, "instructions", name) for name in _cited_hidden_tools(instructions, hidden)}
+
+    assert leaks <= _OFF_PROFILE_PROSE_ALLOWLIST, f"off-profile tool citations: {sorted(leaks)}"
+    assert "All refactoring tools default to preview" not in instructions
+
+
+@pytest.mark.asyncio
+async def test_immediate_write_tools_state_no_preview() -> None:
+    """Tools without an apply parameter tell the caller they act immediately."""
+    tools: dict[str, Any] = {}
+    for profile in TOOL_PROFILES:
+        tools.update({tool.name: tool for tool in await _profile_tools(profile)})
+    for name in _IMMEDIATE_WRITE_TOOLS:
+        assert "apply" not in tools[name].input_schema.get("properties", {}), name
+        assert "no preview" in (tools[name].description or ""), f"{name} must state it skips preview"
 
 
 def test_profile_policy_rejects_unknown_profile() -> None:

@@ -12,7 +12,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from pydantic import Field
 
 from python_refactor_mcp import __version__
-from python_refactor_mcp.config import TOOL_PROFILE_ENV, discover_max_workspaces, discover_tool_profile
+from python_refactor_mcp.config import TOOL_PROFILE_ENV, ToolProfile, discover_max_workspaces, discover_tool_profile
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.models import (
     BackendLiveness,
@@ -31,6 +31,7 @@ from python_refactor_mcp.tool_registry import (
     READ_ONLY_ANNOTATIONS,
     ToolRecord,
     register_tools,
+    tool_names_for_profile,
 )
 from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, get_current_backends, get_multi_context
 from python_refactor_mcp.tools import analysis, metrics, navigation, refactoring
@@ -76,33 +77,81 @@ async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContex
 
 _ACTIVE_TOOL_PROFILE = discover_tool_profile()
 
-_SERVER_INSTRUCTIONS = f"""\
-Python Refactor MCP provides semantic code analysis and automated refactoring for Python projects.
+# Instruction lines as (text, tool names the text cites). A line is emitted only
+# when the active profile advertises every tool it names, so the instructions
+# never point a client at a hidden tool.
+_InstructionLine = tuple[str, tuple[str, ...]]
 
-Active tool profile: {_ACTIVE_TOOL_PROFILE}. Configure {TOOL_PROFILE_ENV} as
-"analysis" or "refactoring" before startup to select the advertised surface.
+_REFACTORING_EXAMPLES = ("rename_symbol", "extract_method", "move_symbol")
 
-Tool categories:
-- **Analysis** (find_references, get_type_info, get_diagnostics, ...): Inspect code without modifying it.
-- **Navigation** (goto_definition, call_hierarchy, get_symbol_outline, ...): Navigate code structure.
-- **Refactoring** (rename_symbol, extract_method, move_symbol, ...): Transform code safely with preview support.
-  All refactoring tools default to preview mode (apply=False). Set apply=True to write changes to disk.
-- **Search** (search_symbols, dead_code_detection, structural_search, ...): Find patterns and issues.
-
-Workflow tips:
-- Use find_references before rename_symbol to understand impact scope.
-- Use prepare_rename before rename_symbol to verify the symbol is renameable.
-- Use get_diagnostics after applying refactorings to check for introduced errors.
-- Use diff_preview to visualize pending TextEdit lists before applying them.
-- Use get_type_info for type inspection; it combines Pyright and Jedi results.
-"""
-
-mcp = MCPServer(
-    "Python Refactor",
-    instructions=_SERVER_INSTRUCTIONS,
-    lifespan=app_lifespan,
-    version=__version__,
+_CATEGORY_LINES: tuple[_InstructionLine, ...] = (
+    (
+        "- **Analysis** (find_references, get_type_info, get_diagnostics, ...): Inspect code without modifying it.",
+        ("find_references", "get_type_info", "get_diagnostics"),
+    ),
+    (
+        "- **Navigation** (goto_definition, get_symbol_outline, selection_range, ...): Navigate code structure.",
+        ("goto_definition", "get_symbol_outline", "selection_range"),
+    ),
+    (
+        "- **Refactoring** (rename_symbol, extract_method, move_symbol, ...): Transform code safely with preview support.\n"
+        "  Refactoring tools that accept apply default to preview (apply=False); "
+        "tools without an apply parameter act immediately.",
+        _REFACTORING_EXAMPLES,
+    ),
+    (
+        "- **Search** (search_symbols, dead_code_detection, structural_search, ...): Find patterns and issues.",
+        ("search_symbols", "dead_code_detection", "structural_search"),
+    ),
 )
+
+_WORKFLOW_TIPS: tuple[_InstructionLine, ...] = (
+    (
+        "- Use find_references before rename_symbol to understand impact scope.",
+        ("find_references", "rename_symbol"),
+    ),
+    (
+        "- Use prepare_rename before rename_symbol to verify the symbol is renameable.",
+        ("prepare_rename", "rename_symbol"),
+    ),
+    (
+        "- Use get_diagnostics after applying changes to check for introduced errors.",
+        ("get_diagnostics",),
+    ),
+    (
+        "- Use diff_preview to visualize pending TextEdit lists before applying them.",
+        ("diff_preview",),
+    ),
+    (
+        "- Use get_type_info for type inspection; it combines Pyright and Jedi results.",
+        ("get_type_info",),
+    ),
+)
+
+
+def build_server_instructions(profile: ToolProfile, advertised: frozenset[str]) -> str:
+    """Render server instructions that cite only tools in *advertised*.
+
+    *profile* names the active surface; the analysis profile additionally notes
+    that refactoring tools require the ``refactoring`` profile.
+    """
+
+    def _emitted(lines: tuple[_InstructionLine, ...]) -> list[str]:
+        return [text for text, required in lines if all(name in advertised for name in required)]
+
+    categories = _emitted(_CATEGORY_LINES)
+    if profile == "analysis":
+        categories.append(
+            f'- Refactoring tools are not advertised in this profile; set {TOOL_PROFILE_ENV}="refactoring" to use them.'
+        )
+    sections = [
+        "Python Refactor MCP provides semantic code analysis and automated refactoring for Python projects.",
+        f"Active tool profile: {profile}. Configure {TOOL_PROFILE_ENV} as\n"
+        '"analysis" or "refactoring" before startup to select the advertised surface.',
+        "Tool categories:\n" + "\n".join(categories),
+        "Workflow tips:\n" + "\n".join(_emitted(_WORKFLOW_TIPS)),
+    ]
+    return "\n\n".join(sections) + "\n"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Analysis tools
@@ -384,6 +433,16 @@ EXPLICIT_TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(security_autofix, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(structural_replace, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(server_status, READ_ONLY_ANNOTATIONS),
+)
+
+mcp = MCPServer(
+    "Python Refactor",
+    instructions=build_server_instructions(
+        _ACTIVE_TOOL_PROFILE,
+        tool_names_for_profile(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
+    ),
+    lifespan=app_lifespan,
+    version=__version__,
 )
 
 register_tools(
