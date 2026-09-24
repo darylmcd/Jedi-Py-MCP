@@ -372,3 +372,76 @@ async def test_autoimport_search_returns_rope_statement_contract(
     results = await backend.autoimport_search("add")
 
     assert ("from calc import add", "add") in results
+
+
+def _generate_fixture(tmp_path: Path, source: str) -> tuple[RopeBackend, Path]:
+    module = tmp_path / "usage.py"
+    module.write_text(source, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return backend, module
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "source", "expected"),
+    [
+        ("function", "def main():\n    return compute(1, 2)\n", "    def compute(arg0, arg1):\n        pass\n"),
+        ("class", "item = Widget()\n", "class Widget(object):\n    pass\n"),
+        ("variable", "print(missing_value)\n", "missing_value = None"),
+    ],
+)
+async def test_generate_code_preview_inserts_definition(
+    tmp_path: Path, kind: str, source: str, expected: str,
+) -> None:
+    """Real rope: each in-file kind previews a stub definition without writing it."""
+    backend, module = _generate_fixture(tmp_path, source)
+    name_line, name_col = next(
+        (index, line.find(token))
+        for index, line in enumerate(source.splitlines())
+        for token in ("compute", "Widget", "missing_value")
+        if token in line
+    )
+
+    result = await backend.generate_code(str(module), name_line, name_col, kind, apply=False)
+
+    assert result.applied is False
+    assert [Path(edit.file_path).resolve() for edit in result.edits] == [module.resolve()]
+    assert expected in result.edits[0].new_text
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_generate_code_apply_writes_function_stub(tmp_path: Path) -> None:
+    """apply=True writes the generated function stub into the usage module."""
+    source = "def main():\n    return compute(1, 2)\n"
+    backend, module = _generate_fixture(tmp_path, source)
+
+    result = await backend.generate_code(str(module), 1, 11, "Function", apply=True)
+
+    assert result.applied is True
+    assert "    def compute(arg0, arg1):\n        pass\n" in module.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["module", "package"])
+async def test_generate_code_module_and_package_preview_adds_import(tmp_path: Path, kind: str) -> None:
+    """Real rope: module/package kinds build a change set whose text edit imports the new name."""
+    source = "helpers.run()\n"
+    backend, module = _generate_fixture(tmp_path, source)
+
+    result = await backend.generate_code(str(module), 0, 0, kind, apply=False)
+
+    assert result.applied is False
+    assert [Path(edit.file_path).resolve() for edit in result.edits] == [module.resolve()]
+    assert "import helpers" in result.edits[0].new_text
+    assert not (tmp_path / "helpers.py").exists()
+    assert not (tmp_path / "helpers").exists()
+
+
+@pytest.mark.asyncio
+async def test_generate_code_rejects_unknown_kind(tmp_path: Path) -> None:
+    backend, module = _generate_fixture(tmp_path, "value = thing\n")
+
+    with pytest.raises(RopeError, match="Unsupported generation kind: method"):
+        await backend.generate_code(str(module), 0, 8, "method", apply=False)
