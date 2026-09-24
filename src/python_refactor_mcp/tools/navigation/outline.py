@@ -169,6 +169,14 @@ def _ast_folding_ranges(file_path: str) -> list[FoldingRange]:
     return ranges
 
 
+def _require_file(parameter: str, raw_path: str) -> Path:
+    """Resolve an explicitly requested outline file or reject it as caller input."""
+    path = Path(raw_path).resolve()
+    if not path.is_file():
+        raise ToolInputError(f"{parameter} is not an existing file: {raw_path}")
+    return path
+
+
 async def get_symbol_outline(
     pyright: PyrightNavigationBackend,
     config: ServerConfig,
@@ -190,13 +198,17 @@ async def get_symbol_outline(
     if max_nodes is not None and max_nodes < 1:
         raise ToolInputError("max_nodes must be greater than or equal to 1")
 
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
     if file_paths is not None:
-        candidate_files = [Path(p).resolve() for p in file_paths]
+        candidate_files = [_require_file("file_paths", p) for p in file_paths]
     elif file_path is not None:
-        candidate_files = [Path(file_path).resolve()]
-    else:
+        candidate_files = [_require_file("file_path", file_path)]
+    elif root_path:
+        effective_root = Path(root_path).resolve()
+        if not effective_root.is_dir():
+            raise ToolInputError(f"root_path is not an existing directory: {root_path}")
         candidate_files = python_files(effective_root)
+    else:
+        candidate_files = python_files(config.workspace_root)
 
     normalized_kinds = {kind.strip().lower() for kind in kind_filter} if kind_filter else None
     compiled_pattern: re.Pattern[str] | None = None
@@ -221,8 +233,6 @@ async def get_symbol_outline(
     sem = asyncio.Semaphore(10)
 
     async def _fetch(path: Path) -> list[SymbolOutlineItem]:
-        if not path.is_file():
-            return []
         async with sem:
             symbols = await pyright.get_document_symbols(str(path))
             return _collect_matching(symbols)

@@ -103,7 +103,8 @@ async def dead_code_detection(
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Detect dead code candidates using diagnostics and reference counts."""
-    target_files = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    resolved = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    target_files = resolved.files
     target_paths = {str(path.resolve()) for path in target_files}
 
     dead_items: dict[tuple[str, str, int, int], DeadCodeItem] = {}
@@ -113,15 +114,13 @@ async def dead_code_detection(
     sem = asyncio.Semaphore(10)
 
     async def _fetch_diags(path: Path) -> list[Diagnostic]:
-        if not path.exists():
-            return []
         async with sem:
             file_diags = await pyright.get_diagnostics(str(path))
             return [d for d in file_diags if d.file_path in target_paths]
 
     diag_results = await asyncio.gather(*[_fetch_diags(p) for p in target_files], return_exceptions=True)
     all_diagnostics: list[Diagnostic] = []
-    scan_failures: list[ScanFailure] = []
+    scan_failures: list[ScanFailure] = list(resolved.failures)
     for path, diag_result in zip(target_files, diag_results, strict=True):
         if isinstance(diag_result, list):
             all_diagnostics.extend(diag_result)

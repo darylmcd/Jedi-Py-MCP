@@ -57,7 +57,35 @@ async def test_type_coverage_reports_unparseable_file(tmp_path: Path) -> None:
     result = await metrics.get_type_coverage(str(invalid))
 
     assert result.total_functions == 0
+    assert (result.return_coverage_pct, result.param_coverage_pct) == (None, None)
     _assert_parse_failure(result, invalid)
+
+
+@pytest.mark.asyncio
+async def test_type_coverage_missing_file_does_not_headline_full_coverage(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.py"
+
+    result = await metrics.get_type_coverage(str(missing))
+
+    assert result.files_scanned == 0
+    assert (result.return_coverage_pct, result.param_coverage_pct) == (None, None)
+    assert [(f.file_path, f.error_type) for f in result.scan_failures] == [
+        (str(missing.resolve()), "FileNotFoundError")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_type_coverage_percentages_cover_only_scanned_files(tmp_path: Path) -> None:
+    annotated = tmp_path / "annotated.py"
+    annotated.write_text("def f(x: int) -> int:\n    return x\n", encoding="utf-8")
+
+    result = await metrics.get_type_coverage(
+        str(annotated), file_paths=[str(annotated), str(tmp_path / "missing.py")]
+    )
+
+    assert result.files_scanned == 1
+    assert (result.return_coverage_pct, result.param_coverage_pct) == (100.0, 100.0)
+    assert len(result.scan_failures) == 1
 
 
 @pytest.mark.asyncio
