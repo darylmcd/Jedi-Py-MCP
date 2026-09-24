@@ -9,7 +9,7 @@ import time
 import pytest
 
 from python_refactor_mcp.backends._threading import run_in_thread
-from python_refactor_mcp.errors import BackendError, JediError, RopeError
+from python_refactor_mcp.errors import BackendError, JediError, RopeError, ToolInputError
 
 _LOGGER = logging.getLogger("python_refactor_mcp.backends._threading_test")
 
@@ -43,6 +43,22 @@ async def test_generic_exception_reraised_as_error_cls() -> None:
     assert "rope.boom failed" in str(exc_info.value)
     assert isinstance(exc_info.value.__cause__, ValueError)
     assert str(exc_info.value.__cause__) == "boom"
+
+
+@pytest.mark.asyncio
+async def test_tool_input_error_propagates_unwrapped() -> None:
+    """A caller-input error keeps its type and message instead of becoming ``error_cls``."""
+
+    def _work() -> int:
+        raise ToolInputError("index must be >= 0 (parameter: index)")
+
+    with pytest.raises(ToolInputError) as exc_info:
+        await run_in_thread(
+            _work, timeout=5.0, error_cls=RopeError, op_name="rope.input", logger=None,
+        )
+
+    assert not isinstance(exc_info.value, BackendError)
+    assert str(exc_info.value) == "index must be >= 0 (parameter: index)"
 
 
 @pytest.mark.asyncio

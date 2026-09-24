@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `argument_default_inliner` / `change_signature` `inline_default` now removes the default from the signature as documented; a negative `index` is rejected for every `change_signature` operation, and inlining is rejected when the target has no default or an earlier parameter keeps one.

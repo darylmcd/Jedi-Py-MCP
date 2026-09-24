@@ -14,7 +14,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.util.timing import timed
 
 
@@ -36,12 +36,17 @@ async def run_in_thread[T](
 
     Any exception raised by the work (including ``asyncio.TimeoutError``, which
     is a subclass of ``Exception``) is re-raised as ``error_cls`` with the
-    original exception chained via ``__cause__``.
+    original exception chained via ``__cause__``. The one exception is
+    :class:`~python_refactor_mcp.errors.ToolInputError`: it reports the
+    caller's own input, not a backend failure, so it propagates unchanged and
+    keeps its caller-facing message.
     """
     try:
         if logger is not None:
             async with timed(logger, op_name):
                 return await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
         return await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
+    except ToolInputError:
+        raise
     except Exception as exc:
         raise error_cls(f"{op_name} failed: {exc}") from exc
