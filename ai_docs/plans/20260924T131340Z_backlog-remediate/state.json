@@ -1,12 +1,12 @@
 {
   "schemaVersion": 4,
   "generatedAt": "2026-09-24T13:14:04.316Z",
-  "backlogSnapshot": "2026-09-24T13:06:33Z",
+  "backlogSnapshot": "2026-09-24T17:34:44Z",
   "addendaLoaded": true,
   "phase": "complete",
   "cycleCount": 1,
   "maxCycles": 2,
-  "completed": false,
+  "completed": true,
   "reviewStatus": "passed-with-warnings",
   "readyForExecute": true,
   "initiatives": [
@@ -590,7 +590,7 @@
     {
       "id": "bl-0014",
       "order": 12,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0014"
       ],
@@ -625,14 +625,24 @@
       "dependsOn": [
         "bl-0002"
       ],
-      "branch": null,
+      "branch": "remediation/bl-0014",
       "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/130",
+      "mergedAt": "2026-09-24T18:01:18Z",
       "notes": null,
       "fileSetHash": "15a92ff3de0e927e12b9bf3749844b7a3a459fee93cb26b7ff10658189fe2e5e",
       "stanzaHash": "8a00bae7082e90aaf6973f09cb8b8ea025010cc54a1276c362e51267f9fa1864",
-      "reviewedStanzaHash": "8a00bae7082e90aaf6973f09cb8b8ea025010cc54a1276c362e51267f9fa1864"
+      "reviewedStanzaHash": "8a00bae7082e90aaf6973f09cb8b8ea025010cc54a1276c362e51267f9fa1864",
+      "integrationGate": {
+        "pr": 130,
+        "base": "main",
+        "mainOid": "c1fbe57c7c75021ee8089f52d754eb4f6ddc30d2",
+        "headOid": "55c1515b8141e21e4db0990b2b920d0664fcd097",
+        "gatedTree": "3f5d075cbce7abe80b370ad15cd154257f2c3295",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/bsweep-gate-logs/gate-bl-0014-pr130-20260924T175728293Z-41836.log",
+        "gatedAt": "2026-09-24T18:01:10.150Z"
+      }
     },
     {
       "id": "bl-0015",
@@ -1132,5 +1142,6 @@
   "planHash": "757dfe9af4d369290f8301bab23d6f3a1a7ac30abdcd4c0b00b9ee3fb94036c3",
   "backlogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7",
   "reviewedPlanHash": "757dfe9af4d369290f8301bab23d6f3a1a7ac30abdcd4c0b00b9ee3fb94036c3",
-  "reviewedBacklogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7"
+  "reviewedBacklogSnapshotHash": "cc7b6393570c426fea8ec9dad6a40f6af7ac69d8d264c03aabcd1f2aa44dc4e7",
+  "completedAt": "2026-09-24T18:01:55.653Z"
 }
