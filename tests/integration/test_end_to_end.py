@@ -841,3 +841,34 @@ async def test_format_code_preview_returns_refactor_payload(
     assert payload["files_affected"] == [str(target)]
     # ruff should not have written the file in preview mode.
     assert target.read_text(encoding="utf-8") == "x=1\ny    =2\n"
+
+
+@pytest.mark.asyncio
+async def test_create_type_stubs_writes_real_stubs_and_rejects_unknown_imports(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Run the real Pyright CLI: stubs land under <workspace>/typings; bad names error.
+
+    Stubs the stdlib ``json`` package: the fixture workspace has no venv, so its detected
+    interpreter varies by machine and only stdlib imports resolve deterministically.
+    """
+    result = await mcp_session.call_tool("create_type_stubs", {"package_name": "json"})
+
+    assert result.is_error is False, result.content
+    payload = result.structured_content
+    assert isinstance(payload, dict)
+    stub_root = (sample_workspace / "typings").resolve()
+    assert Path(payload["output_dir"]) == stub_root
+    files = [Path(item) for item in payload["files"]]
+    assert files, "expected created .pyi paths"
+    assert all(path.suffix == ".pyi" and path.is_file() for path in files)
+    assert all(path.is_relative_to(stub_root / "json") for path in files)
+
+    unknown = await mcp_session.call_tool("create_type_stubs", {"package_name": "no_such_pkg_xyz"})
+    garbage = await mcp_session.call_tool("create_type_stubs", {"package_name": "not an identifier!!"})
+    for failed in (unknown, garbage):
+        assert failed.is_error is True
+        text = " ".join(block.text for block in failed.content if isinstance(block, TextContent))
+        assert "[INVALID_INPUT]" in text, text
+        assert "package_name" in text, text

@@ -90,6 +90,7 @@ from python_refactor_mcp.models import (
     TypeHierarchyResult,
     TypeHintResult,
     TypeInfo,
+    TypeStubCreationResult,
     TypeStubFreshnessResult,
     TypeUsersResult,
 )
@@ -326,11 +327,15 @@ async def get_all_names(
     return result
 
 
-async def create_type_stubs(ctx: Context, package_name: str, output_dir: str | None = None) -> bool:
-    """Generate .pyi type stub files for a third-party package lacking type information. Use to improve type checking for untyped dependencies. The package_name is the import name (e.g., 'requests'). Optional output_dir specifies where to write stubs. Related: get_diagnostics, get_type_info."""
+async def create_type_stubs(
+    ctx: Context,
+    package_name: str,
+    output_dir: str | None = None,
+) -> TypeStubCreationResult:
+    """Generate .pyi type stub files for a third-party package lacking type information, using the Pyright CLI against the workspace interpreter. Use to improve type checking for untyped dependencies. The package_name is the dotted import name (e.g., 'requests'). Writes immediately — no preview; there is no apply parameter. Stubs land in <workspace>/typings/<top-level package> by default; optional output_dir (workspace-relative or absolute) replaces the typings root and must stay inside the workspace. An existing target directory is refused, and an import that cannot be resolved or yields no stubs is an error. Returns the created .pyi paths. Related: get_diagnostics, get_type_info."""
     app = get_current_backends()
-    result = await analysis.create_type_stubs(app.pyright, package_name, output_dir)
-    _LOGGER.debug("create_type_stubs package=%s success=%s", package_name, result)
+    result = await analysis.create_type_stubs(app.config, package_name, output_dir)
+    _LOGGER.debug("create_type_stubs package=%s files=%s", package_name, len(result.files))
     return result
 
 
