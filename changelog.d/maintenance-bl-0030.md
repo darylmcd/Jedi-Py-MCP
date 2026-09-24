@@ -1,0 +1,1 @@
+- **Maintenance:** integration tests give Pyright a 30 s request budget (`PYRIGHT_REQUEST_TIMEOUT_SECONDS`, overridable) so cold per-test Pyright startups no longer time out under gate load; backend timeout env vars are documented in `ai_docs/runtime.md`.
