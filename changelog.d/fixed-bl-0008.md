@@ -1,0 +1,1 @@
+- **Fixed:** Backend-failure stderr lines now include the failure id, exception types, and traceback locations recorded for each `Failure ID`, without request paths or payloads.
