@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import PyrightError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     CompletionItem,
@@ -179,6 +179,7 @@ class PyrightLSPClient:
         self._diagnostics_events: dict[str, asyncio.Event] = {}
         self._startup_command: list[str] | None = None
         self._restarting = False
+        self._server_capabilities: JSONDict | None = None
 
     @property
     def is_running(self) -> bool:
@@ -240,28 +241,8 @@ class PyrightLSPClient:
             self._diagnostics_events.clear()
             # Create fresh client and re-run startup.
             self._client = self._make_client()
-            initialize_params = self._build_initialize_params()
             await self._client.start(self._startup_command)
-            response = await asyncio.wait_for(
-                self._client.send_request("initialize", initialize_params),
-                timeout=15,
-            )
-            if "error" in response:
-                raise PyrightError(f"Pyright re-initialize failed: {response['error']}")
-            await self._client.send_notification("initialized", {})
-            settings: dict[str, JSONValue] = {
-                "python": {
-                    "pythonPath": str(self._config.python_executable),
-                    "analysis": {
-                        "diagnosticMode": "openFilesOnly",
-                        "autoSearchPaths": True,
-                        "useLibraryCodeForTypes": True,
-                    },
-                }
-            }
-            await self._client.send_notification(
-                "workspace/didChangeConfiguration", {"settings": settings},
-            )
+            await self._initialize_session()
             _LOGGER.info("Pyright process restarted successfully")
         finally:
             self._restarting = False
@@ -351,36 +332,61 @@ class PyrightLSPClient:
         })
         return params
 
+    async def _initialize_session(self) -> None:
+        """Run the LSP initialize handshake on the current transport.
+
+        Records the server's advertised ``capabilities`` so feature requests the
+        running Pyright does not implement fail explicitly instead of silently.
+        """
+        self._server_capabilities = None
+        response = await asyncio.wait_for(
+            self._client.send_request("initialize", self._build_initialize_params()),
+            timeout=15,
+        )
+        if "error" in response:
+            raise PyrightError(f"Pyright initialize failed: {response['error']}")
+        result = response.get("result")
+        if isinstance(result, dict):
+            capabilities = result.get("capabilities")
+            if isinstance(capabilities, dict):
+                self._server_capabilities = capabilities
+        await self._client.send_notification("initialized", {})
+        settings: dict[str, JSONValue] = {
+            "python": {
+                "pythonPath": str(self._config.python_executable),
+                "analysis": {
+                    "diagnosticMode": "openFilesOnly",
+                    "autoSearchPaths": True,
+                    "useLibraryCodeForTypes": True,
+                },
+            }
+        }
+        await self._client.send_notification(
+            "workspace/didChangeConfiguration",
+            {"settings": settings},
+        )
+
+    def _require_capability(self, provider_key: str, method: str) -> None:
+        """Raise when the recorded server capabilities do not advertise ``provider_key``.
+
+        Skipped when no capabilities were recorded (session not initialized by
+        ``start``/restart, or a server that omitted them).
+        """
+        if self._server_capabilities is None:
+            return
+        if not self._server_capabilities.get(provider_key):
+            raise LspFeatureUnsupportedError(
+                f"Pyright does not advertise {provider_key}; {method} is unsupported"
+            )
+
     async def start(self) -> None:
         """Start the Pyright language server and initialize the LSP session."""
-        initialize_params = self._build_initialize_params()
-
         startup_errors: list[str] = []
         for command in self._candidate_commands():
             self._client = self._make_client()
             try:
                 await self._client.start(command)
-                response = await asyncio.wait_for(
-                    self._client.send_request("initialize", initialize_params),
-                    timeout=15,
-                )
-                if "error" in response:
-                    raise PyrightError(f"Pyright initialize failed: {response['error']}")
-                await self._client.send_notification("initialized", {})
-                settings: dict[str, JSONValue] = {
-                    "python": {
-                        "pythonPath": str(self._config.python_executable),
-                        "analysis": {
-                            "diagnosticMode": "openFilesOnly",
-                            "autoSearchPaths": True,
-                            "useLibraryCodeForTypes": True,
-                        },
-                    }
-                }
-                await self._client.send_notification(
-                    "workspace/didChangeConfiguration",
-                    {"settings": settings},
-                )
+                await self._initialize_session()
                 self._startup_command = command
                 return
             except Exception as exc:
@@ -1006,6 +1012,7 @@ class PyrightLSPClient:
 
     async def get_selection_range(self, file_path: str, positions: list[Position]) -> list[SelectionRangeResult]:
         """Return nested selection ranges for one or more positions."""
+        self._require_capability("selectionRangeProvider", "textDocument/selectionRange")
         absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
@@ -1021,7 +1028,9 @@ class PyrightLSPClient:
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/selectionRange unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"selectionRange request failed: {response['error']}")
 
         result = response.get("result")
@@ -1258,6 +1267,7 @@ class PyrightLSPClient:
         end_character: int,
     ) -> list[InlayHint]:
         """Get inlay hints for the provided file range."""
+        self._require_capability("inlayHintProvider", "textDocument/inlayHint")
         absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
@@ -1273,7 +1283,9 @@ class PyrightLSPClient:
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/inlayHint unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"inlayHint request failed: {response['error']}")
 
         result = response.get("result")
@@ -1321,6 +1333,7 @@ class PyrightLSPClient:
 
     async def get_semantic_tokens(self, file_path: str) -> list[SemanticToken]:
         """Get and decode full-document semantic tokens from Pyright."""
+        self._require_capability("semanticTokensProvider", "textDocument/semanticTokens/full")
         absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
@@ -1332,7 +1345,9 @@ class PyrightLSPClient:
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/semanticTokens/full unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"semanticTokens/full request failed: {response['error']}")
 
         result = response.get("result")

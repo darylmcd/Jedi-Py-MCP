@@ -21,6 +21,7 @@ from python_refactor_mcp.errors import (
     BackendError,
     ConfigError,
     JediError,
+    LspFeatureUnsupportedError,
     PyrightError,
     RopeError,
     ToolInputError,
@@ -278,6 +279,11 @@ def test_validate_params_rejects_bad_nested_transaction_identifier(tmp_path: Pat
     [
         (BackendError, "BACKEND", BackendError.caller_summary),
         (PyrightError, "PYRIGHT_BACKEND", PyrightError.caller_summary),
+        (
+            LspFeatureUnsupportedError,
+            "LSP_UNSUPPORTED",
+            LspFeatureUnsupportedError.caller_summary,
+        ),
         (JediError, "JEDI_BACKEND", JediError.caller_summary),
         (RopeError, "ROPE_BACKEND", RopeError.caller_summary),
         (ConfigError, "CONFIG", ConfigError.caller_summary),

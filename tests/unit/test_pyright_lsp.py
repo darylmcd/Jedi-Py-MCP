@@ -13,7 +13,7 @@ import pytest
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient, path_to_uri, uri_to_path
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import PyrightError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError
 from python_refactor_mcp.models import CallHierarchyItem, Position, Range
 from python_refactor_mcp.util.lsp_client import (
     JSONDict,
@@ -951,3 +951,146 @@ async def test_warm_position_request_refreshes_cached_source(tmp_path: Path) -> 
     methods = [method for method, _ in fake_client.requests]
     assert "textDocument/definition" in methods
     assert any("didChange" in notification[0] for notification in fake_client.notifications)
+
+
+# ── Unsupported LSP features (selectionRange / inlayHint / semanticTokens) ──
+
+
+class StartableHarness(PyrightLSPClient):
+    """Pyright harness whose ``start``/restart handshake runs on fake transports."""
+
+    def __init__(self, config: ServerConfig, responses: dict[str, JSONDict | None]) -> None:
+        self._fake_responses = responses
+        self.fakes: list[FakeLSPClient] = []
+        super().__init__(config)
+
+    def _make_client(self) -> LSPClient:
+        fake = FakeLSPClient(responses=self._fake_responses)
+        self.fakes.append(fake)
+        return cast(LSPClient, fake)
+
+    def reseed(self, responses: dict[str, JSONDict | None]) -> None:
+        """Replace the responses future fake transports are built with."""
+        self._fake_responses = responses
+
+    async def restart(self) -> None:
+        """Expose the crash-restart path for tests."""
+        await self._restart()
+
+
+def _initialize_reply(capabilities: JSONDict) -> JSONDict:
+    return {"jsonrpc": "2.0", "id": 1, "result": {"capabilities": capabilities}}
+
+
+def _startable_harness(
+    tmp_path: Path, responses: dict[str, JSONDict | None]
+) -> tuple[StartableHarness, Path]:
+    sample = tmp_path / "sample.py"
+    sample.write_text("value = other\n", encoding="utf-8")
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    return StartableHarness(config, responses), sample
+
+
+_UNSUPPORTED_FEATURES = [
+    pytest.param(
+        "selectionRangeProvider",
+        "textDocument/selectionRange",
+        lambda backend, path: backend.get_selection_range(path, [Position(line=0, character=0)]),
+        id="selection-range",
+    ),
+    pytest.param(
+        "inlayHintProvider",
+        "textDocument/inlayHint",
+        lambda backend, path: backend.get_inlay_hints(path, 0, 0, 1, 0),
+        id="inlay-hint",
+    ),
+    pytest.param(
+        "semanticTokensProvider",
+        "textDocument/semanticTokens/full",
+        lambda backend, path: backend.get_semantic_tokens(path),
+        id="semantic-tokens",
+    ),
+]
+
+
+@pytest.mark.asyncio
+async def test_start_and_restart_record_server_capabilities(tmp_path: Path) -> None:
+    """Both handshakes store the advertised capabilities that gate feature calls."""
+    backend, sample = _startable_harness(
+        tmp_path,
+        {"initialize": _initialize_reply({"hoverProvider": True})},
+    )
+
+    await backend.start()
+    with pytest.raises(LspFeatureUnsupportedError):
+        await backend.get_inlay_hints(str(sample), 0, 0, 1, 0)
+
+    backend.reseed(
+        {
+            "initialize": _initialize_reply({"inlayHintProvider": True}),
+            "textDocument/inlayHint": {"jsonrpc": "2.0", "id": 1, "result": []},
+        }
+    )
+    await backend.restart()
+
+    assert await backend.get_inlay_hints(str(sample), 0, 0, 1, 0) == []
+    restarted = backend.fakes[-1]
+    assert [method for method, _ in restarted.requests] == ["initialize", "textDocument/inlayHint"]
+    assert [method for method, _ in restarted.notifications][:2] == [
+        "initialized",
+        "workspace/didChangeConfiguration",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("provider_key", "method", "call"), _UNSUPPORTED_FEATURES)
+async def test_unadvertised_capability_raises_without_sending_request(
+    tmp_path: Path,
+    provider_key: str,
+    method: str,
+    call: Any,
+) -> None:
+    """A capability Pyright did not advertise fails fast with LSP_UNSUPPORTED."""
+    backend, sample = _startable_harness(
+        tmp_path,
+        {"initialize": _initialize_reply({"hoverProvider": True})},
+    )
+    await backend.start()
+
+    with pytest.raises(LspFeatureUnsupportedError, match=provider_key) as raised:
+        await call(backend, str(sample))
+
+    assert raised.value.code == "LSP_UNSUPPORTED"
+    assert method not in [sent for sent, _ in backend.fakes[-1].requests]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("provider_key", "method", "call"), _UNSUPPORTED_FEATURES)
+async def test_unhandled_method_reply_raises_unsupported(
+    tmp_path: Path,
+    provider_key: str,
+    method: str,
+    call: Any,
+) -> None:
+    """A -32601 Unhandled method reply raises instead of returning an empty list."""
+    _ = provider_key
+    backend, _, sample = _position_harness(
+        tmp_path,
+        {
+            method: {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {"code": -32601, "message": f"Unhandled method {method}"},
+            }
+        },
+    )
+
+    with pytest.raises(LspFeatureUnsupportedError, match="unhandled by Pyright"):
+        await call(backend, str(sample))
