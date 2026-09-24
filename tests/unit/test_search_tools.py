@@ -311,8 +311,44 @@ async def test_symbol_scans_report_missing_files(tool_name: str, tmp_path: Path)
     assert result.items == []
     assert len(result.scan_failures) == 1
     assert result.scan_failures[0].file_path == str(missing.resolve())
-    assert result.scan_failures[0].phase == "symbol_scan"
+    assert result.scan_failures[0].phase == "resolve"
     assert result.scan_failures[0].error_type == "FileNotFoundError"
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_report_missing_root_path(tool_name: str, tmp_path: Path) -> None:
+    """A nonexistent root_path is a scan failure, never a clean empty result."""
+    missing_root = tmp_path / "no-such-dir"
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    result = await getattr(search, tool_name)(pyright, _config(tmp_path), root_path=str(missing_root))
+
+    assert result.items == []
+    assert [(f.file_path, f.phase, f.error_type) for f in result.scan_failures] == [
+        (str(missing_root.resolve()), "resolve", "FileNotFoundError")
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
+async def test_symbol_scans_report_missing_file_paths_member(tool_name: str, tmp_path: Path) -> None:
+    """A missing file_paths member is reported while the present members are still scanned."""
+    present = tmp_path / "present.py"
+    present.write_text("VALUE = 1\n", encoding="utf-8")
+    missing = tmp_path / "missing.py"
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_references.return_value = [_location(tmp_path / "other.py", 0, 0)]
+
+    result = await getattr(search, tool_name)(
+        pyright, _config(tmp_path), file_paths=[str(present), str(missing)]
+    )
+
+    assert [(f.file_path, f.phase) for f in result.scan_failures] == [(str(missing.resolve()), "resolve")]
+    pyright.get_references.assert_awaited()
 
 
 @pytest.mark.asyncio

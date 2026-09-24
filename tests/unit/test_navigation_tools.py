@@ -238,6 +238,26 @@ async def test_get_symbol_outline_rejects_non_positive_max_nodes(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("parameter", ["file_path", "file_paths", "root_path"])
+async def test_get_symbol_outline_rejects_missing_scope(parameter: str, tmp_path: Path) -> None:
+    """An explicit missing scope is a caller error, not an empty outline."""
+    present = tmp_path / "present.py"
+    present.write_text("def a():\n    pass\n", encoding="utf-8")
+    missing = str(tmp_path / "missing")
+    arguments: dict[str, object] = {
+        "file_path": {"file_path": missing},
+        "file_paths": {"file_paths": [str(present), missing]},
+        "root_path": {"root_path": missing},
+    }[parameter]
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match=parameter):
+        await navigation.get_symbol_outline(pyright, _config(tmp_path), **arguments)  # type: ignore[arg-type]
+
+    pyright.get_document_symbols.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_find_implementations_deduplicates_results() -> None:
     """Ensure implementation results are de-duplicated and sorted."""
     pyright = AsyncMock()

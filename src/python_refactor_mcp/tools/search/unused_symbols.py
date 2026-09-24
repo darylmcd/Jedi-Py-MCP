@@ -80,12 +80,12 @@ async def unused_symbol_sweep(
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Audit the public export surface for symbols with no cross-file references."""
-    target_files = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    resolved = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
-    scan_failures: list[ScanFailure] = []
-    for path in target_files:
+    scan_failures: list[ScanFailure] = list(resolved.failures)
+    for path in resolved.files:
         try:
             scan = scan_module_level_symbols(path)
         except (OSError, SyntaxError, UnicodeError) as exc:
