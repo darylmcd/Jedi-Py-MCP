@@ -7,7 +7,7 @@ import keyword
 import logging
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -44,7 +44,7 @@ from rope.refactor.usefunction import UseFunction  # type: ignore[import-untyped
 
 from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import RopeError, ToolInputError
 from python_refactor_mcp.models import HistoryEntry, Position, Range, RefactorResult, SignatureOperation, TextEdit
 from python_refactor_mcp.util.diff import (
     apply_text_edits,
@@ -100,7 +100,11 @@ def _build_reorder(op: SignatureOperation) -> list[object]:
 def _build_inline_default(op: SignatureOperation) -> list[object]:
     if op.index is None:
         raise RopeError("change_signature inline_default operation requires index")
-    return [ArgumentDefaultInliner(op.index)]
+    inliner = ArgumentDefaultInliner(op.index)
+    # rope's constructor leaves ``remove`` False, which inlines the default at
+    # call sites but keeps it on the definition; the tool contract removes it.
+    inliner.remove = True
+    return [inliner]
 
 
 def _build_normalize(op: SignatureOperation) -> list[object]:
@@ -132,6 +136,52 @@ def _build_signature_changers(operations: list[SignatureOperation]) -> list[obje
             raise RopeError(f"Unsupported change_signature operation: {operation.op}")
         changers.extend(builder(operation))
     return changers
+
+
+def _validate_inline_default_targets(
+    args: Sequence[tuple[str, str | None]],
+    operations: list[SignatureOperation],
+) -> None:
+    """Reject ``inline_default`` operations rope would mishandle.
+
+    ``args`` is rope's ``ChangeSignature.get_args()`` for the original
+    definition (``self`` included for methods). The parameter count is tracked
+    through earlier ``add`` / ``remove`` operations so every ``inline_default``
+    index gets a range check. The default checks (the target has a default and
+    no earlier parameter keeps one) run only when ``inline_default`` is the
+    first operation: later operations see a signature rope has already
+    rewritten, which this pre-check cannot model exactly.
+    """
+    count = len(args)
+    for position, operation in enumerate(operations):
+        op = operation.op.strip().lower()
+        if op == "add":
+            count += 1
+            continue
+        if op == "remove":
+            count -= 1
+            continue
+        if op != "inline_default" or operation.index is None:
+            continue
+        index = operation.index
+        if not 0 <= index < count:
+            raise ToolInputError(
+                f"index {index} is out of range for inline_default: the target has {count} "
+                "parameter(s) (parameter: index)"
+            )
+        if position != 0:
+            continue
+        if args[index][1] is None:
+            raise ToolInputError(
+                f"index {index} has no default value to inline (parameter: index)"
+            )
+        preceding = [str(i) for i, (_name, default) in enumerate(args[:index]) if default is not None]
+        if preceding:
+            raise ToolInputError(
+                f"cannot inline the default at index {index}: earlier parameter(s) at index "
+                f"{', '.join(preceding)} keep a default, so removing it would place a "
+                "required parameter after a defaulted one (parameter: index)"
+            )
 
 
 class RopeBackend:
@@ -767,6 +817,13 @@ class RopeBackend:
             ``add`` / ``remove``). The tool layer runs a LibCST post-pass that
             restores both while respecting explicit add/rename defaults and
             ``inline_default`` removal.
+
+        ``inline_default`` inlines the default at call sites that omit the
+        argument and removes it from the definition. Its ``index`` is
+        range-checked against the parameter count (tracked through earlier
+        ``add`` / ``remove`` operations); when it is the first operation the
+        target must also have a default and no earlier parameter may keep one.
+        Violations raise :class:`ToolInputError` naming ``index``.
         """
 
         def _work() -> RefactorResult:
@@ -776,7 +833,9 @@ class RopeBackend:
             offset = self._position_to_offset(file_path, line, character)
 
             changers = _build_signature_changers(operations)
-            changes = ChangeSignature(project, resource, offset).get_changes(changers)
+            signature = ChangeSignature(project, resource, offset)
+            _validate_inline_default_targets(signature.get_args(), operations)
+            changes = signature.get_changes(changers)
             return self._build_result(changes, "Changed function signature", apply)
 
         return await run_in_thread(

@@ -6,8 +6,10 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.mcpserver import Context, MCPServer
+from pydantic import Field
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILE_ENV, discover_max_workspaces, discover_tool_profile
@@ -228,10 +230,10 @@ async def argument_default_inliner(
     file_path: str,
     line: int,
     character: int,
-    index: int,
+    index: Annotated[int, Field(ge=0)],
     apply: bool = False,
 ) -> RefactorResult:
-    """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer. Positions are 0-based (line and character offsets, LSP convention)."""
+    """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position (``self`` counts for methods); it must name a parameter that has a default, and no earlier parameter may keep a default. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     ops = [SignatureOperation(op="inline_default", index=index)]
     result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)

@@ -781,6 +781,48 @@ async def test_rename_at_invalid_position_returns_error(
 
 
 @pytest.mark.asyncio
+async def test_argument_default_inliner_removes_default_and_validates_index(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """The preview drops the default; a negative or default-less index is a visible input error."""
+    target = sample_workspace / "src" / "inline_default_target.py"
+    target.write_text(
+        "def scale(a: int, b: int = 2) -> int:\n    return a * b\n\n\nscale(1)\n",
+        encoding="utf-8",
+    )
+    line, character = _find_position(target, "scale")
+
+    preview = await mcp_session.call_tool(
+        "argument_default_inliner",
+        {"file_path": str(target), "line": line, "character": character, "index": 1},
+    )
+    assert preview.is_error is not True, preview.content
+    payload = _unwrap_result_payload(preview.structured_content)
+    assert isinstance(payload, dict)
+    new_text = next(edit["new_text"] for edit in payload["edits"])
+    assert "def scale(a: int, b: int) -> int:" in new_text
+    assert "scale(1, 2)" in new_text
+
+    negative = await mcp_session.call_tool(
+        "argument_default_inliner",
+        {"file_path": str(target), "line": line, "character": character, "index": -1},
+    )
+    no_default = await mcp_session.call_tool(
+        "argument_default_inliner",
+        {"file_path": str(target), "line": line, "character": character, "index": 0},
+    )
+    for failed in (negative, no_default):
+        assert failed.is_error is True
+        text = " ".join(block.text for block in failed.content if isinstance(block, TextContent))
+        assert "index" in text, text
+    no_default_text = " ".join(
+        block.text for block in no_default.content if isinstance(block, TextContent)
+    )
+    assert "[INVALID_INPUT]" in no_default_text, no_default_text
+
+
+@pytest.mark.asyncio
 async def test_extract_method_invalid_range_returns_error(
     mcp_session: ClientSession,
     sample_workspace: Path,

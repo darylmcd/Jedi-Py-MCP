@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     CallHierarchyResult,
@@ -14,6 +17,7 @@ from python_refactor_mcp.models import (
     Range,
     RefactorResult,
     ReferenceResult,
+    SignatureOperation,
     StructuralMatch,
     SymbolInfo,
     TextEdit,
@@ -115,3 +119,12 @@ def test_refactor_result_default_applied_flag() -> None:
     """Verify refactor result defaults applied to False."""
     result = RefactorResult(edits=[], files_affected=[], description="placeholder")
     assert result.applied is False
+
+
+def test_signature_operation_rejects_negative_index() -> None:
+    """A negative index is rejected instead of being Python-indexed by rope."""
+    with pytest.raises(ValidationError) as exc_info:
+        SignatureOperation(op="inline_default", index=-1)
+    assert "index" in str(exc_info.value)
+    assert SignatureOperation(op="inline_default", index=0).index == 0
+    assert SignatureOperation(op="normalize").index is None

@@ -324,7 +324,7 @@ class SignatureOperation(BaseModel):
     """One operation applied by change_signature refactoring."""
 
     op: str
-    index: int | None = None
+    index: int | None = Field(default=None, ge=0)
     name: str | None = None
     new_name: str | None = None
     default: str | None = None
