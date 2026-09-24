@@ -67,4 +67,4 @@ worktreeSetup:
 
 ## Contract posture
 
-- Repo is PUBLIC on GitHub; contract-care status is an open operator decision (`~/.claude/CLAUDE.md` Directive #4). Until decided: prefer non-breaking tool-surface changes; a change that removes/renames a tool, a parameter, or rejects previously accepted input MUST be called out in the PR body and use a `changed-breaking-*` fragment.
+- Repo is PUBLIC on GitHub; contract-care status is an open operator decision (`~/.claude/CLAUDE.md` Directive #4). 2026-09-24 operator ruling: breaking fixes MAY ship (no ADR/migration note required). A change that removes/renames a tool, a parameter, or rejects previously accepted input MUST still be called out in the PR body and use a `changed-breaking-*` fragment.
