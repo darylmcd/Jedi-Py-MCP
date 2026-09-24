@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -127,3 +129,54 @@ async def test_exit_zero_without_stubs_is_error(tmp_path: Path, monkeypatch: pyt
     with pytest.raises(ToolInputError, match=r"no \.pyi stubs"):
         await create_type_stubs(_config(tmp_path), "pkg")
     assert not (tmp_path / "typings" / "pkg").exists()
+
+
+class _HungProcess:
+    """Fake asyncio subprocess whose ``communicate()`` never completes."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.communicate_cancelled = False
+        self.kill_calls = 0
+        self.wait_awaited = False
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.communicate_cancelled = True
+            raise
+        raise AssertionError("unreachable: communicate() must hang until cancelled")
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+    async def wait(self) -> int:
+        # Reaping must follow the kill, never precede it.
+        assert self.kill_calls == 1
+        self.wait_awaited = True
+        self.returncode = -9
+        return self.returncode
+
+
+@pytest.mark.asyncio
+async def test_createstub_timeout_kills_and_reaps_hung_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    process = _HungProcess()
+    spawned: list[tuple[Any, ...]] = []
+
+    async def fake_exec(*args: Any, **kwargs: Any) -> _HungProcess:
+        spawned.append(args)
+        return process
+
+    monkeypatch.setattr(type_stubs, "_CREATESTUB_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    with pytest.raises(PyrightError, match=r"timed out after .* for 'pkg'"):
+        await asyncio.wait_for(create_type_stubs(_config(tmp_path), "pkg"), timeout=5)
+
+    assert len(spawned) == 1
+    assert "--createstub" in spawned[0]
+    assert process.communicate_cancelled
+    assert process.kill_calls == 1
+    assert process.wait_awaited
+    assert not (tmp_path / "typings").exists()
