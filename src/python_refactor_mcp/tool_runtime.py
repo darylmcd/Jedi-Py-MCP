@@ -39,6 +39,13 @@ PATH_PARAMS: tuple[str, ...] = (
 )
 _LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
 
+# Directory-typed parameters requiring workspace boundary validation. Unlike
+# PATH_PARAMS these are documented as workspace-relative, so a relative value
+# resolves against the workspace root (not the process cwd), and they never
+# anchor backend resolution: an output directory says where results go, not
+# which workspace the call targets.
+DIR_PARAMS: tuple[str, ...] = ("output_dir",)
+
 # Parameters that must be valid Python identifiers.
 IDENTIFIER_PARAMS: tuple[str, ...] = (
     "base_class_name",
@@ -165,6 +172,13 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
             if not all(isinstance(value, str) for value in values):
                 raise ToolInputError(f"{param_name} must contain only strings")
             kwargs[param_name] = [validate_workspace_path(value, workspace_root) for value in values]
+
+    for param_name in DIR_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            requested = Path(value).expanduser()
+            candidate = requested if requested.is_absolute() else workspace_root / requested
+            kwargs[param_name] = validate_workspace_path(str(candidate), workspace_root)
 
     for args in _transaction_step_args(kwargs):
         file_path = args.get("file_path")

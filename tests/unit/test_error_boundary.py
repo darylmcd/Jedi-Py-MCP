@@ -15,8 +15,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from python_refactor_mcp import server
+from python_refactor_mcp.config import TOOL_PROFILES
 from python_refactor_mcp.errors import (
     BackendError,
     ConfigError,
@@ -27,7 +30,10 @@ from python_refactor_mcp.errors import (
     ToolInputError,
     WorkspaceResolutionError,
 )
+from python_refactor_mcp.tool_registry import register_tools
 from python_refactor_mcp.tool_runtime import (
+    DIR_PARAMS,
+    PATH_PARAMS,
     MultiWorkspaceContext,
     _resolve_backends,
     _validate_params,
@@ -229,6 +235,44 @@ def test_validate_params_resolves_nested_transaction_paths(tmp_path: Path) -> No
         str((tmp_path / "a.py").resolve()),
         str((tmp_path / "b.py").resolve()),
     ]
+
+
+def test_validate_params_resolves_relative_dir_against_workspace(tmp_path: Path) -> None:
+    """A relative directory param anchors at the workspace root, not the process cwd."""
+    kwargs = {"output_dir": "stubs"}
+    _validate_params(kwargs, tmp_path)
+    assert kwargs["output_dir"] == str((tmp_path / "stubs").resolve())
+
+
+def test_validate_params_rejects_dir_outside_workspace(tmp_path: Path) -> None:
+    """Absolute and relative directory params escaping the workspace are rejected."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    with pytest.raises(ToolInputError, match="outside the workspace root"):
+        _validate_params({"output_dir": str(tmp_path / "outside")}, workspace)
+    with pytest.raises(ToolInputError, match="outside the workspace root"):
+        _validate_params({"output_dir": "../outside"}, workspace)
+
+
+def test_dir_params_are_disjoint_from_backend_anchoring_path_params() -> None:
+    """Directory params never anchor backend resolution."""
+    assert not set(DIR_PARAMS) & set(PATH_PARAMS)
+
+
+@pytest.mark.asyncio
+async def test_every_directory_typed_tool_param_is_validated() -> None:
+    """Drift guard: every registered ``*_dir``/``*_directory`` parameter is in DIR_PARAMS."""
+    directory_params: set[str] = set()
+    for profile in TOOL_PROFILES:
+        mcp = MCPServer(f"dir-param drift guard ({profile})")
+        register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
+        for tool in await mcp.list_tools():
+            properties = tool.input_schema.get("properties", {})
+            directory_params.update(name for name in properties if name.endswith(("_dir", "_directory")))
+    assert directory_params, "expected at least one directory-typed tool parameter (output_dir)"
+    assert directory_params <= set(DIR_PARAMS), (
+        f"directory params missing from DIR_PARAMS: {sorted(directory_params - set(DIR_PARAMS))}"
+    )
 
 
 def test_validate_params_rejects_bad_identifier(tmp_path: Path) -> None:
@@ -453,6 +497,32 @@ async def test_wrapper_validates_path_against_resolved_workspace(tmp_path: Path)
     with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
         await tool(ctx, file_path=str(tmp_path / "elsewhere" / "mod.py"))
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_wrapper_rejects_output_dir_outside_workspace(tmp_path: Path) -> None:
+    """An out-of-workspace directory argument is rejected at the tool boundary."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_most_recent = MagicMock(return_value=backends)
+    registry.get_backends = AsyncMock(return_value=backends)
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    called = False
+
+    @tool_error_boundary
+    async def tool(ctx: object, package_name: str, output_dir: str | None = None) -> str:
+        nonlocal called
+        called = True
+        return "ok"
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool(ctx, package_name="requests", output_dir=str(tmp_path / "elsewhere"))
+    assert called is False
+    # output_dir must not anchor workspace resolution.
+    registry.get_backends.assert_not_awaited()
 
 
 @pytest.mark.asyncio
