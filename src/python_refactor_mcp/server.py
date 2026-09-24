@@ -6,10 +6,8 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
 
 from mcp.server.mcpserver import Context, MCPServer
-from pydantic import Field
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILE_ENV, ToolProfile, discover_max_workspaces, discover_tool_profile
@@ -25,6 +23,23 @@ from python_refactor_mcp.models import (
     SymbolOutlineResult,
     TestCoverageMap,
     UnusedImportScanResult,
+)
+from python_refactor_mcp.tool_params import (
+    Apply,
+    Character,
+    EndCharacter,
+    FilePath,
+    FilePaths,
+    Limit,
+    Line,
+    MatcherPattern,
+    Offset,
+    OptionalEndLine,
+    OptionalFilePath,
+    ParameterIndex,
+    RootPath,
+    StartCharacter,
+    StartLine,
 )
 from python_refactor_mcp.tool_registry import (
     DESTRUCTIVE_ANNOTATIONS,
@@ -160,10 +175,10 @@ def build_server_instructions(profile: ToolProfile, advertised: frozenset[str]) 
 
 async def get_completions(
     ctx: Context,
-    file_path: str,
-    line: int,
-    character: int,
-    limit: int | None = None,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    limit: Limit = None,
     fuzzy: bool = False,
 ) -> list[CompletionItem]:
     """Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Set fuzzy=True for fuzzy matching (e.g., 'ooa' matches 'foobar'). Related: get_signature_help (for call-site parameter info). Positions are 0-based (line and character offsets, LSP convention)."""
@@ -179,11 +194,11 @@ async def get_completions(
 
 async def get_inlay_hints(
     ctx: Context,
-    file_path: str,
-    start_line: int = 0,
-    start_character: int = 0,
-    end_line: int | None = None,
-    end_character: int = 0,
+    file_path: FilePath,
+    start_line: StartLine = 0,
+    start_character: StartCharacter = 0,
+    end_line: OptionalEndLine = None,
+    end_character: EndCharacter = 0,
 ) -> list[InlayHint]:
     """Get inlay hints (inline type annotations, parameter names) for a file range. Use to visualize inferred types and parameter labels that aren't written in the source. Defaults to the full file when end_line is omitted. Related: get_type_info, get_semantic_tokens. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
@@ -212,13 +227,13 @@ async def get_inlay_hints(
 
 async def get_symbol_outline(
     ctx: Context,
-    file_path: str | None = None,
+    file_path: OptionalFilePath = None,
     kind_filter: list[str] | None = None,
     name_pattern: str | None = None,
-    limit: int | None = None,
-    root_path: str | None = None,
-    file_paths: list[str] | None = None,
-    offset: int = 0,
+    limit: Limit = None,
+    root_path: RootPath = None,
+    file_paths: FilePaths = None,
+    offset: Offset = 0,
     max_nodes: int | None = None,
 ) -> SymbolOutlineResult:
     """Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Returns {items, total_count, offset, truncated, total_nodes, returned_nodes}. Supports pagination via offset/limit (limit counts root items). max_nodes caps roots plus descendants; a root crossing the budget keeps a depth-first prefix of its children. Workspace-wide scans (no file_path/file_paths) default to limit=500 roots and max_nodes=250; single-file and batch outlines are unbounded unless set. Check truncated before assuming completeness. Related: search_symbols (name-based search), get_folding_ranges."""
@@ -261,10 +276,10 @@ async def get_symbol_outline(
 
 async def argument_normalizer(
     ctx: Context,
-    file_path: str,
-    line: int,
-    character: int,
-    apply: bool = False,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    apply: Apply = False,
 ) -> RefactorResult:
     """Normalize call-site arguments to match the function definition's parameter order. Use to clean up keyword arguments that are passed in a different order than the signature defines. Convenience wrapper over change_signature with op='normalize'. Defaults to preview mode. Related: change_signature, argument_default_inliner. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
@@ -276,11 +291,11 @@ async def argument_normalizer(
 
 async def argument_default_inliner(
     ctx: Context,
-    file_path: str,
-    line: int,
-    character: int,
-    index: Annotated[int, Field(ge=0)],
-    apply: bool = False,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    index: ParameterIndex,
+    apply: Apply = False,
 ) -> RefactorResult:
     """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position (``self`` counts for methods); it must name a parameter that has a default, and no earlier parameter may keep a default. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
@@ -297,8 +312,8 @@ async def argument_default_inliner(
 
 async def find_unused_imports(
     ctx: Context,
-    file_path: str | None = None,
-    file_paths: list[str] | None = None,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
 ) -> UnusedImportScanResult:
     """Find unused imports using Pyright diagnostics merged with an AST fallback. Items and partial file/backend scan_failures are returned separately. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
     app = get_current_backends()
@@ -318,8 +333,8 @@ async def find_unused_imports(
 
 async def get_test_coverage_map(
     ctx: Context,
-    file_path: str | None = None,
-    file_paths: list[str] | None = None,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
 ) -> TestCoverageMap:
     """Map source symbols to test references. Shows which functions/classes have test coverage without treating failed reference lookups as uncovered; partial failures are returned in scan_failures. Related: find_references, dead_code_detection."""
     app = get_current_backends()
@@ -336,8 +351,8 @@ async def get_test_coverage_map(
 
 async def security_scan(
     ctx: Context,
-    file_path: str | None = None,
-    file_paths: list[str] | None = None,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
 ) -> SecurityScanResult:
     """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Unreadable or unparseable files are returned in scan_failures rather than treated as clean. Related: get_diagnostics, dead_code_detection."""
     _ = get_current_backends()
@@ -354,9 +369,9 @@ async def security_scan(
 
 async def security_autofix(
     ctx: Context,
-    file_path: str | None = None,
-    file_paths: list[str] | None = None,
-    apply: bool = False,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    apply: Apply = False,
 ) -> RefactorResult:
     """Rewrite unsafe yaml.load() calls (SEC022) to yaml.safe_load(). Targets the literal yaml.load attribute call; calls that already pass an explicit Loader= are skipped (reported in the description). Defaults to preview mode (apply=False). Behavior-changing: safe_load rejects arbitrary tags/object construction that load permits. Related: security_scan."""
     app = get_current_backends()
@@ -367,11 +382,11 @@ async def security_autofix(
 
 async def structural_replace(
     ctx: Context,
-    pattern: str,
+    pattern: MatcherPattern,
     replacement: str,
-    file_path: str | None = None,
-    file_paths: list[str] | None = None,
-    apply: bool = False,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    apply: Apply = False,
 ) -> RefactorResult:
     """Find structural matches with a LibCST matcher pattern and rewrite them. The pattern uses the same matcher DSL as structural_search (e.g. m.Call(func=m.Attribute(value=m.Name('logger'), attr=m.Name('warn')), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])); capture sub-nodes with m.SaveMatchedNode(matcher, 'name') and reference them in the replacement template as $name (e.g. 'logger.warning($a)'). Expression-position matches only. Requires file_path or file_paths; defaults to preview mode (apply=False). Related: structural_search, restructure."""
     app = get_current_backends()
