@@ -48,6 +48,7 @@ from mcp.types import ToolAnnotations
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
 from python_refactor_mcp.models import (
     CallHierarchyResult,
+    CodeActionResult,
     CodeMetricsResult,
     ConstructorSearchResult,
     CouplingMetricsResult,
@@ -615,8 +616,8 @@ async def apply_code_action(
     character: int,
     action_title: str | None = None,
     apply: bool = False,
-) -> RefactorResult:
-    """Apply a Pyright code action (quick fix, refactoring suggestion) at a location. Use when Pyright diagnostics suggest a fix — pass the action_title to select a specific action, or omit it to list available actions. Defaults to preview mode. Related: organize_imports, get_diagnostics. Positions are 0-based (line and character offsets, LSP convention)."""
+) -> CodeActionResult:
+    """Apply a Pyright code action (quick fix, refactoring suggestion) at a location. Use when Pyright diagnostics suggest a fix — pass the action_title to preview or apply a specific action. Omitting action_title returns the offered titles in available_actions without previewing or applying anything, even with apply=True. Defaults to preview mode. Related: organize_imports, get_diagnostics. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     result = await refactoring.apply_code_action(app.pyright, file_path, line, character, action_title, apply)
     _LOGGER.debug("apply_code_action edits=%s applied=%s", len(result.edits), result.applied)

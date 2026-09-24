@@ -78,7 +78,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `argument_default_inliner` | Inline default argument values at call sites. | `RefactorResult` |
 | `restructure` | Apply Rope pattern-based structural replacements. | `RefactorResult` |
 | `use_function` | Replace duplicate code with calls to an existing function. | `RefactorResult` |
-| `apply_code_action` | Preview or apply a Pyright code action at a source position. | `RefactorResult` |
+| `apply_code_action` | Preview or apply a Pyright code action at a source position; omit `action_title` to list the offered titles. | `CodeActionResult` |
 | `organize_imports` | Preview or apply import organization for a file. | `RefactorResult` |
 | `format_code` | Preview or apply ruff-format on one or more files. | `RefactorResult` |
 | `apply_lint_fixes` | Preview or apply ruff `--fix` on one or more files; supports `unsafe_fixes`. | `RefactorResult` |

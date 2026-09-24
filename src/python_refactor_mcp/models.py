@@ -300,6 +300,17 @@ class RefactorResult(BaseModel):
     diffs: list[DiffPreview] | None = None
 
 
+class CodeActionResult(RefactorResult):
+    """``apply_code_action`` payload: a refactor result plus the offered action titles.
+
+    ``available_actions`` lists the titles of the code actions Pyright offers at the
+    requested position. When ``action_title`` is omitted the tool returns only this
+    list (empty ``edits``, ``applied=False``) and never previews or applies an action.
+    """
+
+    available_actions: list[str] = Field(default_factory=list)
+
+
 class TransactionStepResult(BaseModel):
     """Outcome of one step in a ``refactor_transaction`` sequence.
 

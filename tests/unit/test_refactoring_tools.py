@@ -239,7 +239,9 @@ async def test_apply_code_action_applies_workspace_edits(tmp_path: Path) -> None
         }
     ]
 
-    preview = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=False)
+    preview = await refactoring.apply_code_action(
+        pyright, str(target), 0, 9, action_title="Replace with constant", apply=False
+    )
     assert preview.applied is False
     assert target.read_text(encoding="utf-8") == "value = thing\n"
 
@@ -255,8 +257,11 @@ async def test_apply_code_action_applies_workspace_edits(tmp_path: Path) -> None
         ],
         [],
     ]
-    applied = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=True)
+    applied = await refactoring.apply_code_action(
+        pyright, str(target), 0, 9, action_title="Replace with constant", apply=True
+    )
     assert applied.applied is True
+    assert applied.available_actions == ["Replace with constant"]
     assert "THING" in target.read_text(encoding="utf-8")
 
 
@@ -276,7 +281,45 @@ async def test_apply_code_action_without_actions_returns_empty_result(tmp_path: 
     assert result.files_affected == []
     assert result.applied is False
     assert result.description == "No code actions available at the requested position"
+    assert result.available_actions == []
     assert target.read_text(encoding="utf-8") == "\n"
+
+
+@pytest.mark.asyncio
+async def test_apply_code_action_without_title_lists_actions_and_never_applies(tmp_path: Path) -> None:
+    """Omitting action_title returns the offered titles and changes nothing, even with apply=True."""
+    target = tmp_path / "sample.py"
+    target.write_text("value = thing\n", encoding="utf-8")
+    edit = {
+        "changes": {
+            target.resolve().as_uri(): [
+                {
+                    "range": {
+                        "start": {"line": 0, "character": 8},
+                        "end": {"line": 0, "character": 13},
+                    },
+                    "newText": "THING",
+                }
+            ]
+        }
+    }
+
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_code_actions.return_value = [
+        {"title": "Replace with constant", "edit": edit},
+        {"title": "Ignore this error", "edit": edit},
+    ]
+
+    result = await refactoring.apply_code_action(pyright, str(target), 0, 9, apply=True)
+
+    assert result.edits == []
+    assert result.files_affected == []
+    assert result.applied is False
+    assert result.available_actions == ["Replace with constant", "Ignore this error"]
+    assert "2 code action(s) available" in result.description
+    assert target.read_text(encoding="utf-8") == "value = thing\n"
+    pyright.notify_file_changed.assert_not_awaited()
 
 
 @pytest.mark.asyncio
