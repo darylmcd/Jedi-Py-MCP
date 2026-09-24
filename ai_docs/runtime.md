@@ -67,6 +67,9 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | `PYRIGHT_LANGSERVER` | env var | Overrides the default `pyright-langserver` executable |
 | `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 75) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 108-tool catalog |
 | `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid |
+| `PYRIGHT_REQUEST_TIMEOUT_SECONDS` | env var | Per-request Pyright LSP timeout; default `5`, floor `1`. The integration fixture (`tests/integration/conftest.py`) sets `30` unless already set, because each test starts a cold Pyright |
+| `JEDI_OPERATION_TIMEOUT_SECONDS` | env var | Per-operation Jedi timeout; default `10`, floor `1` |
+| `ROPE_OPERATION_TIMEOUT_SECONDS` | env var | Per-operation rope timeout; default `30`, floor `1` |
 | `VIRTUAL_ENV` | env var | Interpreter discovery fallback |
 | `pyrightconfig.json` | workspace file | Optional Pyright project config, discovered from the workspace root |
 | `.venv` / `venv` | workspace directories | Preferred interpreter discovery locations |

@@ -13,6 +13,10 @@ import pytest_asyncio
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+# Each test starts a cold Pyright, whose first request loads typeshed; under a
+# parallel gate that exceeds the 5 s production default, so give tests more room.
+_INTEGRATION_PYRIGHT_TIMEOUT_SECONDS = 30
+
 
 @pytest.fixture
 def sample_workspace(tmp_path: Path) -> Path:
@@ -59,6 +63,9 @@ async def mcp_session(
         "PYTHONPATH": str(repo_root / "src"),
         "PYTHON_REFACTOR_MCP_TOOL_PROFILE": tool_profile,
         "PYRIGHT_LANGSERVER": pyright_path,
+        "PYRIGHT_REQUEST_TIMEOUT_SECONDS": os.environ.get(
+            "PYRIGHT_REQUEST_TIMEOUT_SECONDS", str(_INTEGRATION_PYRIGHT_TIMEOUT_SECONDS)
+        ),
         "PATH": str(scripts_dir) + os.pathsep + os.environ.get("PATH", ""),
     }
 
