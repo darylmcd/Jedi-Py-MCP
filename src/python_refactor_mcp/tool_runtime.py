@@ -28,7 +28,9 @@ _LOGGER = logging.getLogger("python_refactor_mcp.server")
 # Order is deliberate: when a tool accepts multiple path params, the first
 # entry present in kwargs anchors workspace resolution. Source/subject paths
 # come before destination paths so move/copy tools resolve to the source
-# workspace rather than the destination.
+# workspace rather than the destination. Every entry (and each list/transaction
+# path) must be absolute: these values choose the workspace, so no workspace
+# exists yet to anchor a relative value, and the server cwd is not a contract.
 PATH_PARAMS: tuple[str, ...] = (
     "file_path",
     "source_file",
@@ -159,6 +161,41 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
     return backends
 
 
+def _require_absolute(value: str, param_label: str) -> None:
+    """Raise ``ToolInputError`` naming *param_label* when *value* is not an absolute path."""
+    if not Path(value).is_absolute():
+        raise ToolInputError(f"'{value}' is not an absolute path (parameter: {param_label})")
+
+
+def _reject_relative_paths(kwargs: dict[str, Any]) -> None:
+    """Reject relative workspace-selecting path arguments before backend resolution.
+
+    Runs before ``_resolve_backends`` so a relative value can never select (or
+    lazily initialize) a workspace through the server process cwd. ``~/x`` counts
+    as relative; on Windows a POSIX-rooted ``/x`` is not absolute. Non-string
+    values are left to ``_validate_params``.
+    """
+    for param_name in PATH_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            _require_absolute(value, param_name)
+
+    for param_name in _LIST_PATH_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            for value in values:
+                if isinstance(value, str):
+                    _require_absolute(value, param_name)
+
+    steps = kwargs.get("steps")
+    if isinstance(steps, list):
+        for index, step in enumerate(steps):
+            args = step.get("args") if isinstance(step, dict) else None
+            file_path = args.get("file_path") if isinstance(args, dict) else None
+            if isinstance(file_path, str):
+                _require_absolute(file_path, f"steps[{index}].args.file_path")
+
+
 def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
     """Validate and normalize path and identifier parameters in place."""
     for param_name in PATH_PARAMS:
@@ -279,6 +316,7 @@ def tool_error_boundary(
         token: contextvars.Token[WorkspaceBackends] | None = None
         try:
             ctx = args[0] if args else kwargs.get("ctx")
+            _reject_relative_paths(kwargs)
             backends = await _resolve_backends(ctx, kwargs)
             token = _current_backends.set(backends) if backends is not None else None
 

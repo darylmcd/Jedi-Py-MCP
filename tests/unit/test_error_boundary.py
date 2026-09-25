@@ -10,6 +10,7 @@ translation.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -40,6 +41,7 @@ from python_refactor_mcp.tool_runtime import (
     get_current_backends,
     tool_error_boundary,
 )
+from python_refactor_mcp.util.shared import validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends
 
 
@@ -523,6 +525,149 @@ async def test_wrapper_rejects_output_dir_outside_workspace(tmp_path: Path) -> N
     assert called is False
     # output_dir must not anchor workspace resolution.
     registry.get_backends.assert_not_awaited()
+
+
+# ── relative workspace-selecting paths (bl-0041) ────────────────────────
+
+
+def _relative_path_ctx(root: Path) -> tuple[SimpleNamespace, MagicMock]:
+    """Build a ctx whose registry would resolve any path to *root*'s backends."""
+    backends = _backends(root)
+    registry = MagicMock()
+    registry.get_backends = AsyncMock(return_value=backends)
+    registry.get_most_recent = MagicMock(return_value=backends)
+    return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), registry
+
+
+def test_validate_workspace_path_rejects_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Direct callers get an input error instead of a cwd-anchored resolution."""
+    (tmp_path / "pkg").mkdir()
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ToolInputError, match=r"^File path must be absolute: 'pkg/mod\.py' is relative$"):
+        validate_workspace_path("pkg/mod.py", tmp_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("param_name", PATH_PARAMS)
+async def test_wrapper_rejects_relative_path_param_before_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    param_name: str,
+) -> None:
+    """A relative path param is rejected even when the cwd would make it resolve inside the workspace."""
+    root = tmp_path / "ws"
+    (root / "pkg").mkdir(parents=True)
+    monkeypatch.chdir(root)
+    ctx, registry = _relative_path_ctx(root)
+    called = False
+
+    @tool_error_boundary
+    async def tool(ctx: object, **kwargs: str) -> str:
+        nonlocal called
+        called = True
+        return "ok"
+
+    with pytest.raises(ToolError) as raised:
+        await tool(ctx, **{param_name: "pkg/mod.py"})
+
+    assert str(raised.value) == f"[INVALID_INPUT] 'pkg/mod.py' is not an absolute path (parameter: {param_name})"
+    assert called is False
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wrapper_rejects_relative_file_paths_element(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One relative entry in file_paths rejects the call before any workspace is selected."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    ctx, registry = _relative_path_ctx(root)
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_paths: list[str]) -> str:
+        return "ok"
+
+    with pytest.raises(
+        ToolError,
+        match=r"^\[INVALID_INPUT\] 'b\.py' is not an absolute path \(parameter: file_paths\)$",
+    ):
+        await tool(ctx, file_paths=[str(root / "a.py"), "b.py"])
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wrapper_rejects_relative_transaction_step_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A relative nested refactor_transaction path is rejected and located by step index."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    ctx, registry = _relative_path_ctx(root)
+
+    @tool_error_boundary
+    async def tool(ctx: object, steps: list[dict[str, object]]) -> str:
+        return "ok"
+
+    steps: list[dict[str, object]] = [
+        {"tool": "rename_symbol", "args": {"file_path": str(root / "a.py")}},
+        {"tool": "rename_symbol", "args": {"file_path": "b.py"}},
+    ]
+    with pytest.raises(
+        ToolError,
+        match=r"^\[INVALID_INPUT\] 'b\.py' is not an absolute path \(parameter: steps\[1\]\.args\.file_path\)$",
+    ):
+        await tool(ctx, steps=steps)
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wrapper_rejects_home_relative_path(tmp_path: Path) -> None:
+    """``~/x`` is not expanded into an absolute path; it counts as relative."""
+    ctx, registry = _relative_path_ctx(tmp_path)
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        return "ok"
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] '~/mod\.py' is not an absolute path"):
+        await tool(ctx, file_path="~/mod.py")
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="a POSIX-rooted path is absolute outside Windows")
+async def test_wrapper_rejects_posix_rooted_path_on_windows(tmp_path: Path) -> None:
+    """On Windows ``/x`` has no drive, so it is not absolute and is rejected."""
+    ctx, registry = _relative_path_ctx(tmp_path)
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_path: str) -> str:
+        return "ok"
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] '/pkg/mod\.py' is not an absolute path"):
+        await tool(ctx, file_path="/pkg/mod.py")
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wrapper_still_anchors_relative_output_dir_at_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Directory params stay workspace-relative: they follow an already-chosen workspace."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    ctx, _registry = _relative_path_ctx(root)
+
+    @tool_error_boundary
+    async def tool(ctx: object, package_name: str, output_dir: str | None = None) -> str | None:
+        return output_dir
+
+    result = await tool(ctx, package_name="requests", output_dir="stubs")
+
+    assert result == str((root / "stubs").resolve())
 
 
 @pytest.mark.asyncio
