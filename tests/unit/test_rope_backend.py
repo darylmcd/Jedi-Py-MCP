@@ -424,6 +424,33 @@ async def test_autoimport_search_returns_rope_statement_contract(
     assert ("from calc import add", "add") in results
 
 
+@pytest.mark.asyncio
+async def test_autoimport_builds_lazily_without_process_pool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import rope.contrib.autoimport.sqlite as rope_autoimport_sqlite  # type: ignore[import-untyped]
+
+    def no_process_pool(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("AutoImport must not spawn a process pool")
+
+    monkeypatch.setattr(rope_autoimport_sqlite, "ProcessPoolExecutor", no_process_pool)
+    (tmp_path / "calc.py").write_text(
+        "def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8"
+    )
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    try:
+        assert backend._autoimport is None  # pyright: ignore[reportPrivateUsage]
+
+        results = await backend.autoimport_search("add")
+
+        assert ("from calc import add", "add") in results
+        assert backend._autoimport is not None  # pyright: ignore[reportPrivateUsage]
+    finally:
+        backend.close()
+
+
 def _generate_fixture(tmp_path: Path, source: str) -> tuple[RopeBackend, Path]:
     module = tmp_path / "usage.py"
     module.write_text(source, encoding="utf-8")

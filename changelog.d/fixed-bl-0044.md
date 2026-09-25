@@ -1,0 +1,1 @@
+- **Fixed:** Rope AutoImport no longer pre-warms at startup through a CPU-wide process pool that left orphaned `spawn_main` workers when the server was killed; the cache is now built lazily and in-process on the first `autoimport_search`.
