@@ -11,7 +11,7 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILE_ENV, ToolProfile, discover_max_workspaces, discover_tool_profile
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.models import (
     BackendLiveness,
     CompletionItem,
@@ -318,7 +318,7 @@ async def find_unused_imports(
     """Find unused imports using Pyright diagnostics merged with an AST fallback. Items and partial file/backend scan_failures are returned separately. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
     app = get_current_backends()
     if file_path is None and not file_paths:
-        raise ValueError("Either file_path or file_paths must be provided.")
+        raise ToolInputError("file_path or file_paths must be provided.")
     effective_path = file_path if file_path is not None else file_paths[0]  # type: ignore[index]
     result = await metrics.find_unused_imports(app.pyright, effective_path, file_paths)
     log = _LOGGER.warning if result.scan_failures else _LOGGER.debug

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import libcst as cst
 from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider, ScopeProvider
 
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.models import DiffPreview, PrepareRenameResult, RefactorResult, TextEdit
 from python_refactor_mcp.util.cst_apply import parse_module
 from python_refactor_mcp.util.diff import build_unified_diff
@@ -82,8 +82,8 @@ def _ensure_import_alias_collision_free(
         return
 
     old_name, conflicting_name = visitor.collision
-    raise ValueError(
-        f"Cannot rename import alias {old_name!r} to {conflicting_name!r}: "
+    raise ToolInputError(
+        f"new_name {conflicting_name!r} cannot replace import alias {old_name!r}: "
         "the target name is already bound in the same scope."
     )
 
@@ -104,14 +104,14 @@ async def ensure_renameable(
     # Keep a lightweight local guard for obvious invalid targets.
     lines = (source if source is not None else _read_source_for_rename(file_path)).splitlines()
     if line < 0 or line >= len(lines):
-        raise ValueError("Rename preflight failed: line is outside file bounds.")
+        raise ToolInputError("line is outside file bounds; rename preflight failed.")
     line_text = lines[line]
     if character < 0 or character >= len(line_text):
-        raise ValueError("Rename preflight failed: character is outside line bounds.")
+        raise ToolInputError("character is outside line bounds; rename preflight failed.")
     target = line_text[character]
     if not (target.isalnum() or target == "_"):
-        raise ValueError(
-            "Rename preflight failed for the selected position. "
+        raise ToolInputError(
+            "line/character do not select an identifier; rename preflight failed. "
             "Choose an identifier location and retry."
         )
 
