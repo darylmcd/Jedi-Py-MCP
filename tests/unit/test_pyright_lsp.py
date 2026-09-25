@@ -931,6 +931,25 @@ async def test_position_request_rejects_character_beyond_line_length(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_position_request_bounds_character_by_utf16_line_length(tmp_path: Path) -> None:
+    """The end-of-line bound counts UTF-16 units, so an astral character widens it by two."""
+    backend, fake_client, sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+    # _ASTRAL_LINE is 15 code points but 16 UTF-16 units; 16 is the end of ``other``.
+    sample.write_text(_ASTRAL_LINE, encoding="utf-8")
+
+    assert await backend.get_definition(str(sample), 0, 16) == []
+    requested = [method for method, _ in fake_client.requests]
+    assert "textDocument/definition" in requested
+
+    # Match the message, not the class: the error type is owned by a sibling change.
+    with pytest.raises(Exception, match=r"^character 17 is out of range: line 0 has 16 UTF-16 code unit"):
+        await backend.get_definition(str(sample), 0, 17)
+
+
+@pytest.mark.asyncio
 async def test_position_request_rejects_negative_coordinate(tmp_path: Path) -> None:
     """A negative line or character raises a structured error."""
     backend, fake_client, sample = _position_harness(
