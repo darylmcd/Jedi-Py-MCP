@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-25T16:04:23Z
+**updated_at:** 2026-09-25T16:13:14Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -59,6 +59,7 @@
 |----|-----|------|----|------|--------|
 | `bl-0009` | Medium | bl-0001 | **Sweeps pay the cold Pyright first-request cost** — profile `unused_symbol_sweep` cold and add a session prewarm so both sweeps finish < 10 s cold; the diagnostics wait is not the lever (measured). [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
+| `bl-0045` | Medium | — | **Pyright diagnostics failures read as clean files** — surface the per-file publishDiagnostics timeout (config-bound, not `2.0`) and report `get_workspace_diagnostics` fetch errors instead of dropping them. [type: bug] [source: backlog-remediate-20260925T141731Z] | M | items/bl-0045.md |
 
 ## Low
 
@@ -67,6 +68,7 @@
 | `bl-0018` | Low | bl-0035 | **Numeric bounds inconsistent across tools** — apply one validation rule for `limit`/`offset`/`depth`/`max_items`/`count` (≥1 or ≥0) uniformly, and reject `undo`/`redo` `count < 1`. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0018.md |
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
 | `bl-0042` | Low | bl-0041 | **Workspace-relative directory resolution duplicated** — share one `util/shared.py` helper between `tool_runtime` DIR_PARAMS and `type_stubs._resolve_stub_root`. [type: refactor] [source: backlog-remediate-20260924T183010Z] | M | items/bl-0042.md |
+| `bl-0046` | Low | — | **Backend value normalization unreachable after bl-0021** — drop the `callers`/`callees` alias map and case folding, or retype backend params to the shared Literal aliases. [type: refactor] [source: backlog-remediate-20260925T141731Z] | M | items/bl-0046.md |
 
 ## Defer
 
