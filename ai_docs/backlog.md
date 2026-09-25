@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-25T15:42:23Z
+**updated_at:** 2026-09-25T15:53:18Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -59,7 +59,6 @@
 |----|-----|------|----|------|--------|
 | `bl-0009` | Medium | bl-0001 | **Sweeps pay the cold Pyright first-request cost** — profile `unused_symbol_sweep` cold and add a session prewarm so both sweeps finish < 10 s cold; the diagnostics wait is not the lever (measured). [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
-| `bl-0039` | Medium | — | **Pyright restart-retry leaks a raw TimeoutError** — wrap the post-restart `wait_for` retry in `_request` so its timeout raises `PyrightError` like the first attempt; add a unit test. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0039.md |
 
 ## Low
 
