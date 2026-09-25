@@ -45,6 +45,15 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
         "Must lie inside the workspace."
     ),
     "source_file": "Absolute path to the source Python module the tool reads from; it must lie inside the workspace.",
+    "source_path": (
+        "Absolute path to the module file or package directory to move; it must lie inside the workspace."
+    ),
+    "destination_file": (
+        "Absolute path to the Python file that receives the moved symbol; it must lie inside the workspace."
+    ),
+    "destination_package": (
+        "Absolute path to the target package directory; it must lie inside the workspace."
+    ),
     "class_name": "Name of the target class.",
     "class_names": "Names of the classes to compare, all defined in file_path.",
     "method_name": "Name of the existing method to operate on.",
@@ -94,6 +103,9 @@ Limit = Annotated[int | None, Field(description=PARAM_DESCRIPTIONS["limit"])]
 Offset = Annotated[int, Field(description=PARAM_DESCRIPTIONS["offset"])]
 RootPath = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["root_path"])]
 SourceFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_file"])]
+SourcePath = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_path"])]
+DestinationFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["destination_file"])]
+DestinationPackage = Annotated[str, Field(description=PARAM_DESCRIPTIONS["destination_package"])]
 ClassName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["class_name"])]
 OptionalClassName = Annotated[str | None, Field(description=_OPTIONAL_CLASS_NAME)]
 ClassNames = Annotated[list[str], Field(description=PARAM_DESCRIPTIONS["class_names"])]

@@ -116,9 +116,14 @@ def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
     """Resolve *file_path* and verify it is under *workspace_root*.
 
     Returns the resolved absolute path string.  Raises ``ToolInputError`` if the
-    path is outside the workspace boundary.
+    path is not absolute or is outside the workspace boundary. A relative path is
+    rejected rather than resolved: resolving it would anchor it at the server
+    process cwd, which is not a caller-visible contract.
     """
-    resolved = Path(file_path).resolve()
+    requested = Path(file_path)
+    if not requested.is_absolute():
+        raise ToolInputError(f"File path must be absolute: '{file_path}' is relative")
+    resolved = requested.resolve()
     try:
         resolved.relative_to(workspace_root.resolve())
     except ValueError as exc:

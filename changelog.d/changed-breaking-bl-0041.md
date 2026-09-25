@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** Relative `file_path`/`file_paths`/`root_path`/`source_file`/`source_path`/`destination_file`/`destination_package` (and `refactor_transaction` step `file_path`) are now rejected with `[INVALID_INPUT]` naming the parameter, instead of resolving against the server's working directory; pass absolute paths (bl-0041).

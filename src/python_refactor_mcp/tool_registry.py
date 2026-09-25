@@ -107,6 +107,8 @@ from python_refactor_mcp.tool_params import (
     ClassName,
     ClassNames,
     Depth,
+    DestinationFile,
+    DestinationPackage,
     EndCharacter,
     EndLine,
     ExcludePatterns,
@@ -133,6 +135,7 @@ from python_refactor_mcp.tool_params import (
     RootPath,
     RopePattern,
     SourceFile,
+    SourcePath,
     StartCharacter,
     StartLine,
     SuppressCodes,
@@ -624,7 +627,7 @@ async def move_symbol(
     ctx: Context,
     source_file: SourceFile,
     symbol_name: str,
-    destination_file: str,
+    destination_file: DestinationFile,
     apply: Apply = False,
 ) -> RefactorResult:
     """Move a top-level symbol (function, class, variable) from one file to another, updating all imports across the project. Use when reorganizing module structure. Defaults to preview mode. Related: rename_symbol, module_to_package."""
@@ -1190,8 +1193,8 @@ async def move_method(
 
 async def move_module(
     ctx: Context,
-    source_path: str,
-    destination_package: str,
+    source_path: SourcePath,
+    destination_package: DestinationPackage,
     apply: Apply = False,
 ) -> RefactorResult:
     """Move or rename an entire module or package, updating all imports across the project. Use when reorganizing package structure. The source_path is the module file to move; destination_package is the target package directory. Defaults to preview mode. Related: move_symbol, module_to_package."""
