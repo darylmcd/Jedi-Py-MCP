@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, ToolInputError
 from python_refactor_mcp.models import (
     FoldingRange,
     Position,
@@ -270,8 +270,15 @@ async def get_folding_ranges(
     pyright: PyrightNavigationBackend,
     file_path: str,
 ) -> list[FoldingRange]:
-    """Return foldable ranges for a file in deterministic order."""
-    ranges = await pyright.get_folding_ranges(file_path)
+    """Return foldable ranges for a file in deterministic order.
+
+    Falls back to AST-derived ranges when Pyright does not implement
+    ``textDocument/foldingRange`` or returns no ranges.
+    """
+    try:
+        ranges = await pyright.get_folding_ranges(file_path)
+    except LspFeatureUnsupportedError:
+        ranges = []
     if not ranges:
         ranges = _ast_folding_ranges(file_path)
     return sorted(ranges, key=lambda item: (item.start_line, item.end_line, item.kind or ""))

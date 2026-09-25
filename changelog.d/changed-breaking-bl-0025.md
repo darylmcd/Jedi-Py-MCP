@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `find_implementations`, `type_hierarchy` and `get_type_definition` return `[LSP_UNSUPPORTED]` when Pyright does not advertise or implement the LSP method, instead of an empty or placeholder result; `get_folding_ranges` falls back to AST ranges (bl-0025).

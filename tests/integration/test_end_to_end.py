@@ -527,9 +527,15 @@ async def test_type_hierarchy_and_selection_range_tools(
         },
     )
 
-    assert type_result.is_error is not True
-    type_payload = type_result.structured_content
-    assert isinstance(type_payload, dict)
+    if type_result.is_error is True:
+        # The pinned Pyright does not implement type hierarchy; the tool must say so.
+        text = " ".join(
+            block.text for block in type_result.content if isinstance(block, TextContent)
+        )
+        assert "[LSP_UNSUPPORTED]" in text, text
+    else:
+        type_payload = type_result.structured_content
+        assert isinstance(type_payload, dict)
     _assert_data_or_unsupported(selection_result)
 
 

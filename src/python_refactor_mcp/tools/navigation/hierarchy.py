@@ -256,10 +256,13 @@ async def type_hierarchy(
     if depth < 1:
         raise ToolInputError("depth must be greater than or equal to 1")
 
+    # LspFeatureUnsupportedError (LSP_UNSUPPORTED) propagates deliberately: a
+    # Pyright that does not implement type hierarchy must surface as an error,
+    # not as the empty placeholder below.
     roots = await pyright.prepare_type_hierarchy(file_path, line, character)
 
-    # Retry with AST-resolved class name position when Pyright returns empty
-    # (cursor may be on the `class` keyword instead of the name token).
+    # Retry with AST-resolved class name position when a supported Pyright
+    # returns empty (cursor may be on the `class` keyword instead of the name token).
     if not roots:
         resolved = _resolve_class_position(file_path, line, character, class_name)
         if resolved and (resolved[0] != line or resolved[1] != character):
