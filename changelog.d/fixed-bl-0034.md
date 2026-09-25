@@ -1,0 +1,1 @@
+- **Fixed:** out-of-range `line`/`character` positions and a nonexistent `file_path` on Pyright-backed tools return `[INVALID_INPUT]` naming the parameter instead of a redacted backend-outage error.
