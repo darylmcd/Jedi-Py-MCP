@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-25T15:53:18Z
+**updated_at:** 2026-09-25T16:04:23Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -66,7 +66,6 @@
 |----|-----|------|----|------|--------|
 | `bl-0018` | Low | bl-0035 | **Numeric bounds inconsistent across tools** — apply one validation rule for `limit`/`offset`/`depth`/`max_items`/`count` (≥1 or ≥0) uniformly, and reject `undo`/`redo` `count < 1`. [type: bug] [source: mcp-surface-audit-20260923] | M | items/bl-0018.md |
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
-| `bl-0040` | Low | — | **`_validate_position` rejects valid UTF-16 end-of-line columns** — bound `character` by the line's UTF-16 length using bl-0033's helpers. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0040.md |
 | `bl-0042` | Low | bl-0041 | **Workspace-relative directory resolution duplicated** — share one `util/shared.py` helper between `tool_runtime` DIR_PARAMS and `type_stubs._resolve_stub_root`. [type: refactor] [source: backlog-remediate-20260924T183010Z] | M | items/bl-0042.md |
 
 ## Defer
