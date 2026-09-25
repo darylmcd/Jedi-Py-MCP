@@ -944,8 +944,7 @@ async def test_position_request_bounds_character_by_utf16_line_length(tmp_path: 
     requested = [method for method, _ in fake_client.requests]
     assert "textDocument/definition" in requested
 
-    # Match the message, not the class: the error type is owned by a sibling change.
-    with pytest.raises(Exception, match=r"^character 17 is out of range: line 0 has 16 UTF-16 code unit"):
+    with pytest.raises(ToolInputError, match=r"^character 17 is out of range: line 0 has 16 UTF-16 code unit"):
         await backend.get_definition(str(sample), 0, 17)
 
 
