@@ -6,7 +6,7 @@ import difflib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     DiffPreview,
     TextEdit,
@@ -36,20 +36,21 @@ async def diff_preview(edits: list[TextEdit]) -> list[DiffPreview]:
 def _normalize_steps(steps: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
     """Validate and normalize raw ``{"tool": ..., "args": {...}}`` step dicts.
 
-    Returns ``(tool, args)`` tuples. Raises :class:`RopeError` for malformed
-    steps so the failure surfaces structurally before any edit is applied.
+    Returns ``(tool, args)`` tuples. Raises :class:`ToolInputError` for
+    malformed steps so the failure surfaces as ``[INVALID_INPUT]`` before any
+    edit is applied.
     """
     if not steps:
-        raise RopeError("refactor_transaction requires at least one step")
+        raise ToolInputError("refactor_transaction 'steps' requires at least one step")
 
     normalized: list[tuple[str, dict[str, Any]]] = []
     for index, step in enumerate(steps):
         tool = step.get("tool")
         if not isinstance(tool, str) or not tool:
-            raise RopeError(f"transaction step {index} is missing a string 'tool'")
+            raise ToolInputError(f"transaction step {index} is missing a string 'tool'")
         args = step.get("args", {})
         if not isinstance(args, dict):
-            raise RopeError(f"transaction step {index} 'args' must be an object")
+            raise ToolInputError(f"transaction step {index} 'args' must be an object")
         normalized.append((tool, args))
     return normalized
 
@@ -121,8 +122,8 @@ async def refactor_transaction(rope: RopeBackend, steps: list[dict[str, Any]]) -
     * **Input / pre-flight errors RAISE.** An empty step list, a structurally
       malformed step (no string ``tool`` / non-object ``args`` / missing
       ``file_path``), or a step naming an unsupported tool is rejected *before*
-      any change is pushed — :class:`RopeError` propagates (→ ``ValueError`` at
-      the tool boundary) with nothing applied. All steps' tool-names and arg
+      any change is pushed — :class:`ToolInputError` propagates (→
+      ``[INVALID_INPUT]`` at the tool boundary) with nothing applied. All steps' tool-names and arg
       shape are validated up front so an unknown tool in a later step is caught
       before the first step runs.
     * **Execution failures RETURN a rolled-back result.** Once execution begins,
@@ -138,7 +139,7 @@ async def refactor_transaction(rope: RopeBackend, steps: list[dict[str, Any]]) -
     """
     normalized = _normalize_steps(steps)
     # Pre-flight: reject unsupported tools / missing file_path across ALL steps
-    # before any edit is pushed. Raises RopeError on bad input.
+    # before any edit is pushed. Raises ToolInputError on bad input.
     rope.validate_transaction_steps(normalized)
 
     # Snapshot originals before any edit so the post-commit diff summary can be

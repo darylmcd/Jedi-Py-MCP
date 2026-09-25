@@ -8,7 +8,7 @@ import pytest
 
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import ToolInputError
 
 
 def _backend(tmp_path: Path) -> RopeBackend:
@@ -63,7 +63,7 @@ async def test_begin_change_stack_rejects_nested_stack(tmp_path: Path) -> None:
     backend = _backend(tmp_path)
     await backend.begin_change_stack()
 
-    with pytest.raises(RopeError, match="already active"):
+    with pytest.raises(ToolInputError, match="already active"):
         await backend.begin_change_stack()
 
     await backend.rollback_change_stack()

@@ -643,3 +643,87 @@ async def test_commit_change_stack_reports_file_operations(tmp_path: Path) -> No
     assert [Path(path).resolve() for path in committed.files_affected] == [(dest / "mod.py").resolve()]
     assert not module.exists()
     assert (dest / "mod.py").is_file()
+
+
+_HISTORY_SOURCE = "value = 1\nprint(value)\n"
+
+
+def _history_fixture(tmp_path: Path) -> tuple[RopeBackend, Path]:
+    module = tmp_path / "sample.py"
+    module.write_text(_HISTORY_SOURCE, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return backend, module
+
+
+@pytest.mark.asyncio
+async def test_undo_on_empty_history_is_invalid_input(tmp_path: Path) -> None:
+    """Empty undo history is the caller's state error, not a redacted backend failure."""
+    backend, module = _history_fixture(tmp_path)
+
+    with pytest.raises(ToolInputError, match=r"nothing to undo for count=1; the undo history holds 0"):
+        await backend.undo()
+
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_redo_on_empty_history_is_invalid_input(tmp_path: Path) -> None:
+    backend, module = _history_fixture(tmp_path)
+
+    with pytest.raises(ToolInputError, match=r"nothing to redo for count=1; the redo history holds 0"):
+        await backend.redo()
+
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_undo_count_beyond_history_undoes_nothing(tmp_path: Path) -> None:
+    """A count larger than the history is rejected before the loop: no partial undo."""
+    backend, module = _history_fixture(tmp_path)
+    # A committed change stack records exactly one rope history entry.
+    await backend.begin_change_stack()
+    await backend.rename(str(module), 0, 0, "count", apply=True)
+    await backend.commit_change_stack()
+    renamed = module.read_text(encoding="utf-8")
+    assert renamed == "count = 1\nprint(count)\n"
+
+    with pytest.raises(ToolInputError, match=r"count=2; the undo history holds 1"):
+        await backend.undo(2)
+
+    assert module.read_text(encoding="utf-8") == renamed
+    await backend.undo(1)
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_commit_change_stack_without_begin_is_invalid_input(tmp_path: Path) -> None:
+    backend, module = _history_fixture(tmp_path)
+
+    with pytest.raises(ToolInputError, match=r"commit_change_stack: no active change stack"):
+        await backend.commit_change_stack()
+
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_rollback_change_stack_without_begin_is_invalid_input(tmp_path: Path) -> None:
+    backend, module = _history_fixture(tmp_path)
+
+    with pytest.raises(ToolInputError, match=r"rollback_change_stack: no active change stack"):
+        await backend.rollback_change_stack()
+
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_begin_change_stack_twice_is_invalid_input(tmp_path: Path) -> None:
+    backend, module = _history_fixture(tmp_path)
+    await backend.begin_change_stack()
+
+    with pytest.raises(ToolInputError, match=r"begin_change_stack: a change stack is already active"):
+        await backend.begin_change_stack()
+
+    # The first stack is still active and usable; the project is unchanged.
+    await backend.rollback_change_stack()
+    assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE

@@ -9,7 +9,7 @@ import pytest
 
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import RopeError
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.tools import composite
 
 
@@ -184,7 +184,7 @@ async def test_unknown_tool_is_rejected(tmp_path: Path) -> None:
     module.write_text(original, encoding="utf-8")
     backend = _backend(tmp_path)
 
-    with pytest.raises(RopeError, match="not supported"):
+    with pytest.raises(ToolInputError, match="not supported"):
         await composite.refactor_transaction(
             backend,
             steps=[{"tool": "format_code", "args": {"file_path": str(module)}}],
@@ -201,7 +201,7 @@ async def test_unknown_tool_in_later_step_caught_before_first_step_applies(tmp_p
     module.write_text(original, encoding="utf-8")
     backend = _backend(tmp_path)
 
-    with pytest.raises(RopeError, match="not supported"):
+    with pytest.raises(ToolInputError, match="not supported"):
         await composite.refactor_transaction(
             backend,
             steps=[
@@ -220,7 +220,7 @@ async def test_unknown_tool_in_later_step_caught_before_first_step_applies(tmp_p
 async def test_step_missing_file_path_is_rejected(tmp_path: Path) -> None:
     """A structurally-invalid step (no string `file_path`) is an INPUT error -> RAISES."""
     backend = _backend(tmp_path)
-    with pytest.raises(RopeError, match="file_path"):
+    with pytest.raises(ToolInputError, match="file_path"):
         await composite.refactor_transaction(
             backend,
             steps=[{"tool": "rename_symbol", "args": {"line": 0, "character": 4, "new_name": "x"}}],
@@ -231,5 +231,20 @@ async def test_step_missing_file_path_is_rejected(tmp_path: Path) -> None:
 async def test_empty_steps_rejected(tmp_path: Path) -> None:
     """An empty step list is a structured INPUT error, not a silent no-op -> RAISES."""
     backend = _backend(tmp_path)
-    with pytest.raises(RopeError, match="at least one step"):
+    with pytest.raises(ToolInputError, match="at least one step"):
         await composite.refactor_transaction(backend, steps=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("step", "reason"),
+    [
+        ({"args": {"file_path": "m.py"}}, "step 0 is missing a string 'tool'"),
+        ({"tool": "rename_symbol", "args": ["m.py"]}, "step 0 'args' must be an object"),
+    ],
+)
+async def test_malformed_step_is_invalid_input(tmp_path: Path, step: dict[str, Any], reason: str) -> None:
+    """A structurally malformed step is a ToolInputError naming the step and field."""
+    backend = _backend(tmp_path)
+    with pytest.raises(ToolInputError, match=reason):
+        await composite.refactor_transaction(backend, steps=[step])
