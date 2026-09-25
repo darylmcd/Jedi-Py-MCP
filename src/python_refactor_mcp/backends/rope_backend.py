@@ -217,6 +217,26 @@ def _validate_inline_default_targets(
             )
 
 
+def _build_autoimport(project: Project) -> AutoImport:
+    """Build an in-memory AutoImport cache of the project's files in-process.
+
+    Rope 1.14's ``AutoImport.generate_cache`` always runs a CPU-wide
+    ``ProcessPoolExecutor``; its workers orphan when the server is killed.
+    ``update_resource`` indexes one file in the current process, so the cache is
+    built serially with no pool. The fresh in-memory database needs none of
+    ``generate_cache``'s stale-package cleanup.
+    """
+    autoimport = AutoImport(project, memory=True)  # pyright: ignore[reportGeneralTypeIssues]
+    try:
+        for resource in project.get_python_files():
+            autoimport.update_resource(resource, commit=False)
+        autoimport.connection.commit()
+    except BaseException:
+        autoimport.close()
+        raise
+    return autoimport
+
+
 class RopeBackend:
     """rope refactoring backend used for code edits and apply workflows."""
 
@@ -240,22 +260,8 @@ class RopeBackend:
             str(self._config.workspace_root),
             **cast(Any, self._config.rope_prefs),
         )
-        # Pre-warm one persistent AutoImport cache. Rope 1.14 removed the
-        # context-manager API, so ownership follows the backend lifecycle.
-        autoimport: AutoImport | None = None
-        try:
-            autoimport = AutoImport(self._project, memory=True)  # pyright: ignore[reportGeneralTypeIssues]
-            autoimport.generate_cache()
-            self._autoimport = autoimport
-        except Exception:
-            # AutoImport is an optional third-party accelerator. Rope exposes no
-            # stable exception family here, so preserve initialization and log it.
-            _LOGGER.debug("AutoImport cache pre-warm failed", exc_info=True)
-            if autoimport is not None:
-                try:
-                    autoimport.close()
-                except Exception:
-                    _LOGGER.debug("AutoImport cleanup after pre-warm failure failed", exc_info=True)
+        # The AutoImport cache is built lazily by ``autoimport_search`` via
+        # ``_build_autoimport``; no process pool is spawned at startup.
 
     def close(self) -> None:
         """Close rope project resources if initialized."""
@@ -1250,13 +1256,7 @@ class RopeBackend:
             project = self._require_project()
             with self._autoimport_lock:
                 if self._autoimport is None:
-                    autoimport = AutoImport(project, memory=True)  # pyright: ignore[reportGeneralTypeIssues]
-                    try:
-                        autoimport.generate_cache()
-                    except Exception:
-                        autoimport.close()
-                        raise
-                    self._autoimport = autoimport
+                    self._autoimport = _build_autoimport(project)
                 results: list[tuple[str, str]] = self._autoimport.search(name)
                 return results
 
