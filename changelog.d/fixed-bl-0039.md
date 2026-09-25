@@ -1,0 +1,1 @@
+- **Fixed:** A Pyright request that times out on the post-restart retry now raises the same `PyrightError` "timed out after" failure as the first attempt instead of leaking a raw `TimeoutError`.
