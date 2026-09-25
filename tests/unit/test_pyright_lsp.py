@@ -13,7 +13,7 @@ import pytest
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient, path_to_uri, uri_to_path
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError, ToolInputError
 from python_refactor_mcp.models import CallHierarchyItem, Position, Range
 from python_refactor_mcp.util.lsp_client import (
     JSONDict,
@@ -906,7 +906,7 @@ async def test_position_request_rejects_line_beyond_eof(tmp_path: Path) -> None:
         {"textDocument/references": {"jsonrpc": "2.0", "id": 1, "result": []}},
     )
 
-    with pytest.raises(PyrightError, match="position out of range"):
+    with pytest.raises(ToolInputError, match=r"^line 999999 is out of range"):
         await backend.get_references(str(sample), 999_999, 0, include_declaration=True)
 
     # The bad coordinate must short-circuit before any LSP round-trip.
@@ -923,7 +923,7 @@ async def test_position_request_rejects_character_beyond_line_length(tmp_path: P
     )
 
     # Line 0 is "value = other" (13 chars); character 99 is past its end.
-    with pytest.raises(PyrightError, match="position out of range"):
+    with pytest.raises(ToolInputError, match=r"^character 99 is out of range"):
         await backend.get_definition(str(sample), 0, 99)
 
     requested = [method for method, _ in fake_client.requests]
@@ -938,11 +938,46 @@ async def test_position_request_rejects_negative_coordinate(tmp_path: Path) -> N
         {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
     )
 
-    with pytest.raises(PyrightError, match="position out of range"):
+    with pytest.raises(ToolInputError, match=r"^line must be non-negative"):
         await backend.get_definition(str(sample), -1, 0)
+    with pytest.raises(ToolInputError, match=r"^character must be non-negative"):
+        await backend.get_definition(str(sample), 0, -1)
 
     requested = [method for method, _ in fake_client.requests]
     assert "textDocument/definition" not in requested
+
+
+@pytest.mark.asyncio
+async def test_position_request_rejects_nonexistent_file_as_input_error(tmp_path: Path) -> None:
+    """A nonexistent file_path is caller input: ToolInputError naming file_path, no didOpen."""
+    backend, fake_client, _sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+    missing = tmp_path / "does_not_exist.py"
+
+    with pytest.raises(ToolInputError, match=r"^file_path does not exist") as excinfo:
+        await backend.get_definition(str(missing), 0, 0)
+
+    assert not isinstance(excinfo.value, PyrightError)
+    assert fake_client.notifications == []
+    assert fake_client.requests == []
+
+
+@pytest.mark.asyncio
+async def test_position_request_unreadable_file_stays_backend_error(tmp_path: Path) -> None:
+    """An existing but undecodable file is a backend failure and keeps the PyrightError shape."""
+    backend, fake_client, _sample = _position_harness(
+        tmp_path,
+        {"textDocument/definition": {"jsonrpc": "2.0", "id": 1, "result": []}},
+    )
+    undecodable = tmp_path / "not_utf8.py"
+    undecodable.write_bytes(b"name = '\xff\xfe'\n")
+
+    with pytest.raises(PyrightError, match="Cannot read file"):
+        await backend.get_definition(str(undecodable), 0, 0)
+
+    assert fake_client.requests == []
 
 
 @pytest.mark.asyncio

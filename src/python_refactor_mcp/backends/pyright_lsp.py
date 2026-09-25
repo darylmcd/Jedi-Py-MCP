@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError, ToolInputError
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     CompletionItem,
@@ -436,7 +436,13 @@ class PyrightLSPClient:
     # ── File tracking ─────────────────────────────────────────────────
 
     async def ensure_file_open(self, file_path: str) -> None:
-        """Ensure a file is opened and tracked in the language server session."""
+        """Ensure a file is opened and tracked in the language server session.
+
+        A nonexistent ``file_path`` is the caller's own input error and raises
+        :class:`ToolInputError` naming ``file_path``; an existing file that
+        cannot be read or decoded is a backend failure and raises
+        :class:`PyrightError`.
+        """
         absolute_path = normalize_path(file_path)
         if absolute_path in self._open_files:
             return
@@ -445,7 +451,7 @@ class PyrightLSPClient:
         try:
             text = Path(absolute_path).read_text(encoding="utf-8")
         except FileNotFoundError as exc:
-            raise PyrightError(f"File not found: {absolute_path}") from exc
+            raise ToolInputError(f"file_path does not exist: {file_path}") from exc
         except (UnicodeDecodeError, OSError) as exc:
             raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
         version = 1
@@ -578,9 +584,11 @@ class PyrightLSPClient:
         without letting them clobber the envelope keys, and returns the raw
         response dict. Callers retain their own error-check and result dispatch.
 
-        Out-of-range ``line``/``char`` coordinates raise :class:`PyrightError`
-        before the LSP round-trip, so a bad coordinate is distinguishable from a
-        genuine zero-result (Pyright silently returns ``null`` for both).
+        Out-of-range ``line``/``char`` coordinates raise :class:`ToolInputError`
+        (surfaced as ``[INVALID_INPUT]`` naming the parameter) before the LSP
+        round-trip, so a bad coordinate is distinguishable from a genuine
+        zero-result (Pyright silently returns ``null`` for both) and from a
+        backend outage.
         """
         was_open = absolute_path in self._open_files
         await self.ensure_file_open(absolute_path)
@@ -611,14 +619,16 @@ class PyrightLSPClient:
         :meth:`RopeBackend._position_to_offset`'s validation; it is marginally
         stricter — rope additionally accepts the virtual position just past a
         trailing newline (``line == line_count``, ``char == 0``), which this
-        read-only check rejects. Raises :class:`PyrightError` on any
-        out-of-range coordinate so callers surface a clear error instead of an
-        ambiguous empty result.
+        read-only check rejects. Raises :class:`ToolInputError` naming ``line``
+        or ``character`` on any out-of-range coordinate so callers see an
+        ``[INVALID_INPUT]`` error instead of an ambiguous empty result or a
+        redacted backend failure. A missing content cache for an open file is
+        server-internal state, not caller input, and stays :class:`PyrightError`.
         """
-        if line < 0 or char < 0:
-            raise PyrightError(
-                f"position out of range: line {line} / character {char} must be non-negative"
-            )
+        if line < 0:
+            raise ToolInputError(f"line must be non-negative (0-based); got {line}")
+        if char < 0:
+            raise ToolInputError(f"character must be non-negative (0-based); got {char}")
 
         text = self._file_contents.get(absolute_path)
         if text is None:
@@ -626,16 +636,16 @@ class PyrightLSPClient:
 
         lines = text.splitlines() or [""]
         if line >= len(lines):
-            raise PyrightError(
-                f"position out of range: line {line} is beyond end of file "
-                f"({len(lines)} line(s)) in {absolute_path}"
+            raise ToolInputError(
+                f"line {line} is out of range: the file has {len(lines)} line(s) "
+                f"(valid 0-based lines are 0..{len(lines) - 1})"
             )
 
         line_length = len(lines[line])
         if char > line_length:
-            raise PyrightError(
-                f"position out of range: character {char} is beyond end of line {line} "
-                f"({line_length} char(s)) in {absolute_path}"
+            raise ToolInputError(
+                f"character {char} is out of range: line {line} has {line_length} "
+                f"character(s) (valid 0-based characters are 0..{line_length})"
             )
 
     async def get_hover(self, file_path: str, line: int, char: int) -> TypeInfo | None:
