@@ -1,0 +1,1 @@
+- **Fixed:** Pyright position validation bounds `character` by the line's UTF-16 length, so end-of-line columns after astral characters (e.g. emoji) are accepted.

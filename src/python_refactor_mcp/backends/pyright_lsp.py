@@ -616,8 +616,9 @@ class PyrightLSPClient:
         """Bounds-check a 0-based LSP position against the file's contents.
 
         A valid line is ``0 <= line < line_count``; a valid character is
-        ``0 <= char <= len(line_text)`` (the column may equal the line length to
-        address an end-of-line position). This is the read-path analogue of
+        ``0 <= char <= utf16_len(line_text)`` — LSP ``character`` counts UTF-16
+        code units, so an astral code point widens the bound by two — and the
+        column may equal that length to address an end-of-line position. This is the read-path analogue of
         :meth:`RopeBackend._position_to_offset`'s validation; it is marginally
         stricter — rope additionally accepts the virtual position just past a
         trailing newline (``line == line_count``, ``char == 0``), which this
@@ -643,11 +644,12 @@ class PyrightLSPClient:
                 f"(valid 0-based lines are 0..{len(lines) - 1})"
             )
 
-        line_length = len(lines[line])
+        line_text = lines[line]
+        line_length = _code_point_to_utf16_offset(line_text, len(line_text))
         if char > line_length:
             raise ToolInputError(
                 f"character {char} is out of range: line {line} has {line_length} "
-                f"character(s) (valid 0-based characters are 0..{line_length})"
+                f"UTF-16 code unit(s) (valid 0-based characters are 0..{line_length})"
             )
 
     async def get_hover(self, file_path: str, line: int, char: int) -> TypeInfo | None:
