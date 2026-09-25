@@ -109,6 +109,7 @@ from python_refactor_mcp.tool_params import (
     Depth,
     DestinationFile,
     DestinationPackage,
+    DocstringStyle,
     EndCharacter,
     EndLine,
     ExcludePatterns,
@@ -116,6 +117,7 @@ from python_refactor_mcp.tool_params import (
     FilePath,
     FilePaths,
     FunctionName,
+    GenerateKind,
     HistoryCount,
     IncludeDeclaration,
     Limit,
@@ -134,10 +136,12 @@ from python_refactor_mcp.tool_params import (
     Query,
     RootPath,
     RopePattern,
+    SeverityFilter,
     SourceFile,
     SourcePath,
     StartCharacter,
     StartLine,
+    StructuralLanguage,
     SuppressCodes,
     TransactionSteps,
     TypeDirection,
@@ -282,7 +286,7 @@ async def get_semantic_tokens(ctx: Context, file_path: FilePath, limit: Limit = 
 async def get_diagnostics(
     ctx: Context,
     file_path: OptionalFilePath = None,
-    severity_filter: str | None = None,
+    severity_filter: SeverityFilter = None,
     limit: Limit = None,
     suppress_codes: SuppressCodes = None,
     file_paths: FilePaths = None,
@@ -847,7 +851,7 @@ async def docstring_sync(
     file_path: FilePath,
     line: Line,
     character: Character,
-    style: str = "auto",
+    style: DocstringStyle = "auto",
     apply: Apply = False,
 ) -> RefactorResult:
     """Synchronize one function signature with its existing Google, NumPy, or Sphinx docstring parameter fields. Point line/character at the function name. Positions are 0-based (line and character offsets, LSP convention). Auto-detection is the default; pass style='google', 'numpy', or 'sphinx' when adding the first parameter section. Existing descriptions are preserved, missing parameters are added, stale parameters are removed, and entries are reordered. Defaults to preview mode (`apply=false`). Related: change_signature, apply_type_annotations, diff_preview."""
@@ -1209,7 +1213,7 @@ async def generate_code(
     file_path: FilePath,
     line: Line,
     character: Character,
-    kind: str,
+    kind: GenerateKind,
     apply: Apply = False,
 ) -> RefactorResult:
     """Generate a missing class, function, variable, module, or package from a usage site. Use when code references a name that doesn't exist yet — rope creates a skeleton definition. The kind parameter must be one of: 'class', 'function', 'variable', 'module', 'package'. Defaults to preview mode. Related: extract_method, introduce_factory. Positions are 0-based (line and character offsets, LSP convention)."""
@@ -1267,7 +1271,7 @@ async def structural_search(
     ctx: Context,
     pattern: MatcherPattern,
     file_path: OptionalFilePath = None,
-    language: str = "python",
+    language: StructuralLanguage = "python",
     limit: Limit = None,
 ) -> StructuralSearchResult:
     """Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Check files_scanned in the response to distinguish "found nothing" from "failed to scan". The language parameter accepts only "python" (the default); any other value is rejected. Related: restructure (pattern-based replace), dead_code_detection."""

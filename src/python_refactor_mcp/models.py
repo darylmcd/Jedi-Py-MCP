@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class Position(BaseModel):
@@ -347,25 +347,15 @@ class TransactionResult(BaseModel):
     diffs: list[DiffPreview] = Field(default_factory=list)
 
 
-_VALID_SIGNATURE_OPS = frozenset({"add", "remove", "reorder", "inline_default", "normalize", "rename"})
-
-
 class SignatureOperation(BaseModel):
     """One operation applied by change_signature refactoring."""
 
-    op: str
+    op: Literal["add", "remove", "reorder", "inline_default", "normalize", "rename"]
     index: int | None = Field(default=None, ge=0)
     name: str | None = None
     new_name: str | None = None
     default: str | None = None
     new_order: list[Annotated[int, Field(ge=0)]] | None = None
-
-    @field_validator("op")
-    @classmethod
-    def _validate_op(cls, value: str) -> str:
-        if value not in _VALID_SIGNATURE_OPS:
-            raise ValueError(f"Invalid operation '{value}'. Must be one of: {sorted(_VALID_SIGNATURE_OPS)}")
-        return value
 
 
 class ConstructorSite(BaseModel):

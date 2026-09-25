@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from python_refactor_mcp import server
 from python_refactor_mcp.errors import (
@@ -681,9 +682,9 @@ async def test_rename_symbol_rope_raises_propagates(tmp_path: Path) -> None:
 
 
 def test_change_signature_invalid_op_raises() -> None:
-    """When an unsupported operation is passed, Pydantic validation rejects it."""
-    with pytest.raises(ValueError, match="Invalid operation"):
-        SignatureOperation(op="bad_op")
+    """When an unsupported operation is passed, the pydantic Literal rejects it."""
+    with pytest.raises(ValidationError, match="Input should be 'add', 'remove', 'reorder'"):
+        SignatureOperation.model_validate({"op": "bad_op"})
 
 
 # ── format_code (ruff-format subprocess wrapper) ──
