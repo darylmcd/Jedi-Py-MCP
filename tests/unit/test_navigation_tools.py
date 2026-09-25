@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import LspFeatureUnsupportedError, ToolInputError
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     FoldingRange,
@@ -316,6 +316,38 @@ async def test_get_folding_ranges_sorted() -> None:
     result = await navigation.get_folding_ranges(pyright, "/repo/a.py")
 
     assert [item.start_line for item in result] == [2, 10]
+
+
+@pytest.mark.asyncio
+async def test_get_folding_ranges_falls_back_to_ast_when_unsupported(tmp_path: Path) -> None:
+    """An LSP_UNSUPPORTED folding request degrades to AST-derived ranges."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("def outer():\n    x = 1\n    return x\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_folding_ranges.side_effect = LspFeatureUnsupportedError(
+        "textDocument/foldingRange unhandled by Pyright"
+    )
+
+    result = await navigation.get_folding_ranges(pyright, str(sample))
+
+    assert [(item.start_line, item.end_line) for item in result] == [(0, 2)]
+
+
+@pytest.mark.asyncio
+async def test_type_hierarchy_propagates_unsupported_without_retry(tmp_path: Path) -> None:
+    """An unsupported prepareTypeHierarchy raises instead of returning a placeholder."""
+    sample = tmp_path / "sample.py"
+    sample.write_text("class Widget:\n    pass\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.prepare_type_hierarchy.side_effect = LspFeatureUnsupportedError(
+        "textDocument/prepareTypeHierarchy unhandled by Pyright"
+    )
+
+    with pytest.raises(LspFeatureUnsupportedError) as raised:
+        await navigation.type_hierarchy(pyright, str(sample), 0, 0)
+
+    assert raised.value.code == "LSP_UNSUPPORTED"
+    pyright.prepare_type_hierarchy.assert_awaited_once()
 
 
 @pytest.mark.asyncio

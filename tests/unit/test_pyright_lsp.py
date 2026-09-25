@@ -14,7 +14,7 @@ import pytest
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient, path_to_uri, uri_to_path
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import LspFeatureUnsupportedError, PyrightError, ToolInputError
-from python_refactor_mcp.models import CallHierarchyItem, Position, Range
+from python_refactor_mcp.models import CallHierarchyItem, Position, Range, TypeHierarchyItem
 from python_refactor_mcp.util.lsp_client import (
     JSONDict,
     JSONValue,
@@ -1083,6 +1083,12 @@ def _startable_harness(
     return StartableHarness(config, responses), sample
 
 
+def _type_hierarchy_item(path: str) -> TypeHierarchyItem:
+    """Build a minimal type hierarchy item for supertypes/subtypes requests."""
+    origin = Position(line=0, character=0)
+    return TypeHierarchyItem(name="Sample", kind="class", file_path=path, range=Range(start=origin, end=origin))
+
+
 _UNSUPPORTED_FEATURES = [
     pytest.param(
         "selectionRangeProvider",
@@ -1101,6 +1107,42 @@ _UNSUPPORTED_FEATURES = [
         "textDocument/semanticTokens/full",
         lambda backend, path: backend.get_semantic_tokens(path),
         id="semantic-tokens",
+    ),
+    pytest.param(
+        "implementationProvider",
+        "textDocument/implementation",
+        lambda backend, path: backend.get_implementation(path, 0, 0),
+        id="implementation",
+    ),
+    pytest.param(
+        "typeHierarchyProvider",
+        "textDocument/prepareTypeHierarchy",
+        lambda backend, path: backend.prepare_type_hierarchy(path, 0, 0),
+        id="prepare-type-hierarchy",
+    ),
+    pytest.param(
+        "typeHierarchyProvider",
+        "typeHierarchy/supertypes",
+        lambda backend, path: backend.get_supertypes(_type_hierarchy_item(path)),
+        id="supertypes",
+    ),
+    pytest.param(
+        "typeHierarchyProvider",
+        "typeHierarchy/subtypes",
+        lambda backend, path: backend.get_subtypes(_type_hierarchy_item(path)),
+        id="subtypes",
+    ),
+    pytest.param(
+        "typeDefinitionProvider",
+        "textDocument/typeDefinition",
+        lambda backend, path: backend.get_type_definition(path, 0, 0),
+        id="type-definition",
+    ),
+    pytest.param(
+        "foldingRangeProvider",
+        "textDocument/foldingRange",
+        lambda backend, path: backend.get_folding_ranges(path),
+        id="folding-range",
     ),
 ]
 

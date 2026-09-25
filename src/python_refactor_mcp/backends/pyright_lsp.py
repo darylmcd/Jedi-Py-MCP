@@ -797,13 +797,14 @@ class PyrightLSPClient:
 
     async def get_implementation(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get symbol implementation locations from Pyright."""
+        self._require_capability("implementationProvider", "textDocument/implementation")
         absolute_path = normalize_path(file_path)
         response = await self._position_request("textDocument/implementation", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
-                # Pyright may not support textDocument/implementation for all symbol types
-                # (e.g., Protocol/structural types).  Return empty rather than crashing.
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/implementation unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"Implementation request failed: {response['error']}")
 
         result = response.get("result")
@@ -1005,13 +1006,16 @@ class PyrightLSPClient:
 
     async def prepare_type_hierarchy(self, file_path: str, line: int, char: int) -> list[TypeHierarchyItem]:
         """Prepare type hierarchy item(s) for a source position."""
+        self._require_capability("typeHierarchyProvider", "textDocument/prepareTypeHierarchy")
         absolute_path = normalize_path(file_path)
         response = await self._position_request(
             "textDocument/prepareTypeHierarchy", absolute_path, line, char
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/prepareTypeHierarchy unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"prepareTypeHierarchy failed: {response['error']}")
 
         result = response.get("result")
@@ -1021,13 +1025,16 @@ class PyrightLSPClient:
 
     async def get_supertypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
         """Return direct supertypes for a type hierarchy item."""
+        self._require_capability("typeHierarchyProvider", "typeHierarchy/supertypes")
         response = await self._request(
             "typeHierarchy/supertypes",
             {"item": type_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"typeHierarchy/supertypes unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"typeHierarchy/supertypes failed: {response['error']}")
 
         result = response.get("result")
@@ -1037,13 +1044,16 @@ class PyrightLSPClient:
 
     async def get_subtypes(self, item: TypeHierarchyItem) -> list[TypeHierarchyItem]:
         """Return direct subtypes for a type hierarchy item."""
+        self._require_capability("typeHierarchyProvider", "typeHierarchy/subtypes")
         response = await self._request(
             "typeHierarchy/subtypes",
             {"item": type_hierarchy_item_to_lsp(item)},
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"typeHierarchy/subtypes unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"typeHierarchy/subtypes failed: {response['error']}")
 
         result = response.get("result")
@@ -1184,11 +1194,14 @@ class PyrightLSPClient:
 
     async def get_type_definition(self, file_path: str, line: int, char: int) -> list[Location]:
         """Get type-definition locations for a symbol from Pyright."""
+        self._require_capability("typeDefinitionProvider", "textDocument/typeDefinition")
         absolute_path = normalize_path(file_path)
         response = await self._position_request("textDocument/typeDefinition", absolute_path, line, char)
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/typeDefinition unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"typeDefinition request failed: {response['error']}")
 
         result = response.get("result")
@@ -1449,6 +1462,7 @@ class PyrightLSPClient:
 
     async def get_folding_ranges(self, file_path: str) -> list[FoldingRange]:
         """Get foldable regions for a file from Pyright."""
+        self._require_capability("foldingRangeProvider", "textDocument/foldingRange")
         absolute_path = normalize_path(file_path)
         await self.ensure_file_open(absolute_path)
 
@@ -1460,7 +1474,9 @@ class PyrightLSPClient:
         )
         if "error" in response:
             if is_unhandled_method_error(response):
-                return []
+                raise LspFeatureUnsupportedError(
+                    f"textDocument/foldingRange unhandled by Pyright: {response['error']}"
+                )
             raise PyrightError(f"foldingRange request failed: {response['error']}")
 
         result = response.get("result")
