@@ -228,6 +228,7 @@ class PyrightLSPClient:
     async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
         """Send an LSP request with a bounded timeout and auto-restart on crash."""
         await self._ensure_healthy()
+        timeout_message = f"{method} request timed out after {self._request_timeout_seconds:.1f}s"
         try:
             async with timed(_LOGGER, f"pyright.{method}"):
                 return await asyncio.wait_for(
@@ -235,19 +236,20 @@ class PyrightLSPClient:
                     timeout=self._request_timeout_seconds,
                 )
         except TimeoutError as exc:
-            raise PyrightError(
-                f"{method} request timed out after {self._request_timeout_seconds:.1f}s"
-            ) from exc
+            raise PyrightError(timeout_message) from exc
         except PyrightError:
             if self._client.is_alive():
                 raise
             # Process died during request — attempt single restart and retry.
             _LOGGER.warning("Pyright process died during %s request, attempting restart", method)
             await self._restart()
-            return await asyncio.wait_for(
-                self._client.send_request(method, params),
-                timeout=self._request_timeout_seconds,
-            )
+            try:
+                return await asyncio.wait_for(
+                    self._client.send_request(method, params),
+                    timeout=self._request_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise PyrightError(timeout_message) from exc
 
     async def _ensure_healthy(self) -> None:
         """Check if Pyright is alive and restart if it has crashed."""

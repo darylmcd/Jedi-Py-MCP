@@ -1221,3 +1221,66 @@ async def test_unhandled_method_reply_raises_unsupported(
 
     with pytest.raises(LspFeatureUnsupportedError, match="unhandled by Pyright"):
         await call(backend, str(sample))
+
+
+# ── Request timeout on the post-restart retry ──
+
+
+class DiesThenHangsClient(FakeLSPClient):
+    """Transport whose first request dies with the process; the retry never completes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.alive = True
+        self.send_count = 0
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        self.requests.append((method, params))
+        self.send_count += 1
+        if self.send_count == 1:
+            self.alive = False
+            raise PyrightError("Pyright process exited during request")
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable: the retry must be cancelled by its timeout")
+
+
+class RetryTimeoutHarness(PyrightClientHarness):
+    """Harness with a no-op restart and a short request timeout."""
+
+    def __init__(self, config: ServerConfig) -> None:
+        super().__init__(config)
+        self._request_timeout_seconds = 0.2
+        self.restart_count = 0
+
+    async def _restart(self) -> None:
+        self.restart_count += 1
+
+    async def request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        """Expose the timeout/restart request path for tests."""
+        return await self._request(method, params)
+
+
+@pytest.mark.asyncio
+async def test_post_restart_retry_timeout_raises_pyright_error(tmp_path: Path) -> None:
+    """A retry that hangs after a crash-restart raises PyrightError, not a raw TimeoutError."""
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = RetryTimeoutHarness(config)
+    client = DiesThenHangsClient()
+    backend.set_client(cast(LSPClient, client))
+
+    with pytest.raises(PyrightError, match=r"^textDocument/hover request timed out after 0\.2s$") as raised:
+        await backend.request("textDocument/hover", {})
+
+    assert isinstance(raised.value.__cause__, TimeoutError)
+    assert backend.restart_count == 1
+    assert client.send_count == 2
