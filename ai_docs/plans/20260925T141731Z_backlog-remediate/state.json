@@ -115,7 +115,7 @@
     {
       "id": "bl-0044",
       "order": 3,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0044"
       ],
@@ -141,19 +141,30 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0044",
+      "worktreePath": ".worktrees/bl-0044",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/159",
+      "mergedAt": "2026-09-25T15:22:09Z",
       "notes": null,
       "fileSetHash": "ddceb903f6b028e2477665bd453dfb6a766c39fca58b8bbd376c55f19c012ad5",
       "stanzaHash": "2dec30cf3a2b50cfbfa32e19dff8e1a8d88f3f10daae6a5228ceb2f850435b43",
-      "reviewedStanzaHash": "2dec30cf3a2b50cfbfa32e19dff8e1a8d88f3f10daae6a5228ceb2f850435b43"
+      "reviewedStanzaHash": "2dec30cf3a2b50cfbfa32e19dff8e1a8d88f3f10daae6a5228ceb2f850435b43",
+      "chainGate": {
+        "predecessor": null,
+        "baseOid": "4cd6350630e09d323aaf203f2c125b61fc81ef5b",
+        "sourceOid": "73d58a83e9bddca7403b766c3687cec3c09be657",
+        "headOid": "73d58a83e9bddca7403b766c3687cec3c09be657",
+        "gatedTree": "1e9c9890e6940534c9cf607d493dbbb3f32efe36",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0044-20260925T151654724Z-3280-a1.log",
+        "gatedAt": "2026-09-25T15:19:13.032Z"
+      }
     },
     {
       "id": "bl-0009",
       "order": 4,
-      "status": "pending",
+      "status": "deferred",
       "backlogRowsClosed": [],
       "productionFilesTouched": 3,
       "productionFiles": [
@@ -184,7 +195,7 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null,
+      "notes": "held at stanza step (0) ABORT: 0 Phase-1 diagnostics-wait timeouts over 5 cold+warm runs at 4cd6350; cold median 5.71 s (P1 3.50/P2 1.93), 143-file probe 7.75-8.15 s cold; P1 cost is real Pyright first-check time, not the 2 s wait. Row stays open; next deliverable = cold first-request prewarm.",
       "fileSetHash": "f8c1e4890cfb0deb09b54931b530f7ef49bf7f05211a2e51c53a48507bf91347",
       "stanzaHash": "295db560a99d203934e7e5d4757d2f35ee9c02514f18384f4369bd0145899b4a",
       "reviewedStanzaHash": "295db560a99d203934e7e5d4757d2f35ee9c02514f18384f4369bd0145899b4a"
@@ -380,7 +391,7 @@
     {
       "id": "bl-0021",
       "order": 9,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0021"
       ],
@@ -409,14 +420,25 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0021",
+      "worktreePath": ".worktrees/bl-0021",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/160",
+      "mergedAt": "2026-09-25T15:26:43Z",
       "notes": null,
       "fileSetHash": "64b3bbe4cd2dd9041fff1542731cf9e75f4660e7f6d61f0a4345c8fb4210d390",
       "stanzaHash": "d44ecad0992345ecbe16e68a683a2f333c46045b11652f08b28f715f0966f259",
-      "reviewedStanzaHash": "d44ecad0992345ecbe16e68a683a2f333c46045b11652f08b28f715f0966f259"
+      "reviewedStanzaHash": "d44ecad0992345ecbe16e68a683a2f333c46045b11652f08b28f715f0966f259",
+      "chainGate": {
+        "predecessor": null,
+        "baseOid": "f9400cb077ede36b26264d30a3e0d66291c47247",
+        "sourceOid": "c40debc7ec9f97b8a235d1f680ff0768069cb4ce",
+        "headOid": "c40debc7ec9f97b8a235d1f680ff0768069cb4ce",
+        "gatedTree": "a3f8c7902fccffe0f0247215e6245b88eebca1e3",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0021-20260925T152306449Z-44532-a1.log",
+        "gatedAt": "2026-09-25T15:26:32.025Z"
+      }
     },
     {
       "id": "bl-0040",
