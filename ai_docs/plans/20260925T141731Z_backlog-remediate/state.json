@@ -13,7 +13,7 @@
     {
       "id": "bl-0034",
       "order": 1,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0034"
       ],
@@ -39,19 +39,31 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0034",
+      "worktreePath": ".worktrees/bl-0034",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/153",
+      "mergedAt": "2026-09-25T15:03:37Z",
       "notes": null,
       "fileSetHash": "506158ca7876350c08450c119059031f57e40de592628f35ad883ed28eabfe8f",
       "stanzaHash": "cd87cb7ae7eb31f5fae2aa423e04edc167df0d1762d68fcf2b023b6b8f761f5c",
-      "reviewedStanzaHash": "cd87cb7ae7eb31f5fae2aa423e04edc167df0d1762d68fcf2b023b6b8f761f5c"
+      "reviewedStanzaHash": "cd87cb7ae7eb31f5fae2aa423e04edc167df0d1762d68fcf2b023b6b8f761f5c",
+      "chainGate": {
+        "predecessor": null,
+        "baseOid": "990eff025b084133e76d34496d10536a2926c146",
+        "sourceOid": "c462f7fb1130956f9c3a23da525d4f300a9937a3",
+        "headOid": "c462f7fb1130956f9c3a23da525d4f300a9937a3",
+        "gatedTree": "d8862db49ce9285d0f51d6f7af61f16ebbd988e3",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0034-20260925T144550296Z-568-a1.log",
+        "gatedAt": "2026-09-25T14:48:33.525Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0035",
       "order": 2,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0035"
       ],
@@ -79,14 +91,26 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0035",
+      "worktreePath": ".worktrees/bl-0035",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/155",
+      "mergedAt": "2026-09-25T15:03:52Z",
       "notes": null,
       "fileSetHash": "39cd5e46dea65538f2f5f44b59639c85fa0c565a56d0abd67c0743f38ae521fd",
       "stanzaHash": "6961aa10ba719ca0f39b7e8c53d146d02b6096b98056dab0a8d6126c3011b06a",
-      "reviewedStanzaHash": "6961aa10ba719ca0f39b7e8c53d146d02b6096b98056dab0a8d6126c3011b06a"
+      "reviewedStanzaHash": "6961aa10ba719ca0f39b7e8c53d146d02b6096b98056dab0a8d6126c3011b06a",
+      "chainGate": {
+        "predecessor": "bl-0034",
+        "baseOid": "c462f7fb1130956f9c3a23da525d4f300a9937a3",
+        "sourceOid": "0d656284e5590d3aecb8057e89c97299fe7d1f17",
+        "headOid": "7460d9ee62072770710102209a8a99dba976f900",
+        "gatedTree": "2fe40c3ee6f7c5756658322522c43d925cc27014",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0035-20260925T144833614Z-568-a1.log",
+        "gatedAt": "2026-09-25T14:51:30.485Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0044",
@@ -210,7 +234,7 @@
     {
       "id": "bl-0037",
       "order": 6,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0037"
       ],
@@ -240,19 +264,31 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0037",
+      "worktreePath": ".worktrees/bl-0037",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/152",
+      "mergedAt": "2026-09-25T15:04:09Z",
       "notes": null,
       "fileSetHash": "68480faeb521223a738629f5ae4d252a080fef650fa8009eac11cfeb5a346722",
       "stanzaHash": "5e9ea5cd8ac8642b90a8b1509613ee44dc5b47d459e10e9e76e0812848f951a7",
-      "reviewedStanzaHash": "5e9ea5cd8ac8642b90a8b1509613ee44dc5b47d459e10e9e76e0812848f951a7"
+      "reviewedStanzaHash": "5e9ea5cd8ac8642b90a8b1509613ee44dc5b47d459e10e9e76e0812848f951a7",
+      "chainGate": {
+        "predecessor": "bl-0035",
+        "baseOid": "7460d9ee62072770710102209a8a99dba976f900",
+        "sourceOid": "76bdda43be727967d023ed92673fe257734bb8ca",
+        "headOid": "337248d290d0d98b8d19da3a2941eca007c3046e",
+        "gatedTree": "c4a8d02214186ee3dcf59db8913aecd2a887fca9",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0037-20260925T145130518Z-568-a1.log",
+        "gatedAt": "2026-09-25T14:54:11.756Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0038",
       "order": 7,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0038"
       ],
@@ -282,14 +318,26 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0038",
+      "worktreePath": ".worktrees/bl-0038",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/156",
+      "mergedAt": "2026-09-25T15:04:28Z",
       "notes": null,
       "fileSetHash": "f35dead3e6d8f5eb0b5bf7f485ea3caff65802474fb1032c686368ffc3fa88fb",
       "stanzaHash": "06aa6400ab59c83a0313f896013596dcd626b2d779792f00b16820a326de39ff",
-      "reviewedStanzaHash": "06aa6400ab59c83a0313f896013596dcd626b2d779792f00b16820a326de39ff"
+      "reviewedStanzaHash": "06aa6400ab59c83a0313f896013596dcd626b2d779792f00b16820a326de39ff",
+      "chainGate": {
+        "predecessor": "bl-0037",
+        "baseOid": "337248d290d0d98b8d19da3a2941eca007c3046e",
+        "sourceOid": "3a8cfc76bbabb82eef6bde444487e8202cc64229",
+        "headOid": "a869526fddcd11e0568f1b6fbb8bdc3cfb7d8f09",
+        "gatedTree": "d90af1a136961d675c9f320d1f05165c4cad309e",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0038-20260925T145411777Z-568-a1.log",
+        "gatedAt": "2026-09-25T14:56:52.621Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0039",
@@ -411,7 +459,7 @@
     {
       "id": "bl-0041",
       "order": 11,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0041"
       ],
@@ -440,19 +488,31 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0041",
+      "worktreePath": ".worktrees/bl-0041",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/154",
+      "mergedAt": "2026-09-25T15:05:10Z",
       "notes": null,
       "fileSetHash": "0d602a359305c50897671d4b638b20c762b26adf7a292206f2c6505410da2a65",
       "stanzaHash": "00daa4f8ecc8883ee082a91cba0565df5407afef3622474e2c002a060b12930f",
-      "reviewedStanzaHash": "00daa4f8ecc8883ee082a91cba0565df5407afef3622474e2c002a060b12930f"
+      "reviewedStanzaHash": "00daa4f8ecc8883ee082a91cba0565df5407afef3622474e2c002a060b12930f",
+      "chainGate": {
+        "predecessor": "bl-0038",
+        "baseOid": "a869526fddcd11e0568f1b6fbb8bdc3cfb7d8f09",
+        "sourceOid": "7acf9bb723c22f01a982295d35fbc3b73d3a5f50",
+        "headOid": "634baab9ef97c5957ddd0d74ca2e7631cb7e4dff",
+        "gatedTree": "891ccff996268d1c7ecf26d38a1f8190a79b333d",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0041-20260925T145652642Z-568-a1.log",
+        "gatedAt": "2026-09-25T14:59:29.968Z"
+      },
+      "requiredChecks": "none-declared"
     },
     {
       "id": "bl-0043",
       "order": 12,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0043"
       ],
@@ -476,14 +536,26 @@
         "ruleOneBundleResolved": null
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0043",
+      "worktreePath": ".worktrees/bl-0043",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/157",
+      "mergedAt": "2026-09-25T15:05:31Z",
       "notes": null,
       "fileSetHash": "6913224b1935f0cb9d3ee731b2cc7ad6ad81be2d1afe193fa13280c392d9ee71",
       "stanzaHash": "829afd1ccbb63945dcda7f2f61c38bfc849dda0a2f97801409250650f4d4387b",
-      "reviewedStanzaHash": "829afd1ccbb63945dcda7f2f61c38bfc849dda0a2f97801409250650f4d4387b"
+      "reviewedStanzaHash": "829afd1ccbb63945dcda7f2f61c38bfc849dda0a2f97801409250650f4d4387b",
+      "chainGate": {
+        "predecessor": "bl-0041",
+        "baseOid": "634baab9ef97c5957ddd0d74ca2e7631cb7e4dff",
+        "sourceOid": "6d8bcc3886146d191c7fdb4c461d6886ff12a3ff",
+        "headOid": "04eece4c61da8a55189c41d307ed1129ebcca82d",
+        "gatedTree": "6e69e912a7ed8a3f6c0ec4b39d4dc57f1f9c3e12",
+        "exit": 0,
+        "attempts": 1,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/79f6fdb6-6019-4153-b583-327f19c84396/scratchpad/20260925T141731Z_backlog-remediate/gate-logs/chain-bl-0043-20260925T145929988Z-568-a1.log",
+        "gatedAt": "2026-09-25T15:02:29.007Z"
+      },
+      "requiredChecks": "none-declared"
     }
   ],
   "anchorVerification": "performed",
