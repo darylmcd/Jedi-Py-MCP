@@ -18,7 +18,7 @@ module namespace that declares the tool.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
@@ -87,18 +87,28 @@ _OPTIONAL_CLASS_NAME = (
 _CALL_DIRECTION = "Which side of the call hierarchy to return: 'callers', 'callees', or 'both'."
 _TYPE_DIRECTION = "Which side of the type hierarchy to return: 'supertypes', 'subtypes', or 'both'."
 _ROPE_PATTERN = "rope restructuring pattern to match; ${name} wildcards bind sub-expressions reused in goal."
+_SEVERITY_FILTER = (
+    "Return only diagnostics of this severity: 'error', 'warning', 'information', or 'hint'; "
+    "omit it to return every severity."
+)
+_DOCSTRING_STYLE = (
+    "Docstring convention to write: 'auto' detects it from the existing docstring; "
+    "'google', 'numpy', or 'sphinx' forces that style."
+)
+_GENERATE_KIND = "Kind of definition to generate: 'class', 'function', 'variable', 'module', or 'package'."
+_STRUCTURAL_LANGUAGE = "Source language of the searched files; only 'python' is supported."
 
 FilePath = Annotated[str, Field(description=PARAM_DESCRIPTIONS["file_path"])]
 OptionalFilePath = Annotated[str | None, Field(description=_OPTIONAL_FILE_PATH)]
 FilePaths = Annotated[list[str] | None, Field(description=PARAM_DESCRIPTIONS["file_paths"])]
 Apply = Annotated[bool, Field(description=PARAM_DESCRIPTIONS["apply"])]
-Line = Annotated[int, Field(description=PARAM_DESCRIPTIONS["line"])]
-Character = Annotated[int, Field(description=PARAM_DESCRIPTIONS["character"])]
-StartLine = Annotated[int, Field(description=PARAM_DESCRIPTIONS["start_line"])]
-StartCharacter = Annotated[int, Field(description=PARAM_DESCRIPTIONS["start_character"])]
-EndLine = Annotated[int, Field(description=PARAM_DESCRIPTIONS["end_line"])]
-OptionalEndLine = Annotated[int | None, Field(description=PARAM_DESCRIPTIONS["end_line"])]
-EndCharacter = Annotated[int, Field(description=PARAM_DESCRIPTIONS["end_character"])]
+Line = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["line"])]
+Character = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["character"])]
+StartLine = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["start_line"])]
+StartCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["start_character"])]
+EndLine = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_line"])]
+OptionalEndLine = Annotated[int | None, Field(ge=0, description=PARAM_DESCRIPTIONS["end_line"])]
+EndCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_character"])]
 Limit = Annotated[int | None, Field(description=PARAM_DESCRIPTIONS["limit"])]
 Offset = Annotated[int, Field(description=PARAM_DESCRIPTIONS["offset"])]
 RootPath = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["root_path"])]
@@ -121,8 +131,16 @@ IncludeDeclaration = Annotated[bool, Field(description=PARAM_DESCRIPTIONS["inclu
 SuppressCodes = Annotated[list[str] | None, Field(description=PARAM_DESCRIPTIONS["suppress_codes"])]
 ExcludePatterns = Annotated[list[str] | None, Field(description=PARAM_DESCRIPTIONS["exclude_patterns"])]
 ExcludeTestFiles = Annotated[bool, Field(description=PARAM_DESCRIPTIONS["exclude_test_files"])]
-CallDirection = Annotated[str, Field(description=_CALL_DIRECTION)]
-TypeDirection = Annotated[str, Field(description=_TYPE_DIRECTION)]
+CallDirection = Annotated[Literal["callers", "callees", "both"], Field(description=_CALL_DIRECTION)]
+TypeDirection = Annotated[Literal["supertypes", "subtypes", "both"], Field(description=_TYPE_DIRECTION)]
+SeverityFilter = Annotated[
+    Literal["error", "warning", "information", "hint"] | None, Field(description=_SEVERITY_FILTER)
+]
+DocstringStyle = Annotated[Literal["auto", "google", "numpy", "sphinx"], Field(description=_DOCSTRING_STYLE)]
+GenerateKind = Annotated[
+    Literal["class", "function", "variable", "module", "package"], Field(description=_GENERATE_KIND)
+]
+StructuralLanguage = Annotated[Literal["python"], Field(description=_STRUCTURAL_LANGUAGE)]
 Query = Annotated[str, Field(description=PARAM_DESCRIPTIONS["query"])]
 MatcherPattern = Annotated[str, Field(description=PARAM_DESCRIPTIONS["pattern"])]
 RopePattern = Annotated[str, Field(description=_ROPE_PATTERN)]

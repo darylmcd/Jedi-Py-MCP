@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp import server
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
@@ -299,3 +300,78 @@ async def test_shared_parameter_names_carry_descriptions(profile: ToolProfile) -
         if name in PARAM_DESCRIPTIONS and not prop.get("description")
     )
     assert not missing, f"shared parameters missing a description: {missing}"
+
+
+async def _tools_by_name() -> dict[str, tuple[Any, MCPServer]]:
+    """Return every advertised tool across all profiles with the server that registered it."""
+    found: dict[str, tuple[Any, MCPServer]] = {}
+    for profile in TOOL_PROFILES:
+        mcp = MCPServer(f"Python Refactor contract ({profile})")
+        register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
+        for tool in await mcp.list_tools():
+            found.setdefault(tool.name, (tool, mcp))
+    return found
+
+
+def _non_null_branch(prop: dict[str, Any]) -> dict[str, Any]:
+    """Return the non-null schema of an optional ``anyOf`` property, or the property itself."""
+    branches = [branch for branch in prop.get("anyOf", []) if branch.get("type") != "null"]
+    return branches[0] if len(branches) == 1 else prop
+
+
+_POSITION_PARAMS = frozenset({"line", "character", "start_line", "start_character", "end_line", "end_character"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "param", "expected"),
+    [
+        ("call_hierarchy", "direction", ["callers", "callees", "both"]),
+        ("type_hierarchy", "direction", ["supertypes", "subtypes", "both"]),
+        ("get_diagnostics", "severity_filter", ["error", "warning", "information", "hint"]),
+        ("docstring_sync", "style", ["auto", "google", "numpy", "sphinx"]),
+        ("generate_code", "kind", ["class", "function", "variable", "module", "package"]),
+        ("structural_search", "language", ["python"]),
+    ],
+)
+async def test_closed_set_params_advertise_enum(tool_name: str, param: str, expected: list[str]) -> None:
+    """Closed-set parameters advertise their allowed values in the input schema."""
+    tools = await _tools_by_name()
+    schema = _non_null_branch(tools[tool_name][0].input_schema["properties"][param])
+    allowed = schema["enum"] if "enum" in schema else [schema["const"]]
+    assert allowed == expected
+
+
+@pytest.mark.asyncio
+async def test_signature_operation_op_advertises_enum() -> None:
+    """change_signature operations advertise the closed op set through ``$defs``."""
+    tools = await _tools_by_name()
+    op_schema = tools["change_signature"][0].input_schema["$defs"]["SignatureOperation"]["properties"]["op"]
+    assert op_schema["enum"] == ["add", "remove", "reorder", "inline_default", "normalize", "rename"]
+
+
+@pytest.mark.asyncio
+async def test_position_params_advertise_minimum_zero() -> None:
+    """Every 0-based position parameter advertises and enforces ``minimum: 0``."""
+    tools = await _tools_by_name()
+    positions = [
+        (name, param, _non_null_branch(prop))
+        for name, (tool, _) in tools.items()
+        for param, prop in tool.input_schema.get("properties", {}).items()
+        if param in _POSITION_PARAMS
+    ]
+    assert positions, "expected tools with position parameters"
+    missing = sorted((name, param) for name, param, schema in positions if schema.get("minimum") != 0)
+    assert not missing, f"position parameters without minimum 0: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_out_of_set_direction_is_rejected_naming_the_parameter() -> None:
+    """An out-of-set value fails argument validation and the error names the parameter."""
+    tools = await _tools_by_name()
+    _, mcp = tools["call_hierarchy"]
+    with pytest.raises(ToolError, match=r"direction[\s\S]*Input should be 'callers', 'callees' or 'both'"):
+        await mcp.call_tool(
+            "call_hierarchy",
+            {"file_path": "C:/workspace/module.py", "line": 0, "character": 0, "direction": "up"},
+        )
