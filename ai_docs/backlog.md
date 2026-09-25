@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-25T03:53:55Z
+**updated_at:** 2026-09-25T15:06:12Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -52,8 +52,6 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0034` | High | — | **Pyright position/file preflight reported as backend outage** — raise `ToolInputError` for out-of-range line/character and a nonexistent `file_path` in `_validate_position`/`ensure_file_open`. [type: bug] [source: bl-0003] | S | items/bl-0034.md |
-| `bl-0035` | High | — | **Rope change-stack/history/transaction misuse reported as backend outage** — raise `ToolInputError` for empty/malformed transactions, empty undo/redo history and stack begin/commit/rollback misuse. [type: bug] [source: bl-0003] | M | items/bl-0035.md |
 | `bl-0044` | High | — | Stop RopeBackend.initialize AutoImport pre-warm from spawning a CPU-wide ProcessPoolExecutor (rope generate_cache) that orphans ~24 spawn workers per server when the MCP server is killed; make it lazy or in-process, add regression test. [type: bug] [source: process-sweep 2026-09-24] | S | items/bl-0044.md |
 
 ## Medium
@@ -63,8 +61,6 @@
 | `bl-0009` | Medium | bl-0001 | **Dead-code sweeps exceed 30 s cold** — bound or remove the per-file 2 s diagnostics wait in `dead_code_detection` Phase 1 and re-measure cold time (request count is not the lever — see profile). [type: perf] [source: mcp-surface-audit-20260923] | M | items/bl-0009.md |
 | `bl-0025` | Medium | — | **Unhandled-method replies still read as empty results** — route the 5 remaining unhandled-method `return []` branches through `LspFeatureUnsupportedError` (bl-0005's pattern). [type: bug] [source: backlog-remediate-20260924T131340Z] | S | items/bl-0025.md |
 | `bl-0036` | Medium | bl-0035 | **Rope caller-argument validation raises RopeError** — raise `ToolInputError` for bad positions/offsets, out-of-workspace paths, missing `change_signature` op args and invalid `split_module` targets. [type: bug] [source: bl-0003] | S | items/bl-0036.md |
-| `bl-0037` | Medium | — | **Search/analysis caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in structural, search helpers, diagnostics and type_users to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0037.md |
-| `bl-0038` | Medium | — | **Navigation/rename/server caller-input ValueErrors skip [INVALID_INPUT]** — convert the plain `ValueError` input checks in hierarchy, outline, rename and server to `ToolInputError`. [type: bug] [source: bl-0003] | M | items/bl-0038.md |
 | `bl-0039` | Medium | — | **Pyright restart-retry leaks a raw TimeoutError** — wrap the post-restart `wait_for` retry in `_request` so its timeout raises `PyrightError` like the first attempt; add a unit test. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0039.md |
 
 ## Low
@@ -75,9 +71,7 @@
 | `bl-0021` | Low | bl-0020 | **Closed-set tool params expose no enum or bounds** — type `direction`/`style`/`kind`/`severity_filter`/`source`/`language`/`SignatureOperation.op` as `Literal`, add `ge=0` to line/character positions; contract test checks the schema. [type: bug] [source: bl-0017] | M | items/bl-0021.md |
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
 | `bl-0040` | Low | — | **`_validate_position` rejects valid UTF-16 end-of-line columns** — bound `character` by the line's UTF-16 length using bl-0033's helpers. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0040.md |
-| `bl-0041` | Low | — | **Relative path params resolve against the server cwd** — decide workspace-relative vs reject for relative `file_path`/`root_path` in `validate_workspace_path` and pin it with a test. [type: bug] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0041.md |
 | `bl-0042` | Low | bl-0041 | **Workspace-relative directory resolution duplicated** — share one `util/shared.py` helper between `tool_runtime` DIR_PARAMS and `type_stubs._resolve_stub_root`. [type: refactor] [source: backlog-remediate-20260924T183010Z] | M | items/bl-0042.md |
-| `bl-0043` | Low | — | **`.ai-doc-audit.md` stale consumption path and `private` note** — say the servers are registered user-scope in `~/.claude.json` and drop the `private` block wording. [type: docs] [source: backlog-remediate-20260924T183010Z] | S | items/bl-0043.md |
 
 ## Defer
 
