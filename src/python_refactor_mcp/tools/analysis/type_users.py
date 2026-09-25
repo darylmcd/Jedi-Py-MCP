@@ -12,6 +12,7 @@ import ast
 import logging
 from pathlib import Path
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import TypeUserSite, TypeUsersResult
 from python_refactor_mcp.tools.analysis._protocols import (
     JediAnalysisBackend as _JediAnalysisBackend,
@@ -182,8 +183,8 @@ async def find_type_users(
         normalized_kinds = {k.lower() for k in kinds}
         unknown = normalized_kinds - ALL_KINDS
         if unknown:
-            raise ValueError(
-                f"Unknown kinds {sorted(unknown)}. Valid: {sorted(ALL_KINDS)}",
+            raise ToolInputError(
+                f"Unknown kinds {sorted(unknown)}. Valid: {sorted(ALL_KINDS)} (parameter: kinds)",
             )
     else:
         normalized_kinds = set(ALL_KINDS)

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
@@ -169,8 +170,17 @@ async def test_get_diagnostics_rejects_invalid_severity() -> None:
     """Ensure invalid severity values fail fast with a clear error."""
     pyright = AsyncMock()
 
-    with pytest.raises(ValueError, match="Invalid severity_filter"):
+    with pytest.raises(ToolInputError, match=r"Invalid severity_filter.*\(parameter: severity_filter\)"):
         await analysis.get_diagnostics(pyright, severity_filter="critical")
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_rejects_file_path_and_file_paths() -> None:
+    """Mutually exclusive path parameters are rejected as ToolInputError naming both."""
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match="file_path, file_paths"):
+        await analysis.get_diagnostics(pyright, file_path="a.py", file_paths=["b.py"])
 
 
 @pytest.mark.asyncio
@@ -537,7 +547,7 @@ async def test_find_type_users_invalid_kind_raises(tmp_path: Path) -> None:
     pyright = AsyncMock()
     jedi = AsyncMock()
 
-    with pytest.raises(ValueError, match="Unknown kinds"):
+    with pytest.raises(ToolInputError, match=r"Unknown kinds.*\(parameter: kinds\)"):
         await analysis.find_type_users(
             pyright, jedi, str(target), 0, 6, kinds=["misuse"],
         )

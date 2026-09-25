@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     Diagnostic,
     DiagnosticSummary,
@@ -46,14 +47,16 @@ async def get_diagnostics(
 ) -> list[Diagnostic]:
     """Get diagnostics for one file, a batch of files, or the full project."""
     if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
+        raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
 
     normalized_severity: str | None = None
     if severity_filter is not None:
         normalized_severity = severity_filter.strip().lower()
         if normalized_severity not in _VALID_SEVERITIES:
             valid = ", ".join(sorted(_VALID_SEVERITIES))
-            raise ValueError(f"Invalid severity_filter '{severity_filter}'. Expected one of: {valid}")
+            raise ToolInputError(
+                f"Invalid severity_filter '{severity_filter}'. Expected one of: {valid} (parameter: severity_filter)"
+            )
 
     if file_paths is not None:
         all_diags: list[Diagnostic] = []

@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
+from python_refactor_mcp.tools.search._helpers import resolve_target_files
 from tests.helpers import make_config as _config
 
 
@@ -103,6 +105,29 @@ async def test_structural_search_reports_parse_failures(tmp_path: Path) -> None:
     assert len(scan_failures) == 1
     assert scan_failures[0].file_path == str(invalid.resolve())
     assert scan_failures[0].phase == "read_or_parse"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("pattern", "language", "parameter"),
+    [
+        ("m.Call(", "python", "pattern"),
+        ("open('x')", "python", "pattern"),
+        ("m.Assert()", "rust", "language"),
+    ],
+)
+async def test_structural_search_rejects_invalid_input_as_tool_input_error(
+    tmp_path: Path, pattern: str, language: str, parameter: str
+) -> None:
+    """Caller-input errors surface as ToolInputError naming the parameter."""
+    with pytest.raises(ToolInputError, match=rf"\(parameter: {parameter}\)"):
+        await search.structural_search(_config(tmp_path), pattern, language=language)
+
+
+def test_resolve_target_files_rejects_file_path_and_file_paths(tmp_path: Path) -> None:
+    """Mutually exclusive path parameters are rejected as ToolInputError naming both."""
+    with pytest.raises(ToolInputError, match="file_path, file_paths"):
+        resolve_target_files("a.py", ["b.py"], None, _config(tmp_path), exclude_test_files=False)
 
 
 @pytest.mark.asyncio
