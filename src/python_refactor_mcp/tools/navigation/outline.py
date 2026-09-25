@@ -194,7 +194,7 @@ async def get_symbol_outline(
     ``limit`` bounds root items; ``max_nodes`` bounds roots plus descendants.
     """
     if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
+        raise ToolInputError("file_path and file_paths are mutually exclusive")
     if max_nodes is not None and max_nodes < 1:
         raise ToolInputError("max_nodes must be greater than or equal to 1")
 
@@ -216,7 +216,7 @@ async def get_symbol_outline(
         try:
             compiled_pattern = re.compile(name_pattern)
         except re.error as exc:
-            raise ValueError(f"Invalid name_pattern regex '{name_pattern}': {exc}") from exc
+            raise ToolInputError(f"name_pattern is not a valid regex '{name_pattern}': {exc}") from exc
 
     def _collect_matching(items: list[SymbolOutlineItem]) -> list[SymbolOutlineItem]:
         """Recursively collect items matching the active kind/name filters."""
@@ -284,5 +284,5 @@ async def selection_range(
 ) -> list[SelectionRangeResult]:
     """Return nested selection ranges for one or more source positions."""
     if not positions:
-        raise ValueError("positions must contain at least one position")
+        raise ToolInputError("positions must contain at least one position")
     return await pyright.get_selection_range(file_path, positions)

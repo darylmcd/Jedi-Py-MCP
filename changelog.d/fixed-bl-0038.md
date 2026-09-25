@@ -1,0 +1,1 @@
+- **Fixed:** invalid caller input to `call_hierarchy`/`type_hierarchy`, the outline tools (`get_symbol_outline` `file_path`/`file_paths`/`name_pattern`, `selection_range` `positions`), `rename_symbol` preflight (`line`/`character`/`new_name`) and `find_unused_imports` now returns `[INVALID_INPUT]` naming the parameter instead of an unclassified `ValueError`.

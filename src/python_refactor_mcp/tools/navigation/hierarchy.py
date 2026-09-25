@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TypeVar
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     CallHierarchyItem,
     CallHierarchyResult,
@@ -137,9 +138,9 @@ async def call_hierarchy(
     normalized_direction = direction.strip().lower()
     if normalized_direction not in _VALID_DIRECTIONS:
         valid = ", ".join(sorted(_VALID_DIRECTIONS))
-        raise ValueError(f"Invalid direction '{direction}'. Expected one of: {valid}")
+        raise ToolInputError(f"direction is invalid: '{direction}'. Expected one of: {valid}")
     if depth < 1:
-        raise ValueError("depth must be greater than or equal to 1")
+        raise ToolInputError("depth must be greater than or equal to 1")
 
     roots = await pyright.prepare_call_hierarchy(file_path, line, character)
 
@@ -251,9 +252,9 @@ async def type_hierarchy(
     )
     if normalized_direction not in _VALID_TYPE_DIRECTIONS:
         valid = ", ".join(sorted(_VALID_TYPE_DIRECTIONS))
-        raise ValueError(f"Invalid direction '{direction}'. Expected one of: {valid}")
+        raise ToolInputError(f"direction is invalid: '{direction}'. Expected one of: {valid}")
     if depth < 1:
-        raise ValueError("depth must be greater than or equal to 1")
+        raise ToolInputError("depth must be greater than or equal to 1")
 
     roots = await pyright.prepare_type_hierarchy(file_path, line, character)
 

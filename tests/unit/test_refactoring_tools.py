@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp import server
 from python_refactor_mcp.errors import (
     BackendError,
     LspFeatureUnsupportedError,
@@ -134,7 +135,7 @@ async def test_import_alias_rename_rejects_same_scope_collision(tmp_path: Path) 
     pyright.prepare_rename.return_value = object()
     rope = AsyncMock()
 
-    with pytest.raises(ValueError, match="target name is already bound in the same scope"):
+    with pytest.raises(ToolInputError, match="^new_name .*already bound in the same scope"):
         await refactoring.rename_symbol(
             pyright,
             rope,
@@ -144,6 +145,35 @@ async def test_import_alias_rename_rejects_same_scope_collision(tmp_path: Path) 
             new_name="Renamed",
         )
     rope.rename.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("line", "character", "parameter"),
+    [(5, 0, "line"), (0, 99, "character"), (0, 5, "line/character")],
+)
+async def test_rename_preflight_rejects_invalid_position(
+    tmp_path: Path, line: int, character: int, parameter: str
+) -> None:
+    """A position Pyright cannot rename is a caller error naming the parameter."""
+    module = tmp_path / "module.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.prepare_rename.return_value = None
+    rope = AsyncMock()
+
+    with pytest.raises(ToolInputError, match=f"^{parameter} "):
+        await refactoring.rename_symbol(pyright, rope, str(module), line, character, "renamed")
+    rope.rename.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_find_unused_imports_requires_a_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The server tool rejects a call naming neither file_path nor file_paths."""
+    monkeypatch.setattr(server, "get_current_backends", lambda: object())
+
+    with pytest.raises(ToolInputError, match="^file_path or file_paths"):
+        await server.find_unused_imports(object())  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -74,11 +74,31 @@ async def test_call_hierarchy_validates_direction_and_depth() -> None:
     """Ensure direction and depth validation errors are raised."""
     pyright = AsyncMock()
 
-    with pytest.raises(ValueError, match="Invalid direction"):
+    with pytest.raises(ToolInputError, match="^direction is invalid"):
         await navigation.call_hierarchy(pyright, "/repo/a.py", 0, 0, direction="sideways", depth=1)
 
-    with pytest.raises(ValueError, match="depth"):
+    with pytest.raises(ToolInputError, match="^depth"):
         await navigation.call_hierarchy(pyright, "/repo/a.py", 0, 0, direction="both", depth=0)
+
+    with pytest.raises(ToolInputError, match="^direction is invalid"):
+        await navigation.type_hierarchy(pyright, "/repo/a.py", 0, 0, direction="sideways", depth=1)
+
+    pyright.prepare_call_hierarchy.assert_not_awaited()
+    pyright.prepare_type_hierarchy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_outline_tools_reject_invalid_caller_input(tmp_path: Path) -> None:
+    """Outline caller-input checks raise ToolInputError naming the parameter."""
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match="^name_pattern"):
+        await navigation.get_symbol_outline(pyright, _config(tmp_path), name_pattern="(")
+
+    with pytest.raises(ToolInputError, match="^positions"):
+        await navigation.selection_range(pyright, "/repo/a.py", [])
+
+    pyright.get_selection_range.assert_not_awaited()
 
 
 @pytest.mark.asyncio
