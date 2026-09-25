@@ -1294,6 +1294,14 @@ class RopeBackend:
 
         def _work() -> RefactorResult:
             history = project.history
+            available = len(history.undo_list)
+            if count > available:
+                # Checked before the loop so no partial undo happens; rope's own
+                # HistoryError would otherwise surface as a redacted backend failure.
+                raise ToolInputError(
+                    f"undo_refactoring: nothing to undo for count={count}; "
+                    f"the undo history holds {available} operation(s)"
+                )
             for _ in range(count):
                 history.undo()
             return RefactorResult(
@@ -1310,6 +1318,12 @@ class RopeBackend:
 
         def _work() -> RefactorResult:
             history = project.history
+            available = len(history.redo_list)
+            if count > available:
+                raise ToolInputError(
+                    f"redo_refactoring: nothing to redo for count={count}; "
+                    f"the redo history holds {available} operation(s)"
+                )
             for _ in range(count):
                 history.redo()
             return RefactorResult(
@@ -1350,7 +1364,10 @@ class RopeBackend:
         from rope.contrib.changestack import ChangeStack  # type: ignore[import-untyped]  # noqa: PLC0415
 
         if self._change_stack is not None:
-            raise RopeError("A change stack is already active")
+            raise ToolInputError(
+                "begin_change_stack: a change stack is already active; "
+                "call commit_change_stack or rollback_change_stack first"
+            )
         project = self._require_project()
         self._change_stack = ChangeStack(project)
         self._change_stack_originals = {}
@@ -1359,7 +1376,9 @@ class RopeBackend:
     async def commit_change_stack(self) -> RefactorResult:
         """Collapse the current stack into one rope history entry and keep its edits."""
         if self._change_stack is None:
-            raise RopeError("No active change stack to commit")
+            raise ToolInputError(
+                "commit_change_stack: no active change stack to commit; call begin_change_stack first"
+            )
 
         stack = self._change_stack
         originals = dict(self._change_stack_originals)
@@ -1402,7 +1421,9 @@ class RopeBackend:
     async def rollback_change_stack(self) -> str:
         """Revert every change pushed since ``begin_change_stack``."""
         if self._change_stack is None:
-            raise RopeError("No active change stack to rollback")
+            raise ToolInputError(
+                "rollback_change_stack: no active change stack to roll back; call begin_change_stack first"
+            )
 
         stack = self._change_stack
         originals = dict(self._change_stack_originals)
@@ -1435,20 +1456,20 @@ class RopeBackend:
         outside :data:`TRANSACTION_TOOLS`, and any step missing a string
         ``file_path``. ALL steps are checked up front so an unknown tool in a
         later step is caught before the first step is pushed. Raises
-        :class:`RopeError` — these are caller-correctable *input* errors, not
-        execution failures, so they must surface as a raised tool error with
+        :class:`ToolInputError` — these are caller-correctable *input* errors,
+        not execution failures, so they surface as ``[INVALID_INPUT]`` with
         nothing applied.
         """
         if not steps:
-            raise RopeError("refactor_transaction requires at least one step")
+            raise ToolInputError("refactor_transaction 'steps' requires at least one step")
         for index, (tool, args) in enumerate(steps):
             if tool not in TRANSACTION_TOOLS:
-                raise RopeError(
+                raise ToolInputError(
                     f"transaction step {index} tool '{tool}' is not supported. "
                     f"Supported tools: {', '.join(TRANSACTION_TOOLS)}"
                 )
             if not isinstance(args.get("file_path"), str):
-                raise RopeError(
+                raise ToolInputError(
                     f"transaction step {index} ('{tool}') requires a string 'file_path' argument"
                 )
 

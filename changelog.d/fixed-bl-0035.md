@@ -1,0 +1,1 @@
+- **Fixed:** refactor-transaction pre-flight errors, undo/redo on empty history, and change-stack misuse (begin twice, commit/rollback without begin) return a state-specific `[INVALID_INPUT]` message instead of a redacted rope-backend failure.
