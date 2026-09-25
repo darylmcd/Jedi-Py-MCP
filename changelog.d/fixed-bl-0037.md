@@ -1,0 +1,1 @@
+- **Fixed:** Invalid caller input to `structural_search` (`pattern`, `language`), the search helpers' `file_path`/`file_paths` exclusivity check, `get_diagnostics` (`file_path`/`file_paths`, `severity_filter`) and `find_type_users` (`kinds`) now returns `[INVALID_INPUT]` naming the parameter instead of an untranslated `ValueError`.

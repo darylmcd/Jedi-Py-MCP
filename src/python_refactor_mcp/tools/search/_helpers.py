@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     Diagnostic,
     ImportSuggestion,
@@ -147,7 +148,7 @@ def resolve_target_files(
     failure so callers never report a nonexistent scope as a clean empty scan.
     """
     if file_path is not None and file_paths is not None:
-        raise ValueError("file_path and file_paths are mutually exclusive")
+        raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
     if file_paths is not None:
         requested = [Path(path).resolve() for path in file_paths]
     elif file_path is not None:

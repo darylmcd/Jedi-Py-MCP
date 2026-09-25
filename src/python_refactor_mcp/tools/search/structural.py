@@ -14,7 +14,7 @@ from libcst import matchers as m
 from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.models import (
     Position,
     Range,
@@ -93,8 +93,8 @@ def compile_pattern(pattern: str) -> m.BaseMatcherNode:
     against a strict AST node-type allowlist (matcher calls, attribute access
     on ``m``/``cst``, literals, and the ``|``/``~`` matcher operators only).
     Dunder attribute access and subscripts are rejected to close the
-    sandbox-escape / arbitrary-code-execution vector. Raises ``ValueError`` on
-    any invalid or disallowed pattern.
+    sandbox-escape / arbitrary-code-execution vector. Raises ``ToolInputError``
+    (naming the ``pattern`` parameter) on any invalid or disallowed pattern.
 
     Predicate matchers that take a Python callable (e.g. ``m.MatchIfTrue(...)``)
     are intentionally unsupported: a ``lambda`` in the pattern would re-open
@@ -106,35 +106,35 @@ def compile_pattern(pattern: str) -> m.BaseMatcherNode:
     try:
         pattern_ast = ast.parse(effective_pattern, mode="eval")
     except SyntaxError as exc:
-        raise ValueError(f"Invalid pattern syntax: {exc}") from exc
+        raise ToolInputError(f"Invalid pattern syntax: {exc} (parameter: pattern)") from exc
 
     for node in ast.walk(pattern_ast):
         if not isinstance(node, _ALLOWED_PATTERN_NODES):
-            raise ValueError(
+            raise ToolInputError(
                 f"Pattern uses a disallowed expression ({type(node).__name__}). "
                 "Only LibCST matcher calls on 'm'/'cst', literals, and the | and ~ "
-                "operators are permitted."
+                "operators are permitted. (parameter: pattern)"
             )
         if isinstance(node, ast.Name) and node.id not in _ALLOWED_PATTERN_NAMES:
-            raise ValueError(
+            raise ToolInputError(
                 f"Pattern references forbidden name '{node.id}'. "
-                "Only 'm' and 'cst' are allowed as top-level names."
+                "Only 'm' and 'cst' are allowed as top-level names. (parameter: pattern)"
             )
         if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            raise ValueError("Pattern may not access dunder attributes.")
+            raise ToolInputError("Pattern may not access dunder attributes. (parameter: pattern)")
 
     try:
         matcher = eval(effective_pattern, {"__builtins__": {}}, {"m": m, "cst": cst})  # noqa: S307
     except Exception as exc:
-        raise ValueError(
-            "Invalid LibCST matcher pattern. Use matcher syntax, e.g.:\n"
+        raise ToolInputError(
+            "Invalid LibCST matcher pattern (parameter: pattern). Use matcher syntax, e.g.:\n"
             "  m.Call(func=m.Name('foo'))          — find calls to foo()\n"
             "  m.ExceptHandler(type=m.Name('Exception'))  — find except Exception\n"
             "  m.ImportFrom(names=m.ImportStar())  — find star imports\n"
             "  m.Assert()                          — find assert statements"
         ) from exc
     if not isinstance(matcher, m.BaseMatcherNode):
-        raise ValueError("Pattern must evaluate to a LibCST matcher node.")
+        raise ToolInputError("Pattern must evaluate to a LibCST matcher node. (parameter: pattern)")
     return matcher
 
 
@@ -147,7 +147,7 @@ async def structural_search(
 ) -> tuple[list[StructuralMatch], int, list[ScanFailure]]:
     """Run LibCST matcher-based structural search for Python code."""
     if language.strip().lower() != "python":
-        raise ValueError("Only language='python' is supported.")
+        raise ToolInputError(f"Unsupported language '{language}': only 'python' is supported (parameter: language)")
 
     matcher = compile_pattern(pattern)
 
