@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 4,
+  "generatedAt": "2026-09-26T23:48:45.943Z",
+  "backlogSnapshot": "2026-09-25T16:13:14Z",
+  "addendaLoaded": true,
+  "phase": "skeleton",
+  "cycleCount": 0,
+  "maxCycles": 2,
+  "completed": false,
+  "reviewStatus": "pending",
+  "readyForExecute": false,
+  "initiatives": [
+    {
+      "id": "bl-0009",
+      "order": 1,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0009"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    },
+    {
+      "id": "bl-0036",
+      "order": 2,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0036"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    },
+    {
+      "id": "bl-0045",
+      "order": 3,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0045"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    },
+    {
+      "id": "bl-0018",
+      "order": 4,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0018"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    },
+    {
+      "id": "bl-0042",
+      "order": 5,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0042"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    },
+    {
+      "id": "bl-0046",
+      "order": 6,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0046"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    }
+  ],
+  "anchorVerification": "pending",
+  "conflictGraph": {
+    "edges": [],
+    "degrees": {},
+    "zeroDegreeInitiatives": []
+  },
+  "selection": {
+    "requestedCount": "auto",
+    "selectedCount": 6,
+    "skipped": [
+      {
+        "id": "bl-0022",
+        "reason": "execution-blocked"
+      },
+      {
+        "id": "cand-find-cyclic-imports",
+        "reason": "defer-band"
+      },
+      {
+        "id": "rope-python314-deprecations",
+        "reason": "defer-band"
+      }
+    ]
+  }
+}
