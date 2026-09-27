@@ -26,7 +26,7 @@ from python_refactor_mcp.models import (
     TextEdit,
 )
 from python_refactor_mcp.tools import refactoring
-from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
+from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits, workspace_edit_to_text_edits
 from tests.helpers import make_diag as _diag
 from tests.helpers import make_edit as _edit
 
@@ -1502,3 +1502,37 @@ async def test_extract_class_rejects_invalid_or_colliding_requests(
         )
 
     assert target.read_text(encoding="utf-8") == _EXTRACT_CLASS_SOURCE
+
+
+@pytest.mark.parametrize("edit_key", ["changes", "documentChanges"])
+def test_workspace_edit_to_text_edits_tolerates_extra_lsp_range_keys(tmp_path: Path, edit_key: str) -> None:
+    """LSP range payloads with keys the strict Range input model forbids still convert."""
+    uri = (tmp_path / "mod.py").resolve().as_uri()
+    lsp_edit = {
+        "range": {
+            "start": {"line": 1, "character": 2, "extra": True},
+            "end": {"line": 1, "character": 5},
+            "rangeExtra": "x",
+        },
+        "newText": "abc",
+    }
+    document_change = {"textDocument": {"uri": uri, "version": 1}, "edits": [lsp_edit]}
+    payload: dict[str, object] = (
+        {"changes": {uri: [lsp_edit]}} if edit_key == "changes" else {"documentChanges": [document_change]}
+    )
+
+    edits = workspace_edit_to_text_edits(payload)
+
+    assert len(edits) == 1
+    assert edits[0].new_text == "abc"
+    assert edits[0].range == Range(start=Position(line=1, character=2), end=Position(line=1, character=5))
+
+
+def test_workspace_edit_to_text_edits_rejects_range_missing_coordinates(tmp_path: Path) -> None:
+    """A malformed LSP range still fails validation instead of defaulting to zero."""
+    uri = (tmp_path / "mod.py").resolve().as_uri()
+    bad_range = {"start": {"line": 1}, "end": {"line": 1, "character": 5}}
+    payload = {"changes": {uri: [{"range": bad_range, "newText": ""}]}}
+
+    with pytest.raises(ValidationError):
+        workspace_edit_to_text_edits(payload)
