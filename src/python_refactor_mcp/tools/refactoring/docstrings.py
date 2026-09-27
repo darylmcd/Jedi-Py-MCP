@@ -17,7 +17,7 @@ import libcst as cst
 from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider
 
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.models import Position, Range, RefactorResult, TextEdit
 from python_refactor_mcp.util.cst_apply import parse_module
 from python_refactor_mcp.util.diff import write_atomic_if_unchanged
@@ -152,17 +152,18 @@ def _detect_style(lines: list[str]) -> str | None:
 
 
 def _selected_style(lines: list[str], requested: str) -> str:
-    normalized = requested.strip().lower()
-    if normalized not in _STYLES:
-        raise BackendError(f"Invalid docstring style {requested!r}; expected one of: {sorted(_STYLES)!r}")
+    if requested not in _STYLES:
+        raise ToolInputError(
+            f"Invalid docstring style {requested!r}; expected one of: {sorted(_STYLES)!r} (parameter: style)"
+        )
     detected = _detect_style(lines)
-    if normalized == "auto":
+    if requested == "auto":
         if detected is None:
             raise BackendError("Cannot auto-detect docstring style; pass google, numpy, or sphinx")
         return detected
-    if detected is not None and detected != normalized:
-        raise BackendError(f"Requested {normalized} style conflicts with detected {detected} style")
-    return normalized
+    if detected is not None and detected != requested:
+        raise BackendError(f"Requested {requested} style conflicts with detected {detected} style")
+    return requested
 
 
 def _section_end(lines: list[str], start: int, header_indent: int) -> int:

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import BackendError
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.tools import refactoring
 
 
@@ -185,5 +185,23 @@ async def test_docstring_sync_auto_detection_and_unsupported_shapes_fail_closed(
         await refactoring.docstring_sync(AsyncMock(), str(target), 0, 4)
     with pytest.raises(BackendError, match="Ambiguous docstring styles"):
         await refactoring.docstring_sync(AsyncMock(), str(target), 3, 4)
+
+    assert target.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("style", ["Google", " google ", "restructuredtext"])
+async def test_docstring_sync_rejects_non_exact_style_as_tool_input_error(tmp_path: Path, style: str) -> None:
+    """The style check accepts exactly the MCP Literal set and names the parameter."""
+    target = tmp_path / "plain.py"
+    source = (
+        "def greet(name: str) -> str:\n"
+        "    \"\"\"Return a greeting.\"\"\"\n"
+        "    return name\n"
+    )
+    target.write_text(source, encoding="utf-8")
+
+    with pytest.raises(ToolInputError, match=r"Invalid docstring style.*\(parameter: style\)"):
+        await refactoring.docstring_sync(AsyncMock(), str(target), 0, 4, style=style)
 
     assert target.read_text(encoding="utf-8") == source

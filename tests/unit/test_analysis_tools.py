@@ -157,7 +157,7 @@ async def test_get_diagnostics_filters_and_sorts() -> None:
         ),
     ]
 
-    filtered = await analysis.get_diagnostics(pyright, severity_filter="WARNING")
+    filtered = await analysis.get_diagnostics(pyright, severity_filter="warning")
 
     assert [(item.file_path, item.range.start.line) for item in filtered] == [
         ("/repo/a.py", 1),
@@ -172,6 +172,18 @@ async def test_get_diagnostics_rejects_invalid_severity() -> None:
 
     with pytest.raises(ToolInputError, match=r"Invalid severity_filter.*\(parameter: severity_filter\)"):
         await analysis.get_diagnostics(pyright, severity_filter="critical")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("severity", ["WARNING", " warning "])
+async def test_get_diagnostics_rejects_non_exact_severity(severity: str) -> None:
+    """Backend accepts exactly the MCP Literal set: no case folding or whitespace stripping."""
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match=r"Invalid severity_filter.*\(parameter: severity_filter\)"):
+        await analysis.get_diagnostics(pyright, severity_filter=severity)
+
+    pyright.get_diagnostics.assert_not_awaited()
 
 
 @pytest.mark.asyncio

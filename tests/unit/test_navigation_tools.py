@@ -88,6 +88,28 @@ async def test_call_hierarchy_validates_direction_and_depth() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "direction"),
+    [
+        ("call_hierarchy", "CALLERS"),
+        ("call_hierarchy", " callers "),
+        ("type_hierarchy", "callers"),
+        ("type_hierarchy", "callees"),
+        ("type_hierarchy", "Supertypes"),
+    ],
+)
+async def test_hierarchy_direction_accepts_exactly_the_documented_set(tool: str, direction: str) -> None:
+    """Backends accept only the exact MCP Literal values: no case folding, no call-direction aliases."""
+    pyright = AsyncMock()
+
+    with pytest.raises(ToolInputError, match="^direction is invalid"):
+        await getattr(navigation, tool)(pyright, "/repo/a.py", 0, 0, direction=direction, depth=1)
+
+    pyright.prepare_call_hierarchy.assert_not_awaited()
+    pyright.prepare_type_hierarchy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_outline_tools_reject_invalid_caller_input(tmp_path: Path) -> None:
     """Outline caller-input checks raise ToolInputError naming the parameter."""
     pyright = AsyncMock()

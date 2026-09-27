@@ -50,14 +50,11 @@ async def get_diagnostics(
     if file_path is not None and file_paths is not None:
         raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
 
-    normalized_severity: str | None = None
-    if severity_filter is not None:
-        normalized_severity = severity_filter.strip().lower()
-        if normalized_severity not in _VALID_SEVERITIES:
-            valid = ", ".join(sorted(_VALID_SEVERITIES))
-            raise ToolInputError(
-                f"Invalid severity_filter '{severity_filter}'. Expected one of: {valid} (parameter: severity_filter)"
-            )
+    if severity_filter is not None and severity_filter not in _VALID_SEVERITIES:
+        valid = ", ".join(sorted(_VALID_SEVERITIES))
+        raise ToolInputError(
+            f"Invalid severity_filter '{severity_filter}'. Expected one of: {valid} (parameter: severity_filter)"
+        )
 
     if file_paths is not None:
         all_diags: list[Diagnostic] = []
@@ -75,11 +72,11 @@ async def get_diagnostics(
             seen[key] = d
     diagnostics = list(seen.values())
 
-    if normalized_severity is not None:
+    if severity_filter is not None:
         diagnostics = [
             diagnostic
             for diagnostic in diagnostics
-            if diagnostic.severity.strip().lower() == normalized_severity
+            if diagnostic.severity.strip().lower() == severity_filter
         ]
 
     if suppress_codes:
