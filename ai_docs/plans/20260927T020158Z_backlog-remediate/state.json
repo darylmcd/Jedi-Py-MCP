@@ -1,19 +1,19 @@
 {
   "schemaVersion": 4,
   "generatedAt": "2026-09-27T02:02:13.700Z",
-  "backlogSnapshot": "2026-09-27T02:02:07Z",
+  "backlogSnapshot": "2026-09-27T02:39:58Z",
   "addendaLoaded": true,
   "phase": "complete",
   "cycleCount": 0,
   "maxCycles": 2,
-  "completed": false,
+  "completed": true,
   "reviewStatus": "passed-with-warnings",
   "readyForExecute": true,
   "initiatives": [
     {
       "id": "bl-0022",
       "order": 1,
-      "status": "pending",
+      "status": "merged",
       "backlogRowsClosed": [
         "bl-0022"
       ],
@@ -48,14 +48,24 @@
         "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
-      "branch": null,
-      "worktreePath": null,
-      "prUrl": null,
-      "mergedAt": null,
+      "branch": "remediation/bl-0022",
+      "worktreePath": ".worktrees/bl-0022",
+      "prUrl": "https://github.com/darylmcd/Jedi-Py-MCP/pull/180",
+      "mergedAt": "2026-09-27T02:39:38Z",
       "notes": null,
       "fileSetHash": "610d794b9eb8cb1d4bc18d516c9b4ef3195b46faa5333e1594284f8fb27836fa",
       "stanzaHash": "a662b33737b474737a9c3d733a99a8facacd7380fa5815e548f53c59392697dc",
-      "reviewedStanzaHash": "a662b33737b474737a9c3d733a99a8facacd7380fa5815e548f53c59392697dc"
+      "reviewedStanzaHash": "a662b33737b474737a9c3d733a99a8facacd7380fa5815e548f53c59392697dc",
+      "integrationGate": {
+        "pr": 180,
+        "base": "main",
+        "mainOid": "07e44474cef1b2e52dce6864a553c34981bc9b2c",
+        "headOid": "2b88be0cc896af2a59b63ac119e4f5387c251bfb",
+        "gatedTree": "cdfe4dcae705fd4b5a58e23619892fb23a393263",
+        "exit": 0,
+        "log": "C:/Users/daryl/AppData/Local/Temp/claude/C--Code-Repo-Jedi-Py-MCP/09b1b893-1dfc-4c2b-9ab2-5ccae00ce8a9/scratchpad/20260927T020158Z_backlog-remediate/gates/gate-bl-0022-pr180-20260927T023601730Z-15576.log",
+        "gatedAt": "2026-09-27T02:39:30.107Z"
+      }
     }
   ],
   "anchorVerification": "performed",
@@ -131,5 +141,6 @@
   "planHash": "194e03f76f230e078f704f627f95f492c2dcb0c0ff420e3fc3e9f281f37a9b84",
   "backlogSnapshotHash": "b82fdb3c0f2f24032ace503ad84e3c2de98ac1f397089aa7bbe92f055290a30e",
   "reviewedPlanHash": "194e03f76f230e078f704f627f95f492c2dcb0c0ff420e3fc3e9f281f37a9b84",
-  "reviewedBacklogSnapshotHash": "b82fdb3c0f2f24032ace503ad84e3c2de98ac1f397089aa7bbe92f055290a30e"
+  "reviewedBacklogSnapshotHash": "b82fdb3c0f2f24032ace503ad84e3c2de98ac1f397089aa7bbe92f055290a30e",
+  "completedAt": "2026-09-27T02:39:58.850Z"
 }
