@@ -114,6 +114,8 @@ async def test_structural_search_reports_parse_failures(tmp_path: Path) -> None:
         ("m.Call(", "python", "pattern"),
         ("open('x')", "python", "pattern"),
         ("m.Assert()", "rust", "language"),
+        ("m.Assert()", "Python", "language"),
+        ("m.Assert()", " python ", "language"),
     ],
 )
 async def test_structural_search_rejects_invalid_input_as_tool_input_error(

@@ -1,0 +1,1 @@
+- **Maintenance:** Removed unreachable `callers`/`callees` type-hierarchy aliases and case folding from backend value checks (`call_hierarchy`, `type_hierarchy`, `get_diagnostics`, `docstring_sync`, `structural_search` now accept exactly the MCP Literal set); `docstring_sync` style errors now raise `ToolInputError` (bl-0046).

@@ -146,7 +146,7 @@ async def structural_search(
     limit: int | None = None,
 ) -> tuple[list[StructuralMatch], int, list[ScanFailure]]:
     """Run LibCST matcher-based structural search for Python code."""
-    if language.strip().lower() != "python":
+    if language != "python":
         raise ToolInputError(f"Unsupported language '{language}': only 'python' is supported (parameter: language)")
 
     matcher = compile_pattern(pattern)

@@ -21,10 +21,7 @@ from ._protocols import PyrightNavigationBackend
 
 _VALID_DIRECTIONS = {"callers", "callees", "both"}
 _LOGGER = logging.getLogger(__name__)
-
-# Type hierarchy uses its own direction vocabulary with backward-compat aliases.
 _VALID_TYPE_DIRECTIONS = {"supertypes", "subtypes", "both"}
-_TYPE_DIRECTION_ALIASES: dict[str, str] = {"callers": "supertypes", "callees": "subtypes"}
 
 _T = TypeVar("_T", CallHierarchyItem, TypeHierarchyItem)
 
@@ -135,8 +132,7 @@ async def call_hierarchy(
     max_items: int | None = 200,
 ) -> CallHierarchyResult:
     """Get incoming and outgoing call hierarchy data."""
-    normalized_direction = direction.strip().lower()
-    if normalized_direction not in _VALID_DIRECTIONS:
+    if direction not in _VALID_DIRECTIONS:
         valid = ", ".join(sorted(_VALID_DIRECTIONS))
         raise ToolInputError(f"direction is invalid: '{direction}'. Expected one of: {valid}")
     if depth < 1:
@@ -225,11 +221,11 @@ async def call_hierarchy(
     callees: list[CallHierarchyItem] = []
     truncated = False
 
-    if normalized_direction in {"callers", "both"}:
+    if direction in {"callers", "both"}:
         callers, callers_truncated = await _traverse_hierarchy(root, depth, pyright.get_incoming_calls, max_items)
         truncated = truncated or callers_truncated
 
-    if normalized_direction in {"callees", "both"}:
+    if direction in {"callees", "both"}:
         callees, callees_truncated = await _traverse_hierarchy(root, depth, pyright.get_outgoing_calls, max_items)
         truncated = truncated or callees_truncated
 
@@ -247,10 +243,7 @@ async def type_hierarchy(
     class_name: str | None = None,
 ) -> TypeHierarchyResult:
     """Get incoming and outgoing type hierarchy data."""
-    normalized_direction = _TYPE_DIRECTION_ALIASES.get(
-        direction.strip().lower(), direction.strip().lower()
-    )
-    if normalized_direction not in _VALID_TYPE_DIRECTIONS:
+    if direction not in _VALID_TYPE_DIRECTIONS:
         valid = ", ".join(sorted(_VALID_TYPE_DIRECTIONS))
         raise ToolInputError(f"direction is invalid: '{direction}'. Expected one of: {valid}")
     if depth < 1:
@@ -300,11 +293,11 @@ async def type_hierarchy(
     subtypes: list[TypeHierarchyItem] = []
     truncated = False
 
-    if normalized_direction in {"supertypes", "both"}:
+    if direction in {"supertypes", "both"}:
         supertypes, super_truncated = await _traverse_hierarchy(root, depth, pyright.get_supertypes, max_items)
         truncated = truncated or super_truncated
 
-    if normalized_direction in {"subtypes", "both"}:
+    if direction in {"subtypes", "both"}:
         subtypes, sub_truncated = await _traverse_hierarchy(root, depth, pyright.get_subtypes, max_items)
         truncated = truncated or sub_truncated
 
