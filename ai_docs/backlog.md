@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-27T01:07:21Z
+**updated_at:** 2026-09-27T01:11:50Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -57,6 +57,8 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
+| `bl-0048` | Medium | — | **Cold get_workspace_diagnostics returns no items** — reproduced: first call in a fresh session returns `[]`, repeat returns `service.py`; trace why the first publish is taken as final and add a real-Pyright integration test. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0048.md |
+| `bl-0049` | Medium | — | **Post-edit diagnostics can be the cached pre-edit set** — `notify_file_changed` never invalidates `_diagnostics`, so post-apply `get_diagnostics` skips the publish wait; pop the cache and pin it. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0049.md |
 
 ## Low
 
@@ -64,6 +66,10 @@
 |----|-----|------|----|------|--------|
 | `bl-0022` | Low | bl-0021 | **Tools silently accept unknown argument keys** — BLOCKED: operator contract-care decision (Directive #4, PUBLIC repo) first; then emit `additionalProperties: false` and a typed `refactor_transaction` step model. [type: bug] [source: bl-0017] | M | items/bl-0022.md |
 | `bl-0047` | Low | bl-0036 | **Rope op/kind normalization unreachable** — drop `strip().lower()` on `change_signature` op and `generate_code` kind in `rope_backend.py`; exact membership check raising `ToolInputError`. [type: refactor] [source: bl-0046] | S | items/bl-0047.md |
+| `bl-0050` | Low | bl-0047 | **Rope backend stale docstring and dead offset helper** — fix `_build_step_changes` raise docs after bl-0036 and delete or wire `_offset_to_position`. [type: chore] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0050.md |
+| `bl-0051` | Low | — | **Test-file exclusion ignores tests/ trees** — `is_test_file` matches filenames only, so fixture modules under `tests/` become sweep targets with `exclude_test_files=True`. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0051.md |
+| `bl-0052` | Low | — | **get_diagnostics batch has no per-file failure channel** — one publish timeout aborts a `file_paths` batch; report per-file failures and stop recording `CancelledError` as a scan failure. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0052.md |
+| `bl-0053` | Low | — | **Silent limit/offset guards unreachable after schema bounds** — reject or share the backend `limit > 0` / `offset > 0` branches bl-0018 made MCP-unreachable. [type: refactor] [source: backlog-remediate-20260926T234845Z] | M | items/bl-0053.md |
 
 ## Defer
 
