@@ -13,8 +13,8 @@ from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.tool_registry import (
     MAX_TOOLS_PER_PROFILE,
+    build_tools,
     profile_description,
-    register_tools,
     tool_names_for_profile,
 )
 
@@ -248,8 +248,10 @@ _WHOLE_FILE_REWRITERS = frozenset(
 @pytest.mark.asyncio
 async def test_whole_file_rewriters_advertise_destructive_hint() -> None:
     """Rewriters of existing content advertise destructiveHint without changing profile membership."""
-    mcp = MCPServer("whole-file rewriter annotations")
-    register_tools(mcp, "refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    mcp = MCPServer(
+        "whole-file rewriter annotations",
+        tools=build_tools("refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS),
+    )
     advertised = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert advertised.keys() >= _WHOLE_FILE_REWRITERS

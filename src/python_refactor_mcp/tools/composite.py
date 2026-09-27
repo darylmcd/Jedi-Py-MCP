@@ -6,11 +6,11 @@ import difflib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import (
     DiffPreview,
     TextEdit,
     TransactionResult,
+    TransactionStep,
     TransactionStepResult,
 )
 from python_refactor_mcp.util.diff import build_unified_diff
@@ -33,26 +33,9 @@ async def diff_preview(edits: list[TextEdit]) -> list[DiffPreview]:
     return previews
 
 
-def _normalize_steps(steps: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    """Validate and normalize raw ``{"tool": ..., "args": {...}}`` step dicts.
-
-    Returns ``(tool, args)`` tuples. Raises :class:`ToolInputError` for
-    malformed steps so the failure surfaces as ``[INVALID_INPUT]`` before any
-    edit is applied.
-    """
-    if not steps:
-        raise ToolInputError("refactor_transaction 'steps' requires at least one step")
-
-    normalized: list[tuple[str, dict[str, Any]]] = []
-    for index, step in enumerate(steps):
-        tool = step.get("tool")
-        if not isinstance(tool, str) or not tool:
-            raise ToolInputError(f"transaction step {index} is missing a string 'tool'")
-        args = step.get("args", {})
-        if not isinstance(args, dict):
-            raise ToolInputError(f"transaction step {index} 'args' must be an object")
-        normalized.append((tool, args))
-    return normalized
+def _normalize_steps(steps: list[TransactionStep]) -> list[tuple[str, dict[str, Any]]]:
+    """Flatten schema-validated transaction steps into the backend's ``(tool, args)`` tuples."""
+    return [(step.tool, step.args.model_dump()) for step in steps]
 
 
 def _collect_target_files(steps: list[tuple[str, dict[str, Any]]]) -> list[str]:
@@ -114,18 +97,17 @@ def _rolled_back_result(
     )
 
 
-async def refactor_transaction(rope: RopeBackend, steps: list[dict[str, Any]]) -> TransactionResult:
-    """Apply an ordered ``(tool, args)`` list atomically under one change stack.
+async def refactor_transaction(rope: RopeBackend, steps: list[TransactionStep]) -> TransactionResult:
+    """Apply an ordered list of transaction steps atomically under one change stack.
 
     Two clearly-different failure modes:
 
-    * **Input / pre-flight errors RAISE.** An empty step list, a structurally
-      malformed step (no string ``tool`` / non-object ``args`` / missing
-      ``file_path``), or a step naming an unsupported tool is rejected *before*
-      any change is pushed — :class:`ToolInputError` propagates (→
-      ``[INVALID_INPUT]`` at the tool boundary) with nothing applied. All steps' tool-names and arg
-      shape are validated up front so an unknown tool in a later step is caught
-      before the first step runs.
+    * **Input / pre-flight errors RAISE.** Structural errors (a malformed step,
+      an unsupported tool name, a missing or unknown argument) are rejected by
+      the tool's input schema before this function runs. The backend's
+      :meth:`RopeBackend.validate_transaction_steps` re-checks the step list as
+      defense in depth; its :class:`ToolInputError` propagates (→
+      ``[INVALID_INPUT]`` at the tool boundary) with nothing applied.
     * **Execution failures RETURN a rolled-back result.** Once execution begins,
       if a step's refactoring raises mid-sequence or an overlap is detected, the
       backend reverts every pushed change and this function RETURNS a

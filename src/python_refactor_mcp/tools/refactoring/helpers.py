@@ -46,6 +46,25 @@ def full_file_range(file_path: str) -> Range:
     return Range(start=Position(line=0, character=0), end=end_position_for_content(content))
 
 
+def _lsp_position_fields(value: object) -> object:
+    """Keep only ``line``/``character`` of an LSP position; a non-dict is left for validation to reject."""
+    if not isinstance(value, dict):
+        return value
+    return {"line": value.get("line"), "character": value.get("character")}
+
+
+def _lsp_range(value: dict[str, object]) -> Range:
+    """Build a :class:`Range` from an LSP range, ignoring keys the strict input model forbids.
+
+    ``Range``/``Position`` reject unknown keys because they are tool inputs, so
+    the LSP payload is projected onto the model's fields instead of validated
+    wholesale. Missing or malformed coordinates still fail validation.
+    """
+    return Range.model_validate(
+        {"start": _lsp_position_fields(value.get("start")), "end": _lsp_position_fields(value.get("end"))}
+    )
+
+
 def workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
     """Convert an LSP workspace edit payload into project TextEdit models."""
     if not isinstance(workspace_edit, dict):
@@ -65,7 +84,7 @@ def workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
                 new_text = edit.get("newText")
                 if not isinstance(range_value, dict) or not isinstance(new_text, str):
                     continue
-                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+                edits.append(TextEdit(file_path=file_path, range=_lsp_range(range_value), new_text=new_text))
 
     document_changes = workspace_edit.get("documentChanges")
     if isinstance(document_changes, list):
@@ -87,7 +106,7 @@ def workspace_edit_to_text_edits(workspace_edit: object) -> list[TextEdit]:
                 new_text = edit.get("newText")
                 if not isinstance(range_value, dict) or not isinstance(new_text, str):
                     continue
-                edits.append(TextEdit(file_path=file_path, range=Range.model_validate(range_value), new_text=new_text))
+                edits.append(TextEdit(file_path=file_path, range=_lsp_range(range_value), new_text=new_text))
 
     deduped: dict[tuple[str, int, int, int, int, str], TextEdit] = {}
     for edit in edits:

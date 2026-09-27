@@ -46,7 +46,7 @@ from python_refactor_mcp.tool_registry import (
     DESTRUCTIVE_ANNOTATIONS,
     READ_ONLY_ANNOTATIONS,
     ToolRecord,
-    register_tools,
+    build_tools,
     tool_names_for_profile,
 )
 from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, get_current_backends, get_multi_context
@@ -459,12 +459,7 @@ mcp = MCPServer(
     ),
     lifespan=app_lifespan,
     version=__version__,
-)
-
-register_tools(
-    mcp,
-    _ACTIVE_TOOL_PROFILE,
-    extra_records=EXPLICIT_TOOL_RECORDS,
+    tools=build_tools(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
 )
 
 
