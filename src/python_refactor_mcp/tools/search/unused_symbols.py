@@ -11,6 +11,13 @@ decorator name contains ``mcp`` or ``tool``, e.g. ``@mcp.tool``) are skipped to
 avoid false positives, mirroring the rationale behind ``dead_code_detection``'s
 blanket decorator skip.
 
+Reference domain: Pyright's program files (per ``pyrightconfig.json``
+``include``/``exclude``) plus every resolved target file. The sweep opens the
+whole target set before querying references, so a cold session returns the same
+result as a warm one. A referrer outside both sets (for example a file in an
+excluded directory that is not a target) stays invisible, and its symbols are
+reported as unused.
+
 The sweep may be slow on large codebases: it issues one ``get_references`` call
 per exported symbol. ``limit`` bounds the response size but not the work done.
 """
@@ -26,6 +33,7 @@ from python_refactor_mcp.models import DeadCodeItem, PaginatedDeadCode, Range, S
 
 from ._helpers import (
     PyrightSearchBackend,
+    open_target_files,
     resolve_target_files,
     scan_module_level_symbols,
     score_dead_code_confidence,
@@ -82,10 +90,11 @@ async def unused_symbol_sweep(
     """Audit the public export surface for symbols with no cross-file references."""
     resolved = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
+    opened_files, open_failures = await open_target_files(pyright, resolved.files)
 
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
-    scan_failures: list[ScanFailure] = list(resolved.failures)
-    for path in resolved.files:
+    scan_failures: list[ScanFailure] = [*resolved.failures, *open_failures]
+    for path in opened_files:
         try:
             scan = scan_module_level_symbols(path)
         except (OSError, SyntaxError, UnicodeError) as exc:

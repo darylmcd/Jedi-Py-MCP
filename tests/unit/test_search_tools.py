@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
 from python_refactor_mcp.tools.search._helpers import resolve_target_files
@@ -406,6 +406,61 @@ async def test_unused_symbol_sweep_reports_reference_failures(tmp_path: Path) ->
 
     assert len(result.scan_failures) == 1
     assert result.scan_failures[0].subject == "public_name"
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_opens_every_target_before_querying_references(tmp_path: Path) -> None:
+    """Every target is opened before the first reference lookup, so cold and warm sessions agree."""
+    first = tmp_path / "a.py"
+    first.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    second = tmp_path / "b.py"
+    second.write_text("def beta():\n    return 2\n", encoding="utf-8")
+    calls: list[tuple[str, str]] = []
+
+    async def _open(file_path: str) -> None:
+        calls.append(("open", file_path))
+
+    async def _references(file_path: str, line: int, char: int, include_declaration: bool) -> list[Location]:
+        calls.append(("references", file_path))
+        return []
+
+    pyright = AsyncMock()
+    pyright.ensure_file_open.side_effect = _open
+    pyright.get_references.side_effect = _references
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), file_paths=[str(first), str(second)])
+
+    first_reference = next(index for index, (kind, _path) in enumerate(calls) if kind == "references")
+    opened = [path for kind, path in calls[:first_reference] if kind == "open"]
+    assert sorted(opened) == sorted([str(first.resolve()), str(second.resolve())])
+    assert all(kind == "references" for kind, _path in calls[first_reference:])
+    assert {item.name for item in result.items} == {"alpha", "beta"}
+
+
+@pytest.mark.asyncio
+async def test_unused_symbol_sweep_reports_open_failures_and_skips_that_file(tmp_path: Path) -> None:
+    """A file Pyright cannot open is a phase="open" failure; its symbols are not queried, the others still are."""
+    broken = tmp_path / "broken.py"
+    broken.write_text("def hidden():\n    return 1\n", encoding="utf-8")
+    healthy = tmp_path / "healthy.py"
+    healthy.write_text("def visible():\n    return 2\n", encoding="utf-8")
+
+    async def _open(file_path: str) -> None:
+        if Path(file_path) == broken.resolve():
+            raise PyrightError("Cannot read file")
+
+    pyright = AsyncMock()
+    pyright.ensure_file_open.side_effect = _open
+    pyright.get_references.return_value = []
+
+    result = await search.unused_symbol_sweep(pyright, _config(tmp_path), file_paths=[str(broken), str(healthy)])
+
+    assert [(f.file_path, f.phase, f.error_type) for f in result.scan_failures] == [
+        (str(broken.resolve()), "open", "PyrightError")
+    ]
+    queried = {call.args[0] for call in pyright.get_references.await_args_list}
+    assert queried == {str(healthy.resolve())}
+    assert {item.name for item in result.items} == {"visible"}
 
 
 @pytest.mark.asyncio

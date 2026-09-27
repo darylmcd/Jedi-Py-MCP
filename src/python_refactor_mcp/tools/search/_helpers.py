@@ -44,6 +44,10 @@ class ModuleSymbolScan:
 class PyrightSearchBackend(Protocol):
     """Protocol describing Pyright search methods used by this module."""
 
+    async def ensure_file_open(self, file_path: str) -> None:
+        """Open a file in the language server session so its references become searchable."""
+        ...
+
     async def get_references(
         self,
         file_path: str,
@@ -163,6 +167,30 @@ def resolve_target_files(
     files = [path for path in requested if path.is_file()]
     failures = [_resolve_failure(path, "IsADirectoryError") for path in requested if not path.is_file()]
     return ResolvedTargets(files=files, failures=failures)
+
+
+async def open_target_files(
+    pyright: PyrightSearchBackend,
+    files: list[Path],
+) -> tuple[list[Path], list[ScanFailure]]:
+    """Open every target file before a references phase and report the ones that fail.
+
+    Pyright answers ``textDocument/references`` from its program files plus the
+    currently open files. Opening the whole target set up front makes a
+    references scan independent of open order and session history, so a cold
+    session returns the same result as a warm one. ``didOpen`` is a
+    notification, so the files are opened sequentially.
+    """
+    opened: list[Path] = []
+    failures: list[ScanFailure] = []
+    for path in files:
+        try:
+            await pyright.ensure_file_open(str(path))
+        except Exception as exc:  # every open failure becomes a visible ScanFailure, never a lost file
+            failures.append(ScanFailure(file_path=str(path.resolve()), phase="open", error_type=type(exc).__name__))
+            continue
+        opened.append(path)
+    return opened, failures
 
 
 def score_dead_code_confidence(name: str, reason: str) -> str:
