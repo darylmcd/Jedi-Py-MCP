@@ -17,7 +17,11 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp.errors import BackendError, ToolInputError
-from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
+from python_refactor_mcp.util.shared import (
+    resolve_workspace_dir,
+    validate_identifier,
+    validate_workspace_path,
+)
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 # Preserve the established operational sink while moving its implementation out
@@ -213,9 +217,7 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
     for param_name in DIR_PARAMS:
         value = kwargs.get(param_name)
         if isinstance(value, str):
-            requested = Path(value).expanduser()
-            candidate = requested if requested.is_absolute() else workspace_root / requested
-            kwargs[param_name] = validate_workspace_path(str(candidate), workspace_root)
+            kwargs[param_name] = resolve_workspace_dir(value, workspace_root)
 
     for args in _transaction_step_args(kwargs):
         file_path = args.get("file_path")

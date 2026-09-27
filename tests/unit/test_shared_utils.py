@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Diagnostic, Location, Position, Range
 from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_path
-from python_refactor_mcp.util.shared import apply_limit, diagnostic_key, location_key
+from python_refactor_mcp.util.shared import apply_limit, diagnostic_key, location_key, resolve_workspace_dir
 
 # --- apply_limit ---
 
@@ -200,3 +201,30 @@ class TestPathConversions:
     def test_uri_to_path_rejects_non_file_scheme(self) -> None:
         with pytest.raises(ValueError, match="Unsupported URI scheme"):
             uri_to_path("https://example.com/path")
+
+
+# --- resolve_workspace_dir ---
+
+
+class TestResolveWorkspaceDir:
+    """Tests for workspace-relative-or-absolute directory resolution."""
+
+    def test_relative_value_anchors_at_workspace_root(self, tmp_path: Path) -> None:
+        result = resolve_workspace_dir("typings/sub", tmp_path)
+        assert result == str((tmp_path / "typings" / "sub").resolve())
+
+    def test_absolute_value_inside_workspace_is_kept(self, tmp_path: Path) -> None:
+        target = tmp_path / "stubs"
+        assert resolve_workspace_dir(str(target), tmp_path) == str(target.resolve())
+
+    def test_relative_escape_is_rejected(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        with pytest.raises(ToolInputError, match="outside the workspace root"):
+            resolve_workspace_dir("../outside", workspace)
+
+    def test_absolute_path_outside_workspace_is_rejected(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        with pytest.raises(ToolInputError, match="outside the workspace root"):
+            resolve_workspace_dir(str(tmp_path / "elsewhere"), workspace)

@@ -1,0 +1,1 @@
+- **Maintenance:** Workspace-relative `output_dir` resolution is shared by the tool runtime and `create_type_stubs` through one `util/shared.py` helper.
