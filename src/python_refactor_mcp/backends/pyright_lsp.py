@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hashlib
 import logging
 import os
@@ -533,6 +532,11 @@ class PyrightLSPClient:
 
         Diagnostics on lines with ``# type: ignore`` or ``# pyright: ignore``
         comments are filtered out, mirroring standard client-side behavior.
+
+        Raises:
+            PyrightError: When a per-file ``publishDiagnostics`` notification does
+                not arrive within ``PYRIGHT_REQUEST_TIMEOUT_SECONDS``. A missed
+                publish is unknown state, never a clean file.
         """
         if file_path is not None:
             normalized = normalize_path(file_path)
@@ -542,8 +546,13 @@ class PyrightLSPClient:
             if normalized not in self._diagnostics:
                 event = self._diagnostics_events.setdefault(normalized, asyncio.Event())
                 event.clear()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(event.wait(), timeout=2.0)
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=self._request_timeout_seconds)
+                except TimeoutError as exc:
+                    raise PyrightError(
+                        f"publishDiagnostics for {normalized} not received within "
+                        f"{self._request_timeout_seconds:.1f}s"
+                    ) from exc
             diagnostics = self._diagnostics.get(normalized, [])
         else:
             diagnostics = [item for items in self._diagnostics.values() for item in items]

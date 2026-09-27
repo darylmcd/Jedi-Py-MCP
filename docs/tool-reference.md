@@ -17,7 +17,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `get_inlay_hints` | Return inlay hints (type/parameter hints) for a file range. | `list[InlayHint]` |
 | `get_semantic_tokens` | Return semantic token classifications for a file. | `list[SemanticToken]` |
 | `get_diagnostics` | Return Pyright diagnostics for a file. | `list[Diagnostic]` |
-| `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `Paginated[DiagnosticSummary]` |
+| `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `PaginatedDiagnosticSummary` |
 | `deep_type_inference` | Run deep type inference on an expression or block. | `list[InferredType]` |
 | `get_type_hint_string` | Return type hint candidates for a symbol position. | `list[TypeHintResult]` |
 | `get_syntax_errors` | Return parse-level syntax errors for a file. | `list[SyntaxErrorItem]` |

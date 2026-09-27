@@ -1302,3 +1302,68 @@ async def test_post_restart_retry_timeout_raises_pyright_error(tmp_path: Path) -
     assert isinstance(raised.value.__cause__, TimeoutError)
     assert backend.restart_count == 1
     assert client.send_count == 2
+
+
+class DiagnosticsTimeoutHarness(PyrightClientHarness):
+    """Harness with a short request timeout that can inject publishDiagnostics."""
+
+    def __init__(self, config: ServerConfig) -> None:
+        super().__init__(config)
+        self._request_timeout_seconds = 0.2
+
+    async def publish(self, params: JSONDict) -> None:
+        """Deliver a publishDiagnostics notification through the real handler."""
+        await self._handle_publish_diagnostics(params)
+
+
+def _diagnostics_harness(tmp_path: Path) -> tuple[DiagnosticsTimeoutHarness, Path]:
+    sample = tmp_path / "sample.py"
+    sample.write_text("x = 1\n", encoding="utf-8")
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = DiagnosticsTimeoutHarness(config)
+    backend.set_client(cast(LSPClient, FakeLSPClient()))
+    return backend, sample
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_missed_publish_raises_pyright_error(tmp_path: Path) -> None:
+    """A per-file publish that never arrives is an error, not a clean file."""
+    backend, sample = _diagnostics_harness(tmp_path)
+
+    with pytest.raises(PyrightError, match=r"publishDiagnostics for .* not received within 0\.2s$") as raised:
+        await backend.get_diagnostics(str(sample))
+
+    assert isinstance(raised.value.__cause__, TimeoutError)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_returns_publish_arriving_inside_window(tmp_path: Path) -> None:
+    """A publish delivered within the timeout window is returned."""
+    backend, sample = _diagnostics_harness(tmp_path)
+    params: JSONDict = {
+        "uri": path_to_uri(str(sample.resolve())),
+        "diagnostics": [
+            {
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                "message": "boom",
+                "severity": 1,
+            }
+        ],
+    }
+
+    async def _deliver() -> None:
+        await asyncio.sleep(0.05)
+        await backend.publish(params)
+
+    deliver = asyncio.create_task(_deliver())
+    diagnostics = await backend.get_diagnostics(str(sample))
+    await deliver
+
+    assert [d.message for d in diagnostics] == ["boom"]

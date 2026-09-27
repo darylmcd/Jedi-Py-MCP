@@ -11,6 +11,7 @@ from python_refactor_mcp.models import (
     Diagnostic,
     DiagnosticSummary,
     PaginatedDiagnosticSummary,
+    ScanFailure,
 )
 from python_refactor_mcp.tools.analysis._protocols import (
     PyrightAnalysisBackend as _PyrightAnalysisBackend,
@@ -120,9 +121,18 @@ async def get_workspace_diagnostics(
 
     all_results = await asyncio.gather(*[_fetch(p) for p in target_files], return_exceptions=True)
     diagnostics: list[Diagnostic] = []
-    for result in all_results:
+    scan_failures: list[ScanFailure] = []
+    for path, result in zip(target_files, all_results, strict=True):
         if isinstance(result, list):
             diagnostics.extend(result)
+        else:
+            scan_failures.append(
+                ScanFailure(
+                    file_path=str(path),
+                    phase="diagnostics",
+                    error_type=type(result).__name__,
+                )
+            )
 
     by_file: dict[str, dict[str, int]] = {}
     for diagnostic in diagnostics:
@@ -163,4 +173,5 @@ async def get_workspace_diagnostics(
         total_count=total_count,
         offset=offset,
         truncated=truncated,
+        scan_failures=scan_failures,
     )
