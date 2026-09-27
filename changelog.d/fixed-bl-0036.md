@@ -1,0 +1,1 @@
+- **Fixed:** Rope-backed refactoring tools report invalid positions/offsets, out-of-workspace or non-Python paths, missing `change_signature` operation arguments and invalid `split_module` targets as `[INVALID_INPUT]` naming the parameter, instead of a redacted backend failure.

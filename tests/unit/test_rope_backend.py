@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -754,3 +755,153 @@ async def test_begin_change_stack_twice_is_invalid_input(tmp_path: Path) -> None
     # The first stack is still active and usable; the project is unchanged.
     await backend.rollback_change_stack()
     assert module.read_text(encoding="utf-8") == _HISTORY_SOURCE
+
+
+# ── Caller-input errors are ToolInputError naming the parameter (bl-0036) ──
+
+
+@pytest.mark.parametrize(
+    ("line", "character", "parameter"),
+    [
+        (-1, 0, "line"),
+        (0, -1, "character"),
+        (99, 0, "line"),
+        (0, 99, "character"),
+    ],
+)
+def test_position_errors_are_invalid_input(
+    rope_backend: tuple[RopeBackend, Path], line: int, character: int, parameter: str,
+) -> None:
+    backend, module = rope_backend
+
+    with pytest.raises(ToolInputError, match=rf"\(parameter: {parameter}\)$"):
+        backend._position_to_offset(str(module), line, character)  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.asyncio
+async def test_range_position_error_names_prefixed_parameter(
+    rope_backend: tuple[RopeBackend, Path],
+) -> None:
+    backend, module = rope_backend
+
+    with pytest.raises(ToolInputError, match=r"^end_line 99 is out of range.*\(parameter: end_line\)$"):
+        await backend.extract_method(
+            str(module),
+            start_line=1,
+            start_character=4,
+            end_line=99,
+            end_character=0,
+            method_name="compute_value",
+            apply=False,
+        )
+
+
+@pytest.mark.parametrize("offset", [-1, 10_000])
+def test_offset_errors_are_invalid_input(rope_backend: tuple[RopeBackend, Path], offset: int) -> None:
+    backend, module = rope_backend
+
+    with pytest.raises(ToolInputError, match=r"\(parameter: offset\)$"):
+        backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.asyncio
+async def test_path_outside_workspace_is_invalid_input(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "pkg").mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("value = 1\n", encoding="utf-8")
+    backend = RopeBackend(_config(workspace))
+    backend.initialize()
+
+    with pytest.raises(ToolInputError, match=r"outside the workspace root.*\(parameter: file_path\)$"):
+        await backend.rename(str(outside), 0, 0, "renamed", apply=False)
+    with pytest.raises(ToolInputError, match=r"\(parameter: source_path\)$"):
+        await backend.move_module(str(outside), str(workspace / "pkg"), apply=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "parameter"),
+    [
+        (SignatureOperation(op="add", index=0), "operations[0].name"),
+        (SignatureOperation(op="remove"), "operations[0].index"),
+        (SignatureOperation(op="reorder"), "operations[0].new_order"),
+        (SignatureOperation(op="inline_default"), "operations[0].index"),
+        (SignatureOperation(op="rename", index=0), "operations[0].new_name"),
+        (SignatureOperation.model_construct(op="bogus"), "operations[0].op"),
+    ],
+)
+async def test_change_signature_operation_errors_are_invalid_input(
+    tmp_path: Path, operation: SignatureOperation, parameter: str,
+) -> None:
+    module = tmp_path / "sig.py"
+    module.write_text("def f(a):\n    return a\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    with pytest.raises(ToolInputError, match=rf"\(parameter: {re.escape(parameter)}\)$"):
+        await backend.change_signature(str(module), 0, 4, [operation], apply=False)
+
+    assert module.read_text(encoding="utf-8") == "def f(a):\n    return a\n"
+
+
+def _split_fixture(tmp_path: Path) -> tuple[RopeBackend, Path, Path, Path]:
+    source = tmp_path / "source.py"
+    alpha = tmp_path / "alpha.py"
+    beta = tmp_path / "beta.py"
+    source.write_text("class Alpha:\n    pass\n\nclass Beta:\n    pass\n", encoding="utf-8")
+    alpha.write_text("", encoding="utf-8")
+    beta.write_text("", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return backend, source, alpha, beta
+
+
+@pytest.mark.asyncio
+async def test_split_module_non_python_source_is_invalid_input(tmp_path: Path) -> None:
+    backend, _source, alpha, beta = _split_fixture(tmp_path)
+    notes = tmp_path / "notes.txt"
+    notes.write_text("Alpha\n", encoding="utf-8")
+
+    with pytest.raises(ToolInputError, match=r"must be an existing Python file.*\(parameter: source_file\)$"):
+        await backend.split_module(str(notes), {str(alpha): ["Alpha"], str(beta): ["Beta"]}, apply=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("targets", "message"),
+    [
+        ({"alpha": ["Alpha"]}, "at least two target modules"),
+        ({"alpha": ["Alpha"], "source": ["Beta"]}, "must differ from source_file"),
+        ({"alpha": ["Alpha"], "beta": []}, "has no symbols"),
+        ({"alpha": ["Alpha"], "beta": ["not valid"]}, "Invalid split_module symbol name"),
+        ({"alpha": ["Alpha"], "beta": ["Alpha"]}, "Duplicate split_module symbol"),
+        ({"alpha": ["Alpha"], "outside": ["Beta"]}, "outside the workspace root"),
+    ],
+)
+async def test_split_module_invalid_targets_are_invalid_input(
+    tmp_path: Path, targets: dict[str, list[str]], message: str,
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    backend, source, alpha, beta = _split_fixture(workspace)
+    outside = tmp_path / "outside.py"
+    outside.write_text("", encoding="utf-8")
+    paths = {"source": source, "alpha": alpha, "beta": beta, "outside": outside}
+    target_modules = {str(paths[key]): symbols for key, symbols in targets.items()}
+
+    with pytest.raises(ToolInputError, match=rf"{message}.*\(parameter: target_modules\)$"):
+        await backend.split_module(str(source), target_modules, apply=False)
+
+
+@pytest.mark.asyncio
+async def test_uninitialized_backend_stays_rope_error(tmp_path: Path) -> None:
+    module = tmp_path / "calc.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+
+    with pytest.raises(RopeError, match="rope backend is not initialized") as excinfo:
+        await backend.rename(str(module), 0, 0, "renamed", apply=False)
+
+    assert not isinstance(excinfo.value, ToolInputError)
