@@ -1,0 +1,1 @@
+- **Fixed:** `unused_symbol_sweep` opens every target file before querying references, so a cold Pyright session no longer reports false "no external references" items and cold runs match warm runs (cold time on this repo also drops from ~8.6 s to ~4.8 s).
