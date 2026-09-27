@@ -18,7 +18,7 @@ from python_refactor_mcp.models import (
     TypeStubFreshnessResult,
     TypeStubSignatureDrift,
 )
-from python_refactor_mcp.util.shared import validate_identifier, validate_workspace_path
+from python_refactor_mcp.util.shared import resolve_workspace_dir, validate_identifier
 
 if TYPE_CHECKING:
     from python_refactor_mcp.config import ServerConfig
@@ -41,13 +41,8 @@ def _validate_package_name(package_name: str) -> str:
 
 def _resolve_stub_root(config: ServerConfig, output_dir: str | None) -> Path:
     """Return the workspace-bounded stub root; relative paths anchor at the workspace."""
-    workspace_root = config.workspace_root
-    if output_dir is None:
-        candidate = workspace_root / DEFAULT_STUB_DIR
-    else:
-        requested = Path(output_dir).expanduser()
-        candidate = requested if requested.is_absolute() else workspace_root / requested
-    return Path(validate_workspace_path(str(candidate), workspace_root))
+    requested = DEFAULT_STUB_DIR if output_dir is None else output_dir
+    return Path(resolve_workspace_dir(requested, config.workspace_root))
 
 
 async def _run_pyright_createstub(config: ServerConfig, package_name: str, cwd: Path) -> tuple[int, str]:

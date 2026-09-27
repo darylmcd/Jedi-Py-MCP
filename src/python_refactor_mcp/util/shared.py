@@ -144,3 +144,16 @@ def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
             f"File path is outside the workspace root: {resolved} is not under {workspace_root}"
         ) from exc
     return str(resolved)
+
+
+def resolve_workspace_dir(value: str, workspace_root: Path) -> str:
+    """Resolve a workspace-relative-or-absolute directory and verify its boundary.
+
+    Unlike ``validate_workspace_path``, a relative *value* is accepted and anchored
+    at *workspace_root* (never the server process cwd). ``~`` is expanded before the
+    absolute check. Returns the resolved absolute path string; raises
+    ``ToolInputError`` when the result falls outside *workspace_root*.
+    """
+    requested = Path(value).expanduser()
+    candidate = requested if requested.is_absolute() else workspace_root / requested
+    return validate_workspace_path(str(candidate), workspace_root)
