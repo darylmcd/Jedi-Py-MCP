@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** Numeric bound parameters now advertise and enforce a schema `minimum` across every tool: `limit`, `depth`, `max_items`, `max_nodes`, and `undo_refactoring`/`redo_refactoring` `count` must be >= 1 and `offset` >= 0, so out-of-range values fail argument validation naming the parameter instead of being silently ignored or reported as applied (bl-0018).

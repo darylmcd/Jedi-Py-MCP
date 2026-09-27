@@ -36,6 +36,7 @@ from python_refactor_mcp.tool_params import (
     Offset,
     OptionalEndLine,
     OptionalFilePath,
+    OptionalMaxNodes,
     ParameterIndex,
     RootPath,
     StartCharacter,
@@ -234,7 +235,7 @@ async def get_symbol_outline(
     root_path: RootPath = None,
     file_paths: FilePaths = None,
     offset: Offset = 0,
-    max_nodes: int | None = None,
+    max_nodes: OptionalMaxNodes = None,
 ) -> SymbolOutlineResult:
     """Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Returns {items, total_count, offset, truncated, total_nodes, returned_nodes}. Supports pagination via offset/limit (limit counts root items). max_nodes caps roots plus descendants; a root crossing the budget keeps a depth-first prefix of its children. Workspace-wide scans (no file_path/file_paths) default to limit=500 roots and max_nodes=250; single-file and batch outlines are unbounded unless set. Check truncated before assuming completeness. Related: search_symbols (name-based search), get_folding_ranges."""
     app = get_current_backends()

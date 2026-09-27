@@ -62,6 +62,10 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
     "members": "Names of the class members to move.",
     "depth": "How many levels to traverse from the starting symbol.",
     "max_items": "Maximum number of items to collect during the traversal.",
+    "max_nodes": (
+        "Maximum number of nodes (roots plus descendants) to return. The tool description states any default "
+        "budget and how truncation is reported."
+    ),
     "include_declaration": "Include the symbol's own declaration site in the results.",
     "suppress_codes": "Diagnostic rule codes to drop from the results (for example reportMissingImports).",
     "exclude_patterns": "Regular expressions; files whose path matches any of them are skipped.",
@@ -109,8 +113,8 @@ StartCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["star
 EndLine = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_line"])]
 OptionalEndLine = Annotated[int | None, Field(ge=0, description=PARAM_DESCRIPTIONS["end_line"])]
 EndCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_character"])]
-Limit = Annotated[int | None, Field(description=PARAM_DESCRIPTIONS["limit"])]
-Offset = Annotated[int, Field(description=PARAM_DESCRIPTIONS["offset"])]
+Limit = Annotated[int | None, Field(ge=1, description=PARAM_DESCRIPTIONS["limit"])]
+Offset = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["offset"])]
 RootPath = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["root_path"])]
 SourceFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_file"])]
 SourcePath = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_path"])]
@@ -124,9 +128,10 @@ NewMethodName = Annotated[str, Field(description=_NEW_METHOD_NAME)]
 FunctionName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["function_name"])]
 NewName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["new_name"])]
 Members = Annotated[list[str], Field(description=PARAM_DESCRIPTIONS["members"])]
-Depth = Annotated[int, Field(description=PARAM_DESCRIPTIONS["depth"])]
-MaxItems = Annotated[int, Field(description=PARAM_DESCRIPTIONS["max_items"])]
-OptionalMaxItems = Annotated[int | None, Field(description=PARAM_DESCRIPTIONS["max_items"])]
+Depth = Annotated[int, Field(ge=1, description=PARAM_DESCRIPTIONS["depth"])]
+MaxItems = Annotated[int, Field(ge=1, description=PARAM_DESCRIPTIONS["max_items"])]
+OptionalMaxItems = Annotated[int | None, Field(ge=1, description=PARAM_DESCRIPTIONS["max_items"])]
+OptionalMaxNodes = Annotated[int | None, Field(ge=1, description=PARAM_DESCRIPTIONS["max_nodes"])]
 IncludeDeclaration = Annotated[bool, Field(description=PARAM_DESCRIPTIONS["include_declaration"])]
 SuppressCodes = Annotated[list[str] | None, Field(description=PARAM_DESCRIPTIONS["suppress_codes"])]
 ExcludePatterns = Annotated[list[str] | None, Field(description=PARAM_DESCRIPTIONS["exclude_patterns"])]
@@ -144,7 +149,7 @@ StructuralLanguage = Annotated[Literal["python"], Field(description=_STRUCTURAL_
 Query = Annotated[str, Field(description=PARAM_DESCRIPTIONS["query"])]
 MatcherPattern = Annotated[str, Field(description=PARAM_DESCRIPTIONS["pattern"])]
 RopePattern = Annotated[str, Field(description=_ROPE_PATTERN)]
-HistoryCount = Annotated[int, Field(description=PARAM_DESCRIPTIONS["count"])]
+HistoryCount = Annotated[int, Field(ge=1, description=PARAM_DESCRIPTIONS["count"])]
 PackageName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["package_name"])]
 AutoImportName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["name"])]
 TransactionSteps = Annotated[list[dict[str, Any]], Field(description=PARAM_DESCRIPTIONS["steps"])]
