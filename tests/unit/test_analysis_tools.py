@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import (
     CompletionItem,
     Diagnostic,
@@ -338,6 +338,53 @@ async def test_get_workspace_diagnostics_aggregates_by_file(tmp_path: Path) -> N
     assert [(item.file_path, item.total_count) for item in result.items] == [
         (str(file_a.resolve()), 2),
         (str(file_b.resolve()), 1),
+    ]
+    assert result.scan_failures == []
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_diagnostics_reports_failed_file_as_scan_failure(tmp_path: Path) -> None:
+    """A file whose diagnostics raise is reported in scan_failures; others still aggregate."""
+    file_a = tmp_path / "a.py"
+    file_b = tmp_path / "b.py"
+    file_a.write_text("x = 1\n", encoding="utf-8")
+    file_b.write_text("y = 2\n", encoding="utf-8")
+
+    pyright = AsyncMock()
+
+    async def _diagnostics_for(file_path: str | None) -> list[Diagnostic]:
+        if file_path == str(file_b.resolve()):
+            raise PyrightError("publishDiagnostics for b.py not received within 5.0s")
+        return [
+            Diagnostic(
+                file_path=str(file_a.resolve()),
+                range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+                severity="error",
+                message="err",
+                code=None,
+            )
+        ]
+
+    pyright.get_diagnostics.side_effect = _diagnostics_for
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+
+    result = await analysis.get_workspace_diagnostics(pyright, config)
+
+    assert [(item.file_path, item.total_count) for item in result.items] == [(str(file_a.resolve()), 1)]
+    assert [failure.model_dump() for failure in result.scan_failures] == [
+        {
+            "file_path": str(file_b.resolve()),
+            "phase": "diagnostics",
+            "error_type": "PyrightError",
+            "subject": None,
+        }
     ]
 
 

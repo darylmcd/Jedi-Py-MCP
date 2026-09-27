@@ -288,7 +288,9 @@ class RefactorResult(BaseModel):
     """Refactoring edit payload and optional diagnostics.
 
     ``files_affected`` lists the files as they exist after the refactoring, so a
-    moved module appears at its destination path.
+    moved module appears at its destination path. On an applied result,
+    ``diagnostics_after`` is ``None`` when post-apply diagnostics were
+    unavailable, which is distinct from ``[]`` (no diagnostics).
     """
 
     edits: list[TextEdit]
@@ -450,7 +452,12 @@ class Paginated[T](BaseModel):
     truncated: bool = False
 
 
-PaginatedDiagnosticSummary = Paginated[DiagnosticSummary]
+class PaginatedDiagnosticSummary(Paginated[DiagnosticSummary]):
+    """Per-file diagnostic summary page plus files whose diagnostics could not be read."""
+
+    scan_failures: list[ScanFailure] = Field(default_factory=list)
+
+
 class PaginatedDeadCode(Paginated[DeadCodeItem]):
     """Dead-code page plus explicit failures from diagnostics/reference scans."""
 

@@ -12,6 +12,7 @@ from python_refactor_mcp import server
 from python_refactor_mcp.errors import (
     BackendError,
     LspFeatureUnsupportedError,
+    PyrightError,
     RopeError,
     ToolInputError,
 )
@@ -123,6 +124,31 @@ async def test_rename_symbol_apply_refreshes_diagnostics(tmp_path: Path) -> None
     assert [item.file_path for item in result.diagnostics_after] == [first_path, first_path, second_path]
     pyright.notify_file_changed.assert_any_await(first_path)
     pyright.notify_file_changed.assert_any_await(second_path)
+
+
+@pytest.mark.asyncio
+async def test_rename_symbol_apply_with_unavailable_diagnostics_stays_applied(tmp_path: Path) -> None:
+    """A post-apply Pyright failure keeps the applied result and marks diagnostics unavailable."""
+    module = tmp_path / "a.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    module_path = str(module)
+    pyright = AsyncMock()
+    rope = AsyncMock()
+    rope.rename.return_value = RefactorResult(
+        edits=[_edit(module_path)],
+        files_affected=[module_path],
+        description="rename",
+        applied=True,
+    )
+    pyright.get_diagnostics.side_effect = PyrightError(
+        f"publishDiagnostics for {module_path} not received within 5.0s"
+    )
+
+    result = await refactoring.rename_symbol(pyright, rope, module_path, 0, 0, "new_name", apply=True)
+
+    assert result.applied is True
+    assert result.diagnostics_after is None
+    pyright.notify_file_changed.assert_awaited_once_with(module_path)
 
 
 @pytest.mark.asyncio

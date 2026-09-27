@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import keyword
+import logging
 from pathlib import Path
 from typing import Protocol
 
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import Diagnostic, Location, Position, RefactorResult
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class DiagnosticsNotifier(Protocol):
@@ -65,19 +68,29 @@ async def attach_post_apply_diagnostics(
     pyright: DiagnosticsNotifier,
     result: RefactorResult,
 ) -> RefactorResult:
-    """Notify Pyright of changed files and append refreshed diagnostics."""
+    """Notify Pyright of changed files and append refreshed diagnostics.
+
+    The edit is already on disk, so a Pyright failure here must not turn the
+    applied result into a tool error: ``diagnostics_after`` is set to ``None``
+    (unavailable), which is distinct from ``[]`` (verified clean).
+    """
     if not result.applied:
         return result
 
     normalized_files = sorted(set(result.files_affected))
-    for file_path in normalized_files:
-        await pyright.notify_file_changed(file_path)
-
     diagnostics: dict[tuple[str, int, int, int, int, str, str], Diagnostic] = {}
-    for file_path in normalized_files:
-        file_diagnostics = await pyright.get_diagnostics(file_path)
-        for diagnostic in file_diagnostics:
-            diagnostics[diagnostic_key(diagnostic)] = diagnostic
+    try:
+        for file_path in normalized_files:
+            await pyright.notify_file_changed(file_path)
+
+        for file_path in normalized_files:
+            file_diagnostics = await pyright.get_diagnostics(file_path)
+            for diagnostic in file_diagnostics:
+                diagnostics[diagnostic_key(diagnostic)] = diagnostic
+    except PyrightError as exc:
+        _LOGGER.warning("Post-apply diagnostics unavailable: %s", exc)
+        result.diagnostics_after = None
+        return result
 
     result.diagnostics_after = sorted(diagnostics.values(), key=diagnostic_key)
     return result

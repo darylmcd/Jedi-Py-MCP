@@ -313,7 +313,7 @@ async def get_workspace_diagnostics(
     offset: Offset = 0,
     limit: Limit = None,
 ) -> PaginatedDiagnosticSummary:
-    """Get aggregated diagnostic counts (errors, warnings, hints) per file across the workspace. Use for a high-level health overview of the codebase. Supports pagination via offset/limit. Related: get_diagnostics (detailed per-file diagnostics)."""
+    """Get aggregated diagnostic counts (errors, warnings, hints) per file across the workspace. Use for a high-level health overview of the codebase. Supports pagination via offset/limit. Files whose diagnostics could not be read (e.g. Pyright publish timeout) are listed in scan_failures rather than counted as clean. Related: get_diagnostics (detailed per-file diagnostics)."""
     app = get_current_backends()
     result = await analysis.get_workspace_diagnostics(
         app.pyright,
@@ -324,7 +324,13 @@ async def get_workspace_diagnostics(
         offset,
         limit,
     )
-    _LOGGER.debug("get_workspace_diagnostics files=%s total=%s", len(result.items), result.total_count)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "get_workspace_diagnostics files=%s total=%s scan_failures=%s",
+        len(result.items),
+        result.total_count,
+        len(result.scan_failures),
+    )
     return result
 
 

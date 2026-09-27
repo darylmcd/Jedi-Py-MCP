@@ -1,0 +1,1 @@
+- **Fixed:** Pyright diagnostics: a missed per-file `publishDiagnostics` now raises `PyrightError` after `PYRIGHT_REQUEST_TIMEOUT_SECONDS` instead of reading as a clean file; `get_workspace_diagnostics` reports failed files in a new `scan_failures` field, and post-apply `diagnostics_after` is `null` when diagnostics are unavailable.
