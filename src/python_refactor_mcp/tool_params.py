@@ -18,9 +18,11 @@ module namespace that declares the tool.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
+
+from python_refactor_mcp.models import TransactionStep
 
 PARAM_DESCRIPTIONS: dict[str, str] = {
     "file_path": "Absolute path to the target Python file; it must lie inside the workspace.",
@@ -152,5 +154,7 @@ RopePattern = Annotated[str, Field(description=_ROPE_PATTERN)]
 HistoryCount = Annotated[int, Field(ge=1, description=PARAM_DESCRIPTIONS["count"])]
 PackageName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["package_name"])]
 AutoImportName = Annotated[str, Field(description=PARAM_DESCRIPTIONS["name"])]
-TransactionSteps = Annotated[list[dict[str, Any]], Field(description=PARAM_DESCRIPTIONS["steps"])]
+TransactionSteps = Annotated[
+    list[TransactionStep], Field(min_length=1, description=PARAM_DESCRIPTIONS["steps"])
+]
 ParameterIndex = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["index"])]

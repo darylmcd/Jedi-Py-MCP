@@ -31,7 +31,8 @@ from python_refactor_mcp.errors import (
     ToolInputError,
     WorkspaceResolutionError,
 )
-from python_refactor_mcp.tool_registry import register_tools
+from python_refactor_mcp.models import RenameStep, RenameStepArgs
+from python_refactor_mcp.tool_registry import build_tools
 from python_refactor_mcp.tool_runtime import (
     DIR_PARAMS,
     PATH_PARAMS,
@@ -43,6 +44,14 @@ from python_refactor_mcp.tool_runtime import (
 )
 from python_refactor_mcp.util.shared import validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends
+
+
+def _rename_step(file_path: str, new_name: str = "renamed") -> RenameStep:
+    """Build a schema-validated rename step, as the SDK hands it to the boundary."""
+    return RenameStep(
+        tool="rename_symbol",
+        args=RenameStepArgs(file_path=file_path, line=0, character=0, new_name=new_name),
+    )
 
 
 def _backends(root: Path) -> WorkspaceBackends:
@@ -113,7 +122,7 @@ async def test_resolve_backends_uses_nested_transaction_path(tmp_path: Path) -> 
 
     resolved = await _resolve_backends(
         ctx,
-        {"steps": [{"tool": "rename_symbol", "args": {"file_path": str(target)}}]},
+        {"steps": [_rename_step(str(target))]},
     )
 
     assert resolved is backends
@@ -224,16 +233,12 @@ def test_validate_params_rejects_non_string_list_path(tmp_path: Path) -> None:
 
 def test_validate_params_resolves_nested_transaction_paths(tmp_path: Path) -> None:
     """Every transaction step path is normalized against the selected workspace."""
-    kwargs = {
-        "steps": [
-            {"tool": "rename_symbol", "args": {"file_path": str(tmp_path / "a.py")}},
-            {"tool": "rename_symbol", "args": {"file_path": str(tmp_path / "b.py")}},
-        ]
-    }
+    steps = [_rename_step(str(tmp_path / "a.py")), _rename_step(str(tmp_path / "b.py"))]
+    kwargs: dict[str, object] = {"steps": steps}
 
     _validate_params(kwargs, tmp_path)
 
-    assert [step["args"]["file_path"] for step in kwargs["steps"]] == [
+    assert [step.args.file_path for step in steps] == [
         str((tmp_path / "a.py").resolve()),
         str((tmp_path / "b.py").resolve()),
     ]
@@ -266,8 +271,10 @@ async def test_every_directory_typed_tool_param_is_validated() -> None:
     """Drift guard: every registered ``*_dir``/``*_directory`` parameter is in DIR_PARAMS."""
     directory_params: set[str] = set()
     for profile in TOOL_PROFILES:
-        mcp = MCPServer(f"dir-param drift guard ({profile})")
-        register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
+        mcp = MCPServer(
+            f"dir-param drift guard ({profile})",
+            tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+        )
         for tool in await mcp.list_tools():
             properties = tool.input_schema.get("properties", {})
             directory_params.update(name for name in properties if name.endswith(("_dir", "_directory")))
@@ -304,15 +311,15 @@ def test_validate_params_rejects_non_string_list_identifier(tmp_path: Path) -> N
 
 def test_validate_params_rejects_bad_nested_transaction_identifier(tmp_path: Path) -> None:
     """Transaction steps cannot bypass top-level identifier validation."""
-    kwargs = {
-        "steps": [
-            {
-                "tool": "rename_symbol",
-                "args": {"file_path": str(tmp_path / "a.py"), "new_name": "1bad"},
-            }
-        ]
-    }
+    kwargs = {"steps": [_rename_step(str(tmp_path / "a.py"), new_name="1bad")]}
     with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _validate_params(kwargs, tmp_path)
+
+
+def test_validate_params_refuses_unvalidated_transaction_step(tmp_path: Path) -> None:
+    """A raw step dict is a wiring defect: it raises instead of silently skipping path checks."""
+    kwargs = {"steps": [{"tool": "rename_symbol", "args": {"file_path": "../escape.py"}}]}
+    with pytest.raises(TypeError, match=r"steps\[0\] is not a validated step model"):
         _validate_params(kwargs, tmp_path)
 
 
@@ -604,13 +611,10 @@ async def test_wrapper_rejects_relative_transaction_step_path(tmp_path: Path, mo
     ctx, registry = _relative_path_ctx(root)
 
     @tool_error_boundary
-    async def tool(ctx: object, steps: list[dict[str, object]]) -> str:
+    async def tool(ctx: object, steps: list[RenameStep]) -> str:
         return "ok"
 
-    steps: list[dict[str, object]] = [
-        {"tool": "rename_symbol", "args": {"file_path": str(root / "a.py")}},
-        {"tool": "rename_symbol", "args": {"file_path": "b.py"}},
-    ]
+    steps = [_rename_step(str(root / "a.py")), _rename_step("b.py")]
     with pytest.raises(
         ToolError,
         match=r"^\[INVALID_INPUT\] 'b\.py' is not an absolute path \(parameter: steps\[1\]\.args\.file_path\)$",

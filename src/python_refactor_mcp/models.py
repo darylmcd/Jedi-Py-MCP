@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+# Tool-input value models reject unknown keys, so a misspelled nested key fails
+# validation naming the key instead of being silently dropped. Build these models
+# from backend payloads (LSP dicts) field by field, never by validating a raw dict.
+_FORBID_EXTRA = ConfigDict(extra="forbid")
 
 
 class Position(BaseModel):
     """0-based line and character offset."""
+
+    model_config = _FORBID_EXTRA
 
     line: int = Field(ge=0)
     character: int = Field(ge=0)
@@ -22,6 +29,8 @@ class SymbolAnchor(Position):
 
 class Range(BaseModel):
     """Text range in a file using 0-based positions."""
+
+    model_config = _FORBID_EXTRA
 
     start: Position
     end: Position
@@ -37,6 +46,8 @@ class Location(BaseModel):
 
 class TextEdit(BaseModel):
     """A textual replacement for a file range."""
+
+    model_config = _FORBID_EXTRA
 
     file_path: str
     range: Range
@@ -313,6 +324,94 @@ class CodeActionResult(RefactorResult):
     available_actions: list[str] = Field(default_factory=list)
 
 
+class TransactionStepArgs(BaseModel):
+    """Arguments shared by every ``refactor_transaction`` step: the target file."""
+
+    model_config = _FORBID_EXTRA
+
+    file_path: str = Field(description="Absolute path to the Python file the step edits.")
+
+
+class PositionStepArgs(TransactionStepArgs):
+    """Arguments of a step anchored at one 0-based position."""
+
+    line: int = Field(ge=0, description="0-based line number.")
+    character: int = Field(ge=0, description="0-based character offset within the line.")
+
+
+class RenameStepArgs(PositionStepArgs):
+    """Arguments of a ``rename_symbol`` transaction step."""
+
+    new_name: str = Field(description="New name for the symbol.")
+
+
+class SpanStepArgs(TransactionStepArgs):
+    """Arguments of a step over a 0-based source span."""
+
+    start_line: int = Field(ge=0, description="0-based start line of the span.")
+    start_character: int = Field(ge=0, description="0-based start character of the span.")
+    end_line: int = Field(ge=0, description="0-based end line of the span.")
+    end_character: int = Field(ge=0, description="0-based end character of the span.")
+
+
+class ExtractMethodStepArgs(SpanStepArgs):
+    """Arguments of an ``extract_method`` transaction step."""
+
+    method_name: str = Field(description="Name for the newly extracted method.")
+    similar: bool = Field(default=False, description="Also replace similar code fragments.")
+
+
+class ExtractVariableStepArgs(SpanStepArgs):
+    """Arguments of an ``extract_variable`` transaction step."""
+
+    variable_name: str = Field(description="Name for the extracted variable.")
+
+
+class RenameStep(BaseModel):
+    """A ``rename_symbol`` step of ``refactor_transaction``."""
+
+    model_config = _FORBID_EXTRA
+
+    tool: Literal["rename_symbol"]
+    args: RenameStepArgs
+
+
+class ExtractMethodStep(BaseModel):
+    """An ``extract_method`` step of ``refactor_transaction``."""
+
+    model_config = _FORBID_EXTRA
+
+    tool: Literal["extract_method"]
+    args: ExtractMethodStepArgs
+
+
+class ExtractVariableStep(BaseModel):
+    """An ``extract_variable`` step of ``refactor_transaction``."""
+
+    model_config = _FORBID_EXTRA
+
+    tool: Literal["extract_variable"]
+    args: ExtractVariableStepArgs
+
+
+class InlineStep(BaseModel):
+    """An ``inline_variable`` or ``inline_method`` step of ``refactor_transaction``."""
+
+    model_config = _FORBID_EXTRA
+
+    tool: Literal["inline_variable", "inline_method"]
+    args: PositionStepArgs
+
+
+# One ``refactor_transaction`` step, selected by its ``tool`` name. The tag set
+# must equal ``rope_backend.TRANSACTION_TOOLS`` (asserted by a unit test; models
+# stay free of backend imports).
+TransactionStep = Annotated[
+    RenameStep | ExtractMethodStep | ExtractVariableStep | InlineStep,
+    Field(discriminator="tool"),
+]
+
+
 class TransactionStepResult(BaseModel):
     """Outcome of one step in a ``refactor_transaction`` sequence.
 
@@ -351,6 +450,8 @@ class TransactionResult(BaseModel):
 
 class SignatureOperation(BaseModel):
     """One operation applied by change_signature refactoring."""
+
+    model_config = _FORBID_EXTRA
 
     op: Literal["add", "remove", "reorder", "inline_default", "normalize", "rename"]
     index: int | None = Field(default=None, ge=0)

@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
-from python_refactor_mcp.backends.rope_backend import RopeBackend
+from python_refactor_mcp.backends.rope_backend import TRANSACTION_TOOLS, RopeBackend
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.models import TransactionStep
+from python_refactor_mcp.tool_params import TransactionSteps
 from python_refactor_mcp.tools import composite
+
+_STEPS = TypeAdapter(TransactionSteps)
+
+
+def _steps(*raw: dict[str, Any]) -> list[TransactionStep]:
+    """Validate raw step dicts exactly as the tool's input schema does."""
+    return _STEPS.validate_python(list(raw))
 
 
 def _backend(tmp_path: Path) -> RopeBackend:
@@ -51,10 +61,10 @@ async def test_two_tool_transaction_commits(tmp_path: Path) -> None:
 
     result = await composite.refactor_transaction(
         backend,
-        steps=[
+        steps=_steps(
             _rename(module, 0, 4, "plus"),
             _rename(module, 0, 9, "alpha"),
-        ],
+        ),
     )
 
     assert result.applied is True
@@ -86,14 +96,14 @@ async def test_mid_sequence_failure_returns_rolled_back_result(tmp_path: Path) -
 
     result = await composite.refactor_transaction(
         backend,
-        steps=[
+        steps=_steps(
             # Step 1 is valid (rename add -> plus).
             _rename(module, 0, 4, "plus"),
             # Step 2 targets the `return` keyword -> rope error mid-sequence.
             _rename(module, 1, 4, "boom"),
             # Step 3 is valid in isolation but must be SKIPPED after the abort.
             _rename(module, 0, 9, "alpha"),
-        ],
+        ),
     )
 
     assert result.applied is False
@@ -123,12 +133,12 @@ async def test_overlap_detection_returns_rolled_back_result(tmp_path: Path) -> N
 
     result = await composite.refactor_transaction(
         backend,
-        steps=[
+        steps=_steps(
             # Step 1 renames `value` -> `count` at (0, 0).
             _rename(module, 0, 0, "count"),
             # Step 2 targets the SAME definition position again -> overlap.
             _rename(module, 0, 0, "total"),
-        ],
+        ),
     )
 
     assert result.applied is False
@@ -154,7 +164,7 @@ async def test_line_insertion_does_not_overlap_later_unchanged_line(tmp_path: Pa
 
     result = await composite.refactor_transaction(
         backend,
-        steps=[
+        steps=_steps(
             {
                 "tool": "extract_variable",
                 "args": {
@@ -167,7 +177,7 @@ async def test_line_insertion_does_not_overlap_later_unchanged_line(tmp_path: Pa
                 },
             },
             _rename(module, 3, 4, "after"),
-        ],
+        ),
     )
 
     assert result.applied is True
@@ -176,75 +186,52 @@ async def test_line_insertion_does_not_overlap_later_unchanged_line(tmp_path: Pa
     assert "after = 3" in content
 
 
-@pytest.mark.asyncio
-async def test_unknown_tool_is_rejected(tmp_path: Path) -> None:
-    """An unsupported tool name is an INPUT error: it RAISES before any apply."""
-    module = tmp_path / "m.py"
-    original = "x = 1\n"
-    module.write_text(original, encoding="utf-8")
-    backend = _backend(tmp_path)
-
-    with pytest.raises(ToolInputError, match="not supported"):
-        await composite.refactor_transaction(
-            backend,
-            steps=[{"tool": "format_code", "args": {"file_path": str(module)}}],
-        )
-
-    assert module.read_text(encoding="utf-8") == original
+def test_step_schema_tags_match_backend_transaction_tools() -> None:
+    """The step union's ``tool`` tags are exactly the tools the backend can run."""
+    union = get_args(get_args(TransactionStep)[0])
+    tags = {tag for member in union for tag in get_args(member.model_fields["tool"].annotation)}
+    assert tags == set(TRANSACTION_TOOLS)
 
 
-@pytest.mark.asyncio
-async def test_unknown_tool_in_later_step_caught_before_first_step_applies(tmp_path: Path) -> None:
-    """An unsupported tool in step 2 is caught up front — step 1 never runs (RAISES)."""
-    module = tmp_path / "m.py"
-    original = "def add(a, b):\n    return a + b\n"
-    module.write_text(original, encoding="utf-8")
-    backend = _backend(tmp_path)
-
-    with pytest.raises(ToolInputError, match="not supported"):
-        await composite.refactor_transaction(
-            backend,
-            steps=[
-                # Step 1 is a valid rename...
-                _rename(module, 0, 4, "plus"),
-                # ...but step 2 names an unsupported tool -> whole request rejected.
-                {"tool": "format_code", "args": {"file_path": str(module)}},
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Unsupported tool (also in a later step) -> the whole list is rejected up front.
+        (
+            [_rename(Path("/ws/m.py"), 0, 4, "plus"), {"tool": "format_code", "args": {"file_path": "/ws/m.py"}}],
+            r"1[\s\S]*does not match any of the expected tags",
+        ),
+        (
+            [{"tool": "rename_symbol", "args": {"line": 0, "character": 4, "new_name": "x"}}],
+            r"file_path[\s\S]*Field required",
+        ),
+        ([], r"at least 1 item"),
+        ([{"args": {"file_path": "/ws/m.py"}}], r"Unable to extract tag using discriminator 'tool'"),
+        ([{"tool": "rename_symbol", "args": ["m.py"]}], r"args[\s\S]*valid dictionary"),
+        (
+            [{**_rename(Path("/ws/m.py"), 0, 4, "x"), "bogus": 1}],
+            r"bogus[\s\S]*Extra inputs are not permitted",
+        ),
+        (
+            [
+                {
+                    "tool": "inline_variable",
+                    "args": {"file_path": "/ws/m.py", "line": 0, "character": 0, "new_name": "x"},
+                }
             ],
-        )
-
-    # Step 1 must NOT have been applied: input validation runs before execution.
-    assert module.read_text(encoding="utf-8") == original
-
-
-@pytest.mark.asyncio
-async def test_step_missing_file_path_is_rejected(tmp_path: Path) -> None:
-    """A structurally-invalid step (no string `file_path`) is an INPUT error -> RAISES."""
-    backend = _backend(tmp_path)
-    with pytest.raises(ToolInputError, match="file_path"):
-        await composite.refactor_transaction(
-            backend,
-            steps=[{"tool": "rename_symbol", "args": {"line": 0, "character": 4, "new_name": "x"}}],
-        )
+            r"new_name[\s\S]*Extra inputs are not permitted",
+        ),
+    ],
+)
+def test_malformed_steps_are_rejected_by_schema_naming_the_field(raw: list[dict[str, Any]], expected: str) -> None:
+    """Structural step errors fail input validation, naming the step field, before any edit runs."""
+    with pytest.raises(ValidationError, match=expected):
+        _STEPS.validate_python(raw)
 
 
 @pytest.mark.asyncio
-async def test_empty_steps_rejected(tmp_path: Path) -> None:
-    """An empty step list is a structured INPUT error, not a silent no-op -> RAISES."""
+async def test_backend_preflight_still_rejects_empty_steps(tmp_path: Path) -> None:
+    """Defense in depth: an empty list reaching the composite is an INPUT error, not a no-op."""
     backend = _backend(tmp_path)
     with pytest.raises(ToolInputError, match="at least one step"):
         await composite.refactor_transaction(backend, steps=[])
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("step", "reason"),
-    [
-        ({"args": {"file_path": "m.py"}}, "step 0 is missing a string 'tool'"),
-        ({"tool": "rename_symbol", "args": ["m.py"]}, "step 0 'args' must be an object"),
-    ],
-)
-async def test_malformed_step_is_invalid_input(tmp_path: Path, step: dict[str, Any], reason: str) -> None:
-    """A structurally malformed step is a ToolInputError naming the step and field."""
-    backend = _backend(tmp_path)
-    with pytest.raises(ToolInputError, match=reason):
-        await composite.refactor_transaction(backend, steps=[step])

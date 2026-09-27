@@ -19,16 +19,21 @@ from python_refactor_mcp.tool_params import PARAM_DESCRIPTIONS
 from python_refactor_mcp.tool_registry import (
     MAX_TOOLS_PER_PROFILE,
     TOOL_RECORDS,
-    register_tools,
+    build_tools,
     tool_names_for_profile,
 )
 from python_refactor_mcp.tool_runtime import IDENTIFIER_PARAMS, PATH_PARAMS
 
 
+def _profile_server(profile: ToolProfile) -> MCPServer:
+    return MCPServer(
+        f"Python Refactor contract ({profile})",
+        tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+    )
+
+
 async def _profile_tools(profile: ToolProfile) -> list[Any]:
-    mcp = MCPServer(f"Python Refactor contract ({profile})")
-    register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
-    return await mcp.list_tools()
+    return await _profile_server(profile).list_tools()
 
 
 @pytest.mark.asyncio
@@ -306,8 +311,7 @@ async def _tools_by_name() -> dict[str, tuple[Any, MCPServer]]:
     """Return every advertised tool across all profiles with the server that registered it."""
     found: dict[str, tuple[Any, MCPServer]] = {}
     for profile in TOOL_PROFILES:
-        mcp = MCPServer(f"Python Refactor contract ({profile})")
-        register_tools(mcp, profile, extra_records=server.EXPLICIT_TOOL_RECORDS)
+        mcp = _profile_server(profile)
         for tool in await mcp.list_tools():
             found.setdefault(tool.name, (tool, mcp))
     return found
@@ -425,3 +429,107 @@ async def test_out_of_set_direction_is_rejected_naming_the_parameter() -> None:
             "call_hierarchy",
             {"file_path": "C:/workspace/module.py", "line": 0, "character": 0, "direction": "up"},
         )
+
+
+# Parameters whose schema is a map (``additionalProperties`` is a value schema):
+# their keys are caller data, not field names, so they cannot be closed.
+_MAP_PARAMS = frozenset({"target_modules", "checks"})
+
+
+def _open_object_schemas(schema: Any, path: str) -> list[str]:
+    """Return the paths of object schemas that do not declare ``additionalProperties: false``."""
+    found: list[str] = []
+    if isinstance(schema, dict):
+        node = cast(dict[str, Any], schema)
+        is_object = node.get("type") == "object" or "properties" in node
+        if is_object and node.get("additionalProperties") is not False:
+            found.append(path)
+        for key, value in node.items():
+            if key == "properties":
+                for name, prop in cast(dict[str, Any], value).items():
+                    if name not in _MAP_PARAMS:
+                        found.extend(_open_object_schemas(prop, f"{path}.{name}"))
+            else:
+                found.extend(_open_object_schemas(value, f"{path}/{key}"))
+    elif isinstance(schema, list):
+        for index, item in enumerate(cast(list[Any], schema)):
+            found.extend(_open_object_schemas(item, f"{path}[{index}]"))
+    return found
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", TOOL_PROFILES)
+async def test_every_input_object_schema_forbids_unknown_keys(profile: ToolProfile) -> None:
+    """Every input object schema, ``$defs`` included, advertises ``additionalProperties: false``."""
+    tools = await _profile_tools(profile)
+    open_schemas = [path for tool in tools for path in _open_object_schemas(tool.input_schema, tool.name)]
+    assert not open_schemas, f"input object schemas accepting unknown keys: {open_schemas}"
+
+
+@pytest.mark.asyncio
+async def test_live_server_forbids_unknown_keys() -> None:
+    """The module-level server is built through the same forbid path as the profile servers."""
+    tools = await server.mcp.list_tools()
+    assert tools
+    assert all(tool.input_schema.get("additionalProperties") is False for tool in tools)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "key"),
+    [
+        ("find_references", {"file_path": "C:/workspace/module.py", "line": 0, "character": 0, "bogus": 1}, "bogus"),
+        (
+            "refactor_transaction",
+            {
+                "steps": [
+                    {
+                        "tool": "rename_symbol",
+                        "args": {
+                            "file_path": "C:/workspace/module.py",
+                            "line": 0,
+                            "character": 0,
+                            "new_name": "x",
+                            "new_nmae": "y",
+                        },
+                    }
+                ]
+            },
+            "new_nmae",
+        ),
+        (
+            "refactor_transaction",
+            {
+                "steps": [
+                    {
+                        "tool": "inline_variable",
+                        "args": {"file_path": "C:/workspace/module.py", "line": 0, "character": 0},
+                        "apply": True,
+                    }
+                ]
+            },
+            "apply",
+        ),
+        (
+            "diff_preview",
+            {
+                "edits": [
+                    {
+                        "file_path": "C:/workspace/module.py",
+                        "range": {"start": {"line": 0, "character": 0, "col": 1}, "end": {"line": 0, "character": 0}},
+                        "new_text": "",
+                    }
+                ]
+            },
+            "col",
+        ),
+    ],
+)
+async def test_unknown_argument_key_is_rejected_naming_the_key(
+    tool_name: str, arguments: dict[str, Any], key: str
+) -> None:
+    """An unknown top-level or nested key fails argument validation, naming the key, before any backend runs."""
+    tools = await _tools_by_name()
+    _, mcp = tools[tool_name]
+    with pytest.raises(ToolError, match=rf"{key}[\s\S]*Extra inputs are not permitted"):
+        await mcp.call_tool(tool_name, arguments)

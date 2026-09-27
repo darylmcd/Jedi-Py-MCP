@@ -17,6 +17,7 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp.errors import BackendError, ToolInputError
+from python_refactor_mcp.models import TransactionStepArgs
 from python_refactor_mcp.util.shared import (
     resolve_workspace_dir,
     validate_identifier,
@@ -72,25 +73,32 @@ IDENTIFIER_PARAMS: tuple[str, ...] = (
 _LIST_IDENTIFIER_PARAMS: tuple[str, ...] = ("class_names", "members")
 
 
-def _transaction_step_args(kwargs: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return mutable argument objects from well-shaped transaction steps."""
-    steps = kwargs.get("steps")
-    if not isinstance(steps, list):
-        return []
+def _transaction_step_args(kwargs: dict[str, Any]) -> list[TransactionStepArgs]:
+    """Return the mutable argument models of ``refactor_transaction`` steps in request order.
 
-    step_args: list[dict[str, Any]] = []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        args = step.get("args")
-        if isinstance(args, dict):
-            step_args.append(args)
+    The SDK validates ``steps`` into step models before the boundary runs, so
+    every step carries a :class:`TransactionStepArgs`. Anything else is a
+    wiring defect and raises instead of being skipped: a skipped step would
+    bypass the workspace, absolute-path, and identifier checks below.
+    """
+    steps = kwargs.get("steps")
+    if steps is None:
+        return []
+    if not isinstance(steps, list):
+        raise TypeError(f"refactor_transaction steps must be a list of step models, got {type(steps).__name__}")
+
+    step_args: list[TransactionStepArgs] = []
+    for index, step in enumerate(steps):
+        args = getattr(step, "args", None)
+        if not isinstance(args, TransactionStepArgs):
+            raise TypeError(f"refactor_transaction steps[{index}] is not a validated step model")
+        step_args.append(args)
     return step_args
 
 
 def _transaction_step_paths(kwargs: dict[str, Any]) -> list[str]:
     """Extract nested ``refactor_transaction`` file paths in request order."""
-    return [file_path for args in _transaction_step_args(kwargs) if isinstance(file_path := args.get("file_path"), str)]
+    return [args.file_path for args in _transaction_step_args(kwargs)]
 
 
 @dataclass(slots=True)
@@ -191,13 +199,8 @@ def _reject_relative_paths(kwargs: dict[str, Any]) -> None:
                 if isinstance(value, str):
                     _require_absolute(value, param_name)
 
-    steps = kwargs.get("steps")
-    if isinstance(steps, list):
-        for index, step in enumerate(steps):
-            args = step.get("args") if isinstance(step, dict) else None
-            file_path = args.get("file_path") if isinstance(args, dict) else None
-            if isinstance(file_path, str):
-                _require_absolute(file_path, f"steps[{index}].args.file_path")
+    for index, args in enumerate(_transaction_step_args(kwargs)):
+        _require_absolute(args.file_path, f"steps[{index}].args.file_path")
 
 
 def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
@@ -220,13 +223,11 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
             kwargs[param_name] = resolve_workspace_dir(value, workspace_root)
 
     for args in _transaction_step_args(kwargs):
-        file_path = args.get("file_path")
-        if isinstance(file_path, str):
-            args["file_path"] = validate_workspace_path(file_path, workspace_root)
+        args.file_path = validate_workspace_path(args.file_path, workspace_root)
 
     _validate_identifiers(kwargs)
     for args in _transaction_step_args(kwargs):
-        _validate_identifiers(args)
+        _validate_identifiers(args.model_dump())
 
 
 def _validate_identifiers(kwargs: dict[str, Any]) -> None:
@@ -327,7 +328,7 @@ def tool_error_boundary(
             else:
                 _validate_identifiers(kwargs)
                 for step_args in _transaction_step_args(kwargs):
-                    _validate_identifiers(step_args)
+                    _validate_identifiers(step_args.model_dump())
 
             return await func(*args, **kwargs)
         except ToolInputError as exc:

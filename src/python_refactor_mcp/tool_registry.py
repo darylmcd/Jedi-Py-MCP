@@ -3,9 +3,9 @@
 This module holds the *pure-delegation* tool functions — those whose body is the
 canonical five-line shape ``app = get_current_backends()`` / ``result = await
 <module>.<fn>(app.<backend>, ...)`` / ``_LOGGER.debug(...)`` / ``return
-result``.  Each function is registered on the MCPServer instance by
-:func:`register_tools`, which applies ``tool_error_boundary`` and then
-``mcp.add_tool(...)`` for every :class:`ToolRecord`.
+result``.  :func:`build_tools` turns every selected :class:`ToolRecord` into
+an SDK ``Tool`` (``tool_error_boundary`` applied, unknown argument keys
+forbidden) that the server passes to ``MCPServer(tools=...)``.
 
 Why the delegates stay as real ``async def`` functions (rather than a ``(name,
 callable, debug_fmt_fn)`` data tuple): MCPServer derives each tool's *name*,
@@ -23,7 +23,7 @@ modelled as ``debug_fmt_fn`` is therefore kept inline in each delegate.
 The eleven wrappers with non-trivial bodies (conditionals, multi-branch backend
 selection, or aliased imports) remain explicit :class:`ToolRecord` entries in
 ``server.py::EXPLICIT_TOOL_RECORDS``. The server passes them to
-:func:`register_tools` through ``extra_records`` so both wrapper families share
+:func:`build_tools` through ``extra_records`` so both wrapper families share
 one registration and error-boundary path.
 
 ``eval_str=True`` means every annotation referenced by a delegate must resolve
@@ -40,11 +40,13 @@ import re
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.tools import Tool
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
 from python_refactor_mcp.models import (
@@ -173,8 +175,8 @@ DEFAULT_MODULE_DEPENDENCIES_LIMIT = 500
 #
 #  Each function below is a plain ``async def`` (no decorator).  It carries its
 #  real signature, docstring, and return annotation so MCPServer can introspect
-#  it.  Registration (``_tool_error_boundary`` + ``mcp.add_tool``) happens in
-#  :func:`register_tools` via the :data:`TOOL_RECORDS` table at the bottom.
+#  it.  Tool construction (``tool_error_boundary`` + ``Tool.from_function``)
+#  happens in :func:`build_tools` via the :data:`TOOL_RECORDS` table at the bottom.
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -1524,7 +1526,7 @@ async def diff_preview(
 
 
 async def refactor_transaction(ctx: Context, steps: TransactionSteps) -> TransactionResult:
-    """Apply an ordered list of refactorings atomically under one change stack — commit all on success, roll back all on any failure. Each step is an object `{"tool": <name>, "args": {...}}`; steps run in order, and each is previewed against the RUNNING (partially-edited) source so later steps see earlier edits. Supported tools: rename_symbol, extract_method, extract_variable, inline_variable, inline_method (their `args` mirror each standalone tool, minus `apply`). Two failure contracts: (1) INPUT errors RAISE before anything is applied — an empty step list, a malformed step, an unsupported tool name, or a step missing `file_path` (all steps are validated up front). (2) EXECUTION failures RETURN a rolled-back result — if a step's refactoring raises mid-sequence or two steps touch overlapping character spans, the entire transaction is reverted and a TransactionResult with `applied=false`, `rolled_back=true` is returned: completed steps are marked `rolled_back`, the failing step `failed` with its `error` populated, the rest `skipped`. Disk is left byte-identical to the start in both cases. On success, returns per-step `applied` status plus a unified-diff summary of the committed changes. Acts immediately — no preview; there is no apply parameter; commits on success. Related: begin_change_stack, commit_change_stack, diff_preview."""
+    """Apply an ordered list of refactorings atomically under one change stack — commit all on success, roll back all on any failure. Each step is an object `{"tool": <name>, "args": {...}}`; steps run in order, and each is previewed against the RUNNING (partially-edited) source so later steps see earlier edits. Supported tools: rename_symbol, extract_method, extract_variable, inline_variable, inline_method (their `args` mirror each standalone tool, minus `apply`). Two failure contracts: (1) INPUT errors RAISE before anything is applied — an empty step list, a malformed step, an unsupported tool name, a missing required argument, or an unknown key are rejected by input-schema validation naming the offending field (every step is validated up front). (2) EXECUTION failures RETURN a rolled-back result — if a step's refactoring raises mid-sequence or two steps touch overlapping character spans, the entire transaction is reverted and a TransactionResult with `applied=false`, `rolled_back=true` is returned: completed steps are marked `rolled_back`, the failing step `failed` with its `error` populated, the rest `skipped`. Disk is left byte-identical to the start in both cases. On success, returns per-step `applied` status plus a unified-diff summary of the committed changes. Acts immediately — no preview; there is no apply parameter; commits on success. Related: begin_change_stack, commit_change_stack, diff_preview."""
     app = get_current_backends()
     result = await composite.refactor_transaction(app.rope, steps)
     _LOGGER.debug("refactor_transaction steps=%s applied=%s", len(result.steps), result.applied)
@@ -1907,18 +1909,40 @@ def profile_description(doc: str, advertised: frozenset[str]) -> str:
     return f"{head} {rest}" if head and rest else head or rest
 
 
-def register_tools(
-    mcp_instance: MCPServer,
+def _forbid_unknown_arguments(tool: Tool) -> Tool:
+    """Make *tool* reject unknown top-level argument keys and advertise it.
+
+    The SDK builds every argument model on ``ArgModelBase``, which ignores extra
+    keys, so a misspelled parameter would silently fall back to its default. A
+    subclass with ``extra="forbid"`` makes validation fail naming the key, and
+    regenerating ``parameters`` from it advertises ``additionalProperties: false``.
+    """
+    arg_model = tool.fn_metadata.arg_model
+    strict_model = cast(
+        "type[ArgModelBase]",
+        type(
+            arg_model.__name__,
+            (arg_model,),
+            {"model_config": ConfigDict(extra="forbid"), "__module__": arg_model.__module__},
+        ),
+    )
+    tool.fn_metadata.arg_model = strict_model
+    tool.parameters = strict_model.model_json_schema(by_alias=True)
+    return tool
+
+
+def build_tools(
     profile: ToolProfile,
     *,
     extra_records: tuple[ToolRecord, ...] = (),
-) -> None:
-    """Register the selected tool profile on *mcp_instance*.
+) -> list[Tool]:
+    """Build the advertised tools of *profile* for ``MCPServer(tools=...)``.
 
     Applies ``tool_error_boundary`` (which preserves the delegate's name and
-    signature via ``@wraps``) and then registers with the per-tool annotation
-    constant. ``extra_records`` carries the non-delegating wrappers owned by
-    ``server.py`` so one policy controls the complete advertised surface.
+    signature via ``@wraps``), attaches the per-tool annotation constant, and
+    makes every tool reject unknown argument keys. ``extra_records`` carries the
+    non-delegating wrappers owned by ``server.py`` so one policy controls the
+    complete advertised surface.
 
     Backend lookup and error handling come from ``tool_runtime`` so registry
     import order cannot depend on the server shell. Each advertised description
@@ -1932,11 +1956,14 @@ def register_tools(
             f"must stay below the budget of {MAX_TOOLS_PER_PROFILE}"
         )
 
-    for record in (*TOOL_RECORDS, *extra_records):
-        if record.func.__name__ not in selected_names:
-            continue
-        mcp_instance.add_tool(
-            tool_error_boundary(record.func),
-            description=profile_description(inspect.getdoc(record.func) or "", selected_names),
-            annotations=record.annotations,
+    return [
+        _forbid_unknown_arguments(
+            Tool.from_function(
+                tool_error_boundary(record.func),
+                description=profile_description(inspect.getdoc(record.func) or "", selected_names),
+                annotations=record.annotations,
+            )
         )
+        for record in (*TOOL_RECORDS, *extra_records)
+        if record.func.__name__ in selected_names
+    ]
