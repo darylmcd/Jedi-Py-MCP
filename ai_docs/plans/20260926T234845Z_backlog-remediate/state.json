@@ -3,12 +3,12 @@
   "generatedAt": "2026-09-26T23:48:45.943Z",
   "backlogSnapshot": "2026-09-25T16:13:14Z",
   "addendaLoaded": true,
-  "phase": "skeleton",
+  "phase": "complete",
   "cycleCount": 0,
   "maxCycles": 2,
   "completed": false,
-  "reviewStatus": "pending",
-  "readyForExecute": false,
+  "reviewStatus": "passed-with-warnings",
+  "readyForExecute": true,
   "initiatives": [
     {
       "id": "bl-0009",
@@ -17,29 +17,37 @@
       "backlogRowsClosed": [
         "bl-0009"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/search/_helpers.py",
+        "src/python_refactor_mcp/tools/search/unused_symbols.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_search_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 35000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "a900ec95dbda6f0b0a5c9c1d42335249b18f04e22b310a6fcb04705f6b0fb9f7",
+      "stanzaHash": "4f4a29ca11d05038b699d468fcf938ca4cfec7b067ef875f871ba7c779c46b5f",
+      "reviewedStanzaHash": "4f4a29ca11d05038b699d468fcf938ca4cfec7b067ef875f871ba7c779c46b5f"
     },
     {
       "id": "bl-0036",
@@ -48,18 +56,22 @@
       "backlogRowsClosed": [
         "bl-0036"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 1,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/rope_backend.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_rope_backend.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 30000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 1,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -70,7 +82,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "ddceb903f6b028e2477665bd453dfb6a766c39fca58b8bbd376c55f19c012ad5",
+      "stanzaHash": "9a38a255809cbbd71bdac49bb8e2b465f9ac1cd81aabc8a47075dc1a0a653f3f",
+      "reviewedStanzaHash": "9a38a255809cbbd71bdac49bb8e2b465f9ac1cd81aabc8a47075dc1a0a653f3f"
     },
     {
       "id": "bl-0045",
@@ -79,29 +94,44 @@
       "backlogRowsClosed": [
         "bl-0045"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 5,
+      "productionFiles": [
+        "src/python_refactor_mcp/backends/pyright_lsp.py",
+        "src/python_refactor_mcp/tools/analysis/diagnostics.py",
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/util/shared.py",
+        "src/python_refactor_mcp/tool_registry.py"
+      ],
+      "testFilesAdded": 3,
+      "testFiles": [
+        "tests/unit/test_pyright_lsp.py",
+        "tests/unit/test_analysis_tools.py",
+        "tests/unit/test_refactoring_tools.py"
+      ],
+      "docFiles": [
+        "docs/tool-reference.md"
+      ],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 55000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 6,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "546fcfd703fad589c3ed395408304967a01c9c38f95271e096c864f01c217bcf",
+      "stanzaHash": "ce4c9af140ab24e50aa9b46494c8f583a307876beda206bd072310e8a13edd77",
+      "reviewedStanzaHash": "ce4c9af140ab24e50aa9b46494c8f583a307876beda206bd072310e8a13edd77"
     },
     {
       "id": "bl-0018",
@@ -110,29 +140,37 @@
       "backlogRowsClosed": [
         "bl-0018"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 2,
+      "productionFiles": [
+        "src/python_refactor_mcp/tool_params.py",
+        "src/python_refactor_mcp/server.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/contract/test_mcp_protocol.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 35000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 2,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "ec9f6e3f97ae230caf9035376a3863c9ba434d0eb96c46d52b2f2659789d83aa",
+      "stanzaHash": "0a838ca4ea9d8fa055757a66ead0e48e696c1000bc3d03c3369c20e332414ce1",
+      "reviewedStanzaHash": "0a838ca4ea9d8fa055757a66ead0e48e696c1000bc3d03c3369c20e332414ce1"
     },
     {
       "id": "bl-0042",
@@ -141,18 +179,24 @@
       "backlogRowsClosed": [
         "bl-0042"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 3,
+      "productionFiles": [
+        "src/python_refactor_mcp/util/shared.py",
+        "src/python_refactor_mcp/tool_runtime.py",
+        "src/python_refactor_mcp/tools/analysis/type_stubs.py"
+      ],
+      "testFilesAdded": 1,
+      "testFiles": [
+        "tests/unit/test_shared_utils.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 40000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 3,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
         "judgmentHeavy": false,
         "anchorStale": false,
@@ -163,7 +207,10 @@
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "1e3f643a726e4fdedf3d3895b6a0db4d8e7a1d8305dc61f8122be2a7f278443c",
+      "stanzaHash": "3653af801610a37a4439aeaaeb3ea80acf426ce4f22f19c99b35267a23d3e2f5",
+      "reviewedStanzaHash": "3653af801610a37a4439aeaaeb3ea80acf426ce4f22f19c99b35267a23d3e2f5"
     },
     {
       "id": "bl-0046",
@@ -172,36 +219,82 @@
       "backlogRowsClosed": [
         "bl-0046"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 4,
+      "productionFiles": [
+        "src/python_refactor_mcp/tools/navigation/hierarchy.py",
+        "src/python_refactor_mcp/tools/analysis/diagnostics.py",
+        "src/python_refactor_mcp/tools/refactoring/docstrings.py",
+        "src/python_refactor_mcp/tools/search/structural.py"
+      ],
+      "testFilesAdded": 4,
+      "testFiles": [
+        "tests/unit/test_navigation_tools.py",
+        "tests/unit/test_analysis_tools.py",
+        "tests/unit/test_docstring_sync.py",
+        "tests/unit/test_search_tools.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 45000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 4,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "1acbda91f10cdcb0d1e8558e3c8f6e100a93efea972e0efe1419d1e5fe99f7ec",
+      "stanzaHash": "7f72e1d3ce9d7dce0f6920472f3ce521d8072754b09d4d8f68b7671af03cb188",
+      "reviewedStanzaHash": "7f72e1d3ce9d7dce0f6920472f3ce521d8072754b09d4d8f68b7671af03cb188"
     }
   ],
-  "anchorVerification": "pending",
+  "anchorVerification": "performed",
   "conflictGraph": {
-    "edges": [],
-    "degrees": {},
-    "zeroDegreeInitiatives": []
+    "edges": [
+      {
+        "a": 1,
+        "b": 6,
+        "sharedFiles": [
+          "tests/unit/test_search_tools.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 5,
+        "sharedFiles": [
+          "src/python_refactor_mcp/util/shared.py"
+        ]
+      },
+      {
+        "a": 3,
+        "b": 6,
+        "sharedFiles": [
+          "src/python_refactor_mcp/tools/analysis/diagnostics.py",
+          "tests/unit/test_analysis_tools.py"
+        ]
+      }
+    ],
+    "degrees": {
+      "1": 1,
+      "2": 0,
+      "3": 2,
+      "4": 0,
+      "5": 1,
+      "6": 2
+    },
+    "zeroDegreeInitiatives": [
+      2,
+      4
+    ]
   },
   "selection": {
     "requestedCount": "auto",
@@ -220,5 +313,121 @@
         "reason": "defer-band"
       }
     ]
-  }
+  },
+  "reviewFindings": {
+    "block": 0,
+    "warn": 7,
+    "info": 9
+  },
+  "lastReviewFindings": [
+    {
+      "initiativeId": "plan",
+      "severity": "warn",
+      "rule": "C2-graph-disagreement",
+      "evidence": "state.json conflictGraph.edges is [] but Scope unions yield 3 edges: 1-6 {tests/unit/test_search_tools.py}, 3-5 {src/python_refactor_mcp/util/shared.py}, 3-6 {src/python_refactor_mcp/tools/analysis/diagnostics.py, tests/unit/test_analysis_tools.py}",
+      "resolved": true,
+      "resolution": "conflict graph refreshed via generations --persist"
+    },
+    {
+      "initiativeId": "bl-0045",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 2->3 consecutive: bl-0036 touches hotspot backends/rope_backend.py, bl-0045 touches hotspots backends/pyright_lsp.py + tool_registry.py"
+    },
+    {
+      "initiativeId": "bl-0018",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 3->4 consecutive: bl-0045 touches pyright_lsp.py + tool_registry.py, bl-0018 touches hotspot server.py"
+    },
+    {
+      "initiativeId": "bl-0042",
+      "severity": "warn",
+      "rule": "hotspot",
+      "evidence": "orders 4->5 consecutive: bl-0018 touches server.py, bl-0042 touches hotspot tool_runtime.py"
+    },
+    {
+      "initiativeId": "bl-0045",
+      "severity": "warn",
+      "rule": "3",
+      "evidence": "5 prod files; tool_registry.py justified as `tool-surface-only`, which is an initiative-narrowing shape, not a forcing companion - no gate or defect forces the description/log edit at tool_registry.py:316-327 (dropping it leaves 4 files). Other shapes re-walked and hold: shared.py defect-forced (pyright_lsp.py:545-547 raise -> util/shared.py:78 -> refactoring/helpers.py:131 -> 20+ post_apply_diagnostics callers); docs gate-forced (test_doc_tool_count_drift.py:220-247 vs docs/tool-reference.md:20)",
+      "resolved": true,
+      "resolution": "kept: tool_registry.py get_workspace_diagnostics description + warning log follow the house pattern every scan_failures-bearing tool uses (tool_registry.py:1240-1248,1319-1324); advertising the new output field is part of the one change"
+    },
+    {
+      "initiativeId": "bl-0046",
+      "severity": "warn",
+      "rule": "3",
+      "evidence": "Diagnosis names same-root-cause sites rope_backend.py:167,:190 (op.strip().lower()) and :1154 (kind.strip().lower()) but Scope defers them to 'bl-0036 or a spin-off row (see notes)'; state notes is null, bl-0036 Scope/Approach does not include them, and no tracking row is cited - closing bl-0046 leaves acceptance bullet 1 (backend accepts the same value set) partially unmet with an untracked residual",
+      "resolved": true,
+      "resolution": "rope residual filed as bl-0047 (deps bl-0036) on the plan branch"
+    },
+    {
+      "initiativeId": "bl-0042",
+      "severity": "warn",
+      "rule": "5",
+      "evidence": "estimatedContextTokens 20000 for 3 production files + 1 test file sits below the Rule 5 'fix 3-4 files ~40-60K' band (and below the 1-2 file band floor of 25K)",
+      "resolved": true,
+      "resolution": "estimate raised to 40000"
+    },
+    {
+      "initiativeId": "bl-0045",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "degree 2 (edges to orders 5 and 6) without scheduleHint heroic-last"
+    },
+    {
+      "initiativeId": "bl-0046",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "degree 2 (edges to orders 1 and 3) without scheduleHint heroic-last"
+    },
+    {
+      "initiativeId": "bl-0009",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "Row reframe judged legitimate: acceptance bullet 1 (<10 s cold) reported met at 814b922 and the stanza still ships the row's prescribed lever (a prewarm, scoped to the target set) plus a cold/warm result-set fix tied to acceptance bullet 2; closure is valid only if the PR-recorded re-measurement meets the Validation thresholds - if it does not, do not close"
+    },
+    {
+      "initiativeId": "bl-0009",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Risks claims 'No sibling file overlap' but tests/unit/test_search_tools.py is also in bl-0046 Scope; Protocol-user list omits tools/search/constructors.py:102 (no runtime impact)"
+    },
+    {
+      "initiativeId": "bl-0045",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Risks sibling-overlap list is wrong: bl-0018 edits neither shared.py nor tool_registry.py and bl-0009 does not edit pyright_lsp.py; real overlaps are bl-0042 (util/shared.py) and bl-0046 (diagnostics.py, test_analysis_tools.py)"
+    },
+    {
+      "initiativeId": "bl-0042",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Risks says bl-0018 may edit util/shared.py (apply_limit) - false (bl-0018 Scope is tool_params.py + server.py); the actual shared.py co-editor is bl-0045"
+    },
+    {
+      "initiativeId": "bl-0045",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "Open design branch left to executor ('if Pyright stays silent [on excluded files], filter those files out before raising') may widen scope; also notify_file_changed (pyright_lsp.py:504-527) never pops _diagnostics, so post-apply get_diagnostics returns cached pre-edit results and the new raise only fires for never-published files (pre-existing stale post-apply diagnostics defect - needs its own row)"
+    },
+    {
+      "initiativeId": "bl-0036",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "_offset_to_position (rope_backend.py:324) has zero production callers (only tests/unit/test_rope_backend.py:272); converting its raises (:327,:331) is moot - dead-code candidate for a separate row"
+    },
+    {
+      "initiativeId": "plan",
+      "severity": "info",
+      "rule": "anchor",
+      "evidence": "anchorVerification performed: bl-0009, bl-0036, bl-0045 file:line citations resolve at 814b922 (pyright_lsp.py:202-206,:440,:449,:545-547,:595-596; _helpers.py:44,:118; dead_code.py:113-134; rope_backend.py:53,:117-169,:287-331,:531-585; shared.py:77-82; helpers.py:131; models.py:453-457; tool_registry.py:316-327,:1319; docs/tool-reference.md:20)"
+    }
+  ],
+  "conflictGraphInputHash": "74c0fc820b7c1182b6e7104b9c0ca5e0ee4b94e96f55e9a2a1e717c5c7bc0534",
+  "planHash": "34a01b68fdd1ab411e07c021f9063af2c48da1f0984214e9868e0fc2058ec609",
+  "backlogSnapshotHash": "c457927f3dfab953be3760895ec19072c354ade87074fd39f618d729883b3ec9",
+  "reviewedPlanHash": "34a01b68fdd1ab411e07c021f9063af2c48da1f0984214e9868e0fc2058ec609",
+  "reviewedBacklogSnapshotHash": "c457927f3dfab953be3760895ec19072c354ade87074fd39f618d729883b3ec9"
 }
