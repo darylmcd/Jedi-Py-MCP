@@ -112,27 +112,37 @@ def _relocated(path: str, source: str, target: str) -> str:
     return target + path[len(source):]
 
 
-def _build_add(op: SignatureOperation) -> list[object]:
-    if op.index is None or not op.name:
-        raise RopeError("change_signature add operation requires index and name")
+def _missing_operation_field(op_name: str, field: str, position: int) -> ToolInputError:
+    """Build the caller-input error for a ``change_signature`` operation missing *field*."""
+    return ToolInputError(
+        f"change_signature {op_name} operation requires {field} "
+        f"(parameter: operations[{position}].{field})"
+    )
+
+
+def _build_add(op: SignatureOperation, position: int) -> list[object]:
+    if op.index is None:
+        raise _missing_operation_field("add", "index", position)
+    if not op.name:
+        raise _missing_operation_field("add", "name", position)
     return [ArgumentAdder(op.index, op.name, default=op.default)]
 
 
-def _build_remove(op: SignatureOperation) -> list[object]:
+def _build_remove(op: SignatureOperation, position: int) -> list[object]:
     if op.index is None:
-        raise RopeError("change_signature remove operation requires index")
+        raise _missing_operation_field("remove", "index", position)
     return [ArgumentRemover(op.index)]
 
 
-def _build_reorder(op: SignatureOperation) -> list[object]:
+def _build_reorder(op: SignatureOperation, position: int) -> list[object]:
     if not op.new_order:
-        raise RopeError("change_signature reorder operation requires new_order")
+        raise _missing_operation_field("reorder", "new_order", position)
     return [ArgumentReorderer(op.new_order)]
 
 
-def _build_inline_default(op: SignatureOperation) -> list[object]:
+def _build_inline_default(op: SignatureOperation, position: int) -> list[object]:
     if op.index is None:
-        raise RopeError("change_signature inline_default operation requires index")
+        raise _missing_operation_field("inline_default", "index", position)
     inliner = ArgumentDefaultInliner(op.index)
     # rope's constructor leaves ``remove`` False, which inlines the default at
     # call sites but keeps it on the definition; the tool contract removes it.
@@ -140,17 +150,19 @@ def _build_inline_default(op: SignatureOperation) -> list[object]:
     return [inliner]
 
 
-def _build_normalize(op: SignatureOperation) -> list[object]:
+def _build_normalize(op: SignatureOperation, position: int) -> list[object]:
     return [ArgumentNormalizer()]
 
 
-def _build_rename(op: SignatureOperation) -> list[object]:
-    if op.index is None or not op.new_name:
-        raise RopeError("change_signature rename operation requires index and new_name")
+def _build_rename(op: SignatureOperation, position: int) -> list[object]:
+    if op.index is None:
+        raise _missing_operation_field("rename", "index", position)
+    if not op.new_name:
+        raise _missing_operation_field("rename", "new_name", position)
     return [ArgumentRemover(op.index), ArgumentAdder(op.index, op.new_name, default=op.default)]
 
 
-_OP_DISPATCH: dict[str, Callable[[SignatureOperation], list[object]]] = {
+_OP_DISPATCH: dict[str, Callable[[SignatureOperation, int], list[object]]] = {
     "add": _build_add,
     "remove": _build_remove,
     "reorder": _build_reorder,
@@ -163,11 +175,14 @@ _OP_DISPATCH: dict[str, Callable[[SignatureOperation], list[object]]] = {
 def _build_signature_changers(operations: list[SignatureOperation]) -> list[object]:
     """Map signature operation descriptors to rope changer objects."""
     changers: list[object] = []
-    for operation in operations:
+    for position, operation in enumerate(operations):
         builder = _OP_DISPATCH.get(operation.op.strip().lower())
         if builder is None:
-            raise RopeError(f"Unsupported change_signature operation: {operation.op}")
-        changers.extend(builder(operation))
+            raise ToolInputError(
+                f"Unsupported change_signature operation: {operation.op!r}; expected one of "
+                f"{', '.join(_OP_DISPATCH)} (parameter: operations[{position}].op)"
+            )
+        changers.extend(builder(operation, position))
     return changers
 
 
@@ -287,21 +302,47 @@ class RopeBackend:
             raise RopeError("rope backend is not initialized.")
         return self._project
 
-    def _resource_for_path(self, file_path: str) -> Resource:
-        """Resolve a rope resource from an absolute file path."""
+    def _resource_for_path(self, file_path: str, *, param: str = "file_path") -> Resource:
+        """Resolve a rope resource from an absolute file path.
+
+        ``param`` names the caller's parameter in the ``ToolInputError`` raised
+        for a path outside the workspace root.
+        """
         project = self._require_project()
         absolute = Path(file_path).resolve()
         try:
             relative = absolute.relative_to(self._config.workspace_root)
         except ValueError as exc:
-            raise RopeError(f"Path is outside workspace root: {absolute}: {exc}") from exc
+            raise ToolInputError(
+                f"Path is outside the workspace root: {file_path} (parameter: {param})"
+            ) from exc
         # Rope expects forward-slash paths internally regardless of OS.
         return project.get_resource(str(relative).replace("\\", "/"))
 
-    def _position_to_offset(self, file_path: str, line: int, character: int) -> int:
-        """Convert a 0-based line/character position to rope offset."""
-        if line < 0 or character < 0:
-            raise RopeError("line and character must be non-negative")
+    def _position_to_offset(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        *,
+        prefix: str = "",
+    ) -> int:
+        """Convert a 0-based line/character position to rope offset.
+
+        ``prefix`` qualifies the caller's parameter names in ``ToolInputError``
+        messages (``"start_"`` -> ``start_line`` / ``start_character``).
+        """
+        line_param = f"{prefix}line"
+        character_param = f"{prefix}character"
+        if line < 0:
+            raise ToolInputError(
+                f"{line_param} must be non-negative (0-based); got {line} (parameter: {line_param})"
+            )
+        if character < 0:
+            raise ToolInputError(
+                f"{character_param} must be non-negative (0-based); got {character} "
+                f"(parameter: {character_param})"
+            )
 
         content = Path(file_path).read_text(encoding="utf-8")
         lines = content.splitlines(keepends=True)
@@ -311,12 +352,16 @@ class RopeBackend:
         if line >= len(lines):
             if line == len(lines) and character == 0:
                 return len(content)
-            raise RopeError(f"line out of range: {line}")
+            raise ToolInputError(
+                f"{line_param} {line} is out of range: the file has {len(lines)} line(s) "
+                f"(parameter: {line_param})"
+            )
 
         line_text = lines[line].rstrip("\r\n")
         if character > len(line_text):
-            raise RopeError(
-                f"character out of range for line {line}: {character} > {len(line_text)}"
+            raise ToolInputError(
+                f"{character_param} {character} is out of range for line {line}: the line has "
+                f"{len(line_text)} character(s) (parameter: {character_param})"
             )
 
         return sum(len(chunk) for chunk in lines[:line]) + character
@@ -324,11 +369,14 @@ class RopeBackend:
     def _offset_to_position(self, file_path: str, offset: int) -> Position:
         """Convert rope offset to a 0-based line/character position."""
         if offset < 0:
-            raise RopeError("offset must be non-negative")
+            raise ToolInputError(f"offset must be non-negative; got {offset} (parameter: offset)")
 
         content = Path(file_path).read_text(encoding="utf-8")
         if offset > len(content):
-            raise RopeError(f"offset out of range: {offset}")
+            raise ToolInputError(
+                f"offset {offset} is out of range: the file has {len(content)} character(s) "
+                "(parameter: offset)"
+            )
 
         prefix = content[:offset]
         line = prefix.count("\n")
@@ -522,15 +570,29 @@ class RopeBackend:
         line, character = matches[0]
         return self._position_to_offset(source_file, line, character)
 
-    def _workspace_python_file(self, file_path: str, *, role: str) -> tuple[Path, Path]:
-        """Resolve one existing Python file and its workspace-relative path."""
+    def _workspace_python_file(
+        self,
+        file_path: str,
+        *,
+        role: str,
+        param: str,
+    ) -> tuple[Path, Path]:
+        """Resolve one existing Python file and its workspace-relative path.
+
+        ``role`` labels the file in the message; ``param`` names the caller's
+        parameter in the ``ToolInputError`` raised for an invalid path.
+        """
         absolute = Path(file_path).resolve()
         try:
             relative = absolute.relative_to(self._config.workspace_root.resolve())
         except ValueError as exc:
-            raise RopeError(f"{role} is outside workspace root: {absolute}") from exc
+            raise ToolInputError(
+                f"{role} is outside the workspace root: {file_path} (parameter: {param})"
+            ) from exc
         if absolute.suffix.lower() != ".py" or not absolute.is_file():
-            raise RopeError(f"{role} must be an existing Python file: {absolute}")
+            raise ToolInputError(
+                f"{role} must be an existing Python file: {file_path} (parameter: {param})"
+            )
         return absolute, relative
 
     async def split_module(
@@ -554,9 +616,12 @@ class RopeBackend:
             source, source_relative = self._workspace_python_file(
                 source_file,
                 role="split_module source_file",
+                param="source_file",
             )
             if len(target_modules) < 2:
-                raise RopeError("split_module requires at least two target modules")
+                raise ToolInputError(
+                    "split_module requires at least two target modules (parameter: target_modules)"
+                )
 
             planned_targets: list[tuple[Path, tuple[str, ...]]] = []
             seen_targets: set[Path] = set()
@@ -565,13 +630,23 @@ class RopeBackend:
                 target, target_relative = self._workspace_python_file(
                     target_file,
                     role="split_module target module",
+                    param="target_modules",
                 )
                 if target == source:
-                    raise RopeError("split_module target modules must differ from source_file")
+                    raise ToolInputError(
+                        f"split_module target module must differ from source_file: {target_file} "
+                        "(parameter: target_modules)"
+                    )
                 if target_relative in seen_targets:
-                    raise RopeError(f"Duplicate split_module target module: {target}")
+                    raise ToolInputError(
+                        f"Duplicate split_module target module: {target_file} "
+                        "(parameter: target_modules)"
+                    )
                 if not symbols:
-                    raise RopeError(f"split_module target has no symbols: {target}")
+                    raise ToolInputError(
+                        f"split_module target has no symbols: {target_file} "
+                        "(parameter: target_modules)"
+                    )
 
                 normalized_symbols: list[str] = []
                 for symbol in symbols:
@@ -580,9 +655,14 @@ class RopeBackend:
                         or not symbol.isidentifier()
                         or keyword.iskeyword(symbol)
                     ):
-                        raise RopeError(f"Invalid split_module symbol name: {symbol!r}")
+                        raise ToolInputError(
+                            f"Invalid split_module symbol name: {symbol!r} "
+                            "(parameter: target_modules)"
+                        )
                     if symbol in seen_symbols:
-                        raise RopeError(f"Duplicate split_module symbol: {symbol}")
+                        raise ToolInputError(
+                            f"Duplicate split_module symbol: {symbol} (parameter: target_modules)"
+                        )
                     seen_symbols.add(symbol)
                     normalized_symbols.append(symbol)
 
@@ -752,8 +832,8 @@ class RopeBackend:
             project = self._require_project()
             project.validate(project.root)
             resource = self._resource_for_path(file_path)
-            start = self._position_to_offset(file_path, start_line, start_character)
-            end = self._position_to_offset(file_path, end_line, end_character)
+            start = self._position_to_offset(file_path, start_line, start_character, prefix="start_")
+            end = self._position_to_offset(file_path, end_line, end_character, prefix="end_")
             changes = ExtractMethod(project, resource, start, end).get_changes(method_name, similar=similar)
             return self._build_result(changes, f"Extracted method '{method_name}'", apply)
 
@@ -777,8 +857,8 @@ class RopeBackend:
             project = self._require_project()
             project.validate(project.root)
             resource = self._resource_for_path(file_path)
-            start = self._position_to_offset(file_path, start_line, start_character)
-            end = self._position_to_offset(file_path, end_line, end_character)
+            start = self._position_to_offset(file_path, start_line, start_character, prefix="start_")
+            end = self._position_to_offset(file_path, end_line, end_character, prefix="end_")
             changes = ExtractVariable(project, resource, start, end).get_changes(variable_name)
             return self._build_result(changes, f"Extracted variable '{variable_name}'", apply)
 
@@ -813,8 +893,8 @@ class RopeBackend:
         def _work() -> RefactorResult:
             project = self._require_project()
             project.validate(project.root)
-            source_resource = self._resource_for_path(source_file)
-            destination_resource = self._resource_for_path(destination_file)
+            source_resource = self._resource_for_path(source_file, param="source_file")
+            destination_resource = self._resource_for_path(destination_file, param="destination_file")
             offset = self._find_symbol_offset(source_file, symbol_name)
             mover = create_move(project, source_resource, offset)
             changes = mover.get_changes(cast(Any, destination_resource))
@@ -1126,8 +1206,8 @@ class RopeBackend:
         def _work() -> RefactorResult:
             project = self._require_project()
             project.validate(project.root)
-            source_resource = self._resource_for_path(source_path)
-            dest_resource = self._resource_for_path(destination_package)
+            source_resource = self._resource_for_path(source_path, param="source_path")
+            dest_resource = self._resource_for_path(destination_package, param="destination_package")
             mover = create_move(project, source_resource, None)
             changes = mover.get_changes(cast(Any, dest_resource))
             return self._build_result(
@@ -1492,14 +1572,22 @@ class RopeBackend:
             offset = self._position_to_offset(file_path, int(args["line"]), int(args["character"]))
             return Rename(project, resource, offset).get_changes(str(args["new_name"]))
         if tool == "extract_method":
-            start = self._position_to_offset(file_path, int(args["start_line"]), int(args["start_character"]))
-            end = self._position_to_offset(file_path, int(args["end_line"]), int(args["end_character"]))
+            start = self._position_to_offset(
+                file_path, int(args["start_line"]), int(args["start_character"]), prefix="start_",
+            )
+            end = self._position_to_offset(
+                file_path, int(args["end_line"]), int(args["end_character"]), prefix="end_",
+            )
             return ExtractMethod(project, resource, start, end).get_changes(
                 str(args["method_name"]), similar=bool(args.get("similar", False)),
             )
         if tool == "extract_variable":
-            start = self._position_to_offset(file_path, int(args["start_line"]), int(args["start_character"]))
-            end = self._position_to_offset(file_path, int(args["end_line"]), int(args["end_character"]))
+            start = self._position_to_offset(
+                file_path, int(args["start_line"]), int(args["start_character"]), prefix="start_",
+            )
+            end = self._position_to_offset(
+                file_path, int(args["end_line"]), int(args["end_character"]), prefix="end_",
+            )
             extractor = ExtractVariable(project, resource, start, end)
             return extractor.get_changes(str(args["variable_name"]))
         if tool in ("inline_variable", "inline_method"):
