@@ -365,6 +365,56 @@ async def test_position_params_advertise_minimum_zero() -> None:
     assert not missing, f"position parameters without minimum 0: {missing}"
 
 
+_BOUNDED_PARAM_MINIMUMS: dict[str, int] = {
+    "limit": 1,
+    "offset": 0,
+    "depth": 1,
+    "max_items": 1,
+    "max_nodes": 1,
+    "count": 1,
+}
+
+
+@pytest.mark.asyncio
+async def test_numeric_bound_params_advertise_minimum() -> None:
+    """Every numeric bound parameter advertises its schema ``minimum`` on every tool that takes it."""
+    tools = await _tools_by_name()
+    bounded = [
+        (name, param, _non_null_branch(prop))
+        for name, (tool, _) in tools.items()
+        for param, prop in tool.input_schema.get("properties", {}).items()
+        if param in _BOUNDED_PARAM_MINIMUMS
+    ]
+    assert {param for _, param, _ in bounded} == set(_BOUNDED_PARAM_MINIMUMS)
+    wrong = sorted(
+        (name, param, schema.get("minimum"))
+        for name, param, schema in bounded
+        if schema.get("minimum") != _BOUNDED_PARAM_MINIMUMS[param]
+    )
+    assert not wrong, f"bounded parameters with a missing or wrong minimum: {wrong}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "param", "minimum"),
+    [
+        ("undo_refactoring", {"count": -1}, "count", 1),
+        ("redo_refactoring", {"count": 0}, "count", 1),
+        ("get_semantic_tokens", {"file_path": "C:/workspace/module.py", "limit": -1}, "limit", 1),
+        ("dead_code_detection", {"offset": -1}, "offset", 0),
+        ("get_symbol_outline", {"max_nodes": 0}, "max_nodes", 1),
+    ],
+)
+async def test_out_of_range_bound_is_rejected_naming_the_parameter(
+    tool_name: str, arguments: dict[str, Any], param: str, minimum: int
+) -> None:
+    """An out-of-range numeric bound fails argument validation, naming the parameter, before any backend runs."""
+    tools = await _tools_by_name()
+    _, mcp = tools[tool_name]
+    with pytest.raises(ToolError, match=rf"{param}[\s\S]*Input should be greater than or equal to {minimum}"):
+        await mcp.call_tool(tool_name, arguments)
+
+
 @pytest.mark.asyncio
 async def test_out_of_set_direction_is_rejected_naming_the_parameter() -> None:
     """An out-of-set value fails argument validation and the error names the parameter."""
