@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 4,
+  "generatedAt": "2026-09-27T02:02:13.700Z",
+  "backlogSnapshot": "2026-09-27T02:02:07Z",
+  "addendaLoaded": true,
+  "phase": "skeleton",
+  "cycleCount": 0,
+  "maxCycles": 2,
+  "completed": false,
+  "reviewStatus": "pending",
+  "readyForExecute": false,
+  "initiatives": [
+    {
+      "id": "bl-0022",
+      "order": 1,
+      "status": "pending",
+      "backlogRowsClosed": [
+        "bl-0022"
+      ],
+      "productionFilesTouched": null,
+      "productionFiles": null,
+      "testFilesAdded": null,
+      "testFiles": null,
+      "docFiles": null,
+      "rowsClosedCount": 1,
+      "estimatedContextTokens": null,
+      "toolPolicy": null,
+      "scheduleHint": null,
+      "fanoutEstimate": null,
+      "fanoutOversize": false,
+      "deepenerStatus": "pending",
+      "deepenerFlags": {
+        "judgmentHeavy": false,
+        "anchorStale": false,
+        "ruleOneBundleResolved": null
+      },
+      "dependsOn": [],
+      "branch": null,
+      "worktreePath": null,
+      "prUrl": null,
+      "mergedAt": null,
+      "notes": null
+    }
+  ],
+  "anchorVerification": "pending",
+  "conflictGraph": {
+    "edges": [],
+    "degrees": {},
+    "zeroDegreeInitiatives": []
+  },
+  "selection": {
+    "requestedCount": 1,
+    "selectedCount": 1,
+    "skipped": [
+      {
+        "id": "cand-find-cyclic-imports",
+        "reason": "defer-band"
+      },
+      {
+        "id": "rope-python314-deprecations",
+        "reason": "defer-band"
+      }
+    ]
+  }
+}
