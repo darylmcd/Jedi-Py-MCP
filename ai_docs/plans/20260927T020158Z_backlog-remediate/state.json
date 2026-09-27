@@ -3,12 +3,12 @@
   "generatedAt": "2026-09-27T02:02:13.700Z",
   "backlogSnapshot": "2026-09-27T02:02:07Z",
   "addendaLoaded": true,
-  "phase": "skeleton",
+  "phase": "complete",
   "cycleCount": 0,
   "maxCycles": 2,
   "completed": false,
-  "reviewStatus": "pending",
-  "readyForExecute": false,
+  "reviewStatus": "passed-with-warnings",
+  "readyForExecute": true,
   "initiatives": [
     {
       "id": "bl-0022",
@@ -17,36 +17,56 @@
       "backlogRowsClosed": [
         "bl-0022"
       ],
-      "productionFilesTouched": null,
-      "productionFiles": null,
-      "testFilesAdded": null,
-      "testFiles": null,
-      "docFiles": null,
+      "productionFilesTouched": 7,
+      "productionFiles": [
+        "src/python_refactor_mcp/tool_registry.py",
+        "src/python_refactor_mcp/server.py",
+        "src/python_refactor_mcp/models.py",
+        "src/python_refactor_mcp/tool_params.py",
+        "src/python_refactor_mcp/tool_runtime.py",
+        "src/python_refactor_mcp/tools/composite.py",
+        "src/python_refactor_mcp/tools/refactoring/helpers.py"
+      ],
+      "testFilesAdded": 4,
+      "testFiles": [
+        "tests/contract/test_mcp_protocol.py",
+        "tests/unit/test_error_boundary.py",
+        "tests/unit/test_server.py",
+        "tests/unit/test_refactor_transaction.py"
+      ],
+      "docFiles": [],
       "rowsClosedCount": 1,
-      "estimatedContextTokens": null,
-      "toolPolicy": null,
+      "estimatedContextTokens": 65000,
+      "toolPolicy": "edit-only",
       "scheduleHint": null,
-      "fanoutEstimate": null,
+      "fanoutEstimate": 7,
       "fanoutOversize": false,
-      "deepenerStatus": "pending",
+      "deepenerStatus": "ok",
       "deepenerFlags": {
-        "judgmentHeavy": false,
+        "judgmentHeavy": true,
         "anchorStale": false,
-        "ruleOneBundleResolved": null
+        "ruleOneBundleResolved": "n/a"
       },
       "dependsOn": [],
       "branch": null,
       "worktreePath": null,
       "prUrl": null,
       "mergedAt": null,
-      "notes": null
+      "notes": null,
+      "fileSetHash": "610d794b9eb8cb1d4bc18d516c9b4ef3195b46faa5333e1594284f8fb27836fa",
+      "stanzaHash": "a662b33737b474737a9c3d733a99a8facacd7380fa5815e548f53c59392697dc",
+      "reviewedStanzaHash": "a662b33737b474737a9c3d733a99a8facacd7380fa5815e548f53c59392697dc"
     }
   ],
-  "anchorVerification": "pending",
+  "anchorVerification": "performed",
   "conflictGraph": {
     "edges": [],
-    "degrees": {},
-    "zeroDegreeInitiatives": []
+    "degrees": {
+      "1": 0
+    },
+    "zeroDegreeInitiatives": [
+      1
+    ]
   },
   "selection": {
     "requestedCount": 1,
@@ -61,5 +81,55 @@
         "reason": "defer-band"
       }
     ]
-  }
+  },
+  "reviewFindings": {
+    "block": 0,
+    "warn": 1,
+    "info": 5
+  },
+  "lastReviewFindings": [
+    {
+      "initiativeId": "bl-0022",
+      "severity": "warn",
+      "rule": "3",
+      "evidence": "Approach forbids only SignatureOperation + step models, but its contract test asserts every $defs object has additionalProperties:false; the live schemas also expose Position/SymbolAnchor/Range/TextEdit (models.py:10,17,23,38), which are shared with raw-LSP parsing (helpers.py:68,90 Range.model_validate). The strictness strategy is unresolved and missing from Risks.",
+      "resolved": true,
+      "resolution": "stanza amended before set-review: forbid on Position/SymbolAnchor/Range/TextEdit + helpers.py:68,90 explicit LSP Range build (defect-forced-companion); docstring tool_registry.py:1527 and TRANSACTION_TOOLS equality folded into Approach"
+    },
+    {
+      "initiativeId": "bl-0022",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "Coherent single-subsystem change. defect-forced-companion holds (tool_runtime.py:82-83,197,222-228,329). server.py is forced by removing register_tools (sole production caller server.py:464). SDK mcp 2.1.1 claims verified by a live probe (arg_model swap plus MCPServer(tools=) gives additionalProperties:false, and bogus is rejected by name)."
+    },
+    {
+      "initiativeId": "bl-0022",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "refactor_transaction docstring tool_registry.py:1527 documents the INPUT-error contract; schema rejection now happens in the SDK Tool.run (base.py:148-152) before tool_error_boundary, so there is no [INVALID_INPUT] translation, and the Approach does not update the docstring."
+    },
+    {
+      "initiativeId": "bl-0022",
+      "severity": "info",
+      "rule": "3",
+      "evidence": "The discriminated union mirroring rope_backend.py:82 TRANSACTION_TOOLS creates a second hand-maintained tool list; derive one from the other or assert equality in a test."
+    },
+    {
+      "initiativeId": "bl-0022",
+      "severity": "info",
+      "rule": "C2",
+      "evidence": "Edge sets agree (both empty); the stored degrees {} and zeroDegreeInitiatives [] omit order 1 (rebuilt: degrees 1->0, zeroDegree [1])."
+    },
+    {
+      "initiativeId": "bl-0022",
+      "severity": "info",
+      "rule": "anchor",
+      "evidence": "All cited file:line anchors resolve at eb93918; ToolRecord ref counts drift slightly (104 not 102 in tool_registry.py; 13 not 14 in server.py)."
+    }
+  ],
+  "conflictGraphInputHash": "95abd4a096c3eec24c103b64d3271b60476b77a48d36e9bfadfb6358470f33ba",
+  "planHash": "194e03f76f230e078f704f627f95f492c2dcb0c0ff420e3fc3e9f281f37a9b84",
+  "backlogSnapshotHash": "b82fdb3c0f2f24032ace503ad84e3c2de98ac1f397089aa7bbe92f055290a30e",
+  "reviewedPlanHash": "194e03f76f230e078f704f627f95f492c2dcb0c0ff420e3fc3e9f281f37a9b84",
+  "reviewedBacklogSnapshotHash": "b82fdb3c0f2f24032ace503ad84e3c2de98ac1f397089aa7bbe92f055290a30e"
 }
