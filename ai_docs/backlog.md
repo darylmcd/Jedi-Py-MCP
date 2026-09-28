@@ -3,7 +3,7 @@
 <!-- purpose: Open work only. Slim-index format — triage in the table, implementation detail in items/<id>.md. Sync rows on ship. -->
 <!-- scope: in-repo -->
 
-**updated_at:** 2026-09-27T13:31:47Z
+**updated_at:** 2026-09-28T14:51:33Z
 <!-- 2026-06-19: shipped cand-server-status, cand-security-autofix, changelog-tool-count-drift, cand-structural-replace (+RCE fix), change_signature annotation restore. -->
 <!-- 2026-07-08: doc-audit filed 2 new rows (backend-fallback-swallowed-exceptions, dead-code-symbol-scan-silent-drop); Refs updated for the 20260527T205134Z plan archival. -->
 
@@ -53,7 +53,7 @@
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `bl-0055` | High | — | **Worktree files resolve to the enclosing primary checkout** — `resolve_workspace_root` returns a known-root prefix before the marker walk; prefer the deepest project marker so `.worktrees/<x>/` files get their own workspace. [type: bug] [source: retro-20260927] | S | items/bl-0055.md |
-| `bl-0056` | High | — | **Path-less tools answer from whichever workspace was used last** — add `root_path` to path-less tools and raise a coded `AMBIGUOUS_WORKSPACE` instead of falling back to the most-recent or pre-warmed root. [type: bug] [source: retro-20260927] | M | items/bl-0056.md |
+| `bl-0056` | High | bl-0055 | **Path-less tools answer from whichever workspace was used last** — add `root_path` to path-less tools and raise a coded `AMBIGUOUS_WORKSPACE` instead of falling back to the most-recent or pre-warmed root. [type: bug] [source: retro-20260927] | M | items/bl-0056.md |
 
 ## Medium
 
