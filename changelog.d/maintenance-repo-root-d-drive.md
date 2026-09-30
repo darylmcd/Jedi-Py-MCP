@@ -1,0 +1,1 @@
+- **Maintenance:** Repo-root path references in editor/MCP configs and `python-refactor-mcp.spec` now point at `D:/Jedi-Py-MCP`; the spec resolves its paths from `SPECPATH`.

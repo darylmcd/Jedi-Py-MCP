@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = []
@@ -8,8 +10,8 @@ hiddenimports += collect_submodules('rope')
 
 
 a = Analysis(
-    ['C:\\Code-Repo\\Jedi-Py-MCP\\src\\python_refactor_mcp\\__main__.py'],
-    pathex=['C:\\Code-Repo\\Jedi-Py-MCP\\src'],
+    [os.path.join(SPECPATH, 'src', 'python_refactor_mcp', '__main__.py')],
+    pathex=[os.path.join(SPECPATH, 'src')],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,
