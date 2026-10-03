@@ -1,0 +1,1 @@
+- **Maintenance:** Synchronize engineering directives and record public contract-care requirements for future breaking changes; tool contracts remain unchanged.

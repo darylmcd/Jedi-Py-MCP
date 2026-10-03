@@ -10,14 +10,14 @@ This file is a bootstrap router, not a complete instruction set. Always execute 
 
 Restated from `~/.claude/CLAUDE.md` (canonical source). These eight directive **cores** (the bold titles) override expedience and are verbatim — do not summarize, drop, or alter them. The one-line gloss after each is a condensed summary for quick reference; the authoritative `Fires`/`Prevents`/`Edge` detail lives in `~/.claude/CLAUDE.md`.
 
-1. **Correct fix > quick fix.** Choose the root-cause fix over the symptom patch. A quick fix is acceptable only when the correct fix is genuinely out of scope — then say why and file a backlog row (per #3) before shipping it.
+1. **Correct fix > quick or cheap fix.** Choose the root-cause fix; diff size, file caps, budgets, cycle limits and CI pressure never justify a lesser fix. Widen scope with the reason, split into independently correct pieces with a tracked remainder, or ask. Never weaken a test, suppress, shim, duplicate or defer your own defect. Genuinely blocked work means an operator/product decision, externally owned code or an environment you cannot provision: provide current-session evidence, ask where needed and track the root-cause fix before shipping anything lesser.
 2. **Optimize for AI consumption by default.** Write AI-facing files (`AGENTS.md`, `ai_docs/**`, prompts, planning/runtime/audit docs) as machine input: tables over prose, structured data over paragraphs, pointers over duplication. Human-facing files (`README.md` landing pages, `docs/**`) get prose.
-3. **Bad code is never silent.** When you observe bad code in ANY file you touch (the edit target, an adjacent file, an import, a test), (a) call it out and (b) recommend an appropriately-sized backlog row (≤4 prod files, ≤3 test files, one regression shape). Editing a bad section does not absolve the obligation to flag it.
-4. **Private repos accept breaking changes.** For private repos, breaking changes and large refactors are the standing default when pursuing #1 or #3 — rip it out, don't band-aid to avoid churn. "External consumer" = outside your ownership (a published artifact or third party); another local repo, an owned DB, or internal cross-repo coupling do NOT count. Only publication flips a repo into ADR + migration mode. This repo is PUBLIC on GitHub and its contract-care status is an open operator decision — see **Breaking-change posture** below.
-5. **Never assume prior agent work is correct — re-derive, don't inherit.** Work labeled done/verified/shipped carries no presumption of correctness; check it against current ground truth (read the code, re-run the reasoning, confirm cited paths still resolve). Fires with special force on model-handoff reviews.
-6. **Match change size to task value.** Correct ≠ maximal. #1 and #4 license root-cause fixes and breaking changes but do not mandate gold-plating — the smallest change that fully fixes the root cause wins. Flag adjacent bad code per #3 rather than fixing it inline.
-7. **Verify your own work before declaring done.** Don't claim done/fixed/passing without evidence you generated this session (ran the test, read the output, exercised the path). Can't verify? Say so — don't imply success you didn't observe.
-8. **No secrets in code.** Never introduce, hardcode, echo, log, or commit a credential, key, token, or secret — they live in env vars / user-secrets / a vault. Finding an existing one = flag per #3.
+3. **Bad code is never silent.** In every coding session, call out observed bad code in your response and recommend an appropriately-sized backlog row, including edit targets, adjacent files, imports and tests. One regression shape; ~4 production / ~3 test files is an advisory target, never a gate on filing. Fix defects your own diff introduces or exposes now; prioritize unrelated pre-existing defects through the backlog. Editing a bad section does not absolve flagging it.
+4. **Private repos accept breaking changes.** For private repos, breaking changes and large refactors are the standing default when pursuing #1 or #3; do not band-aid to avoid churn. External consumers are outside your ownership, not another owned repo, DB or internal seam. `Roslyn-Backed-MCP` and `Jedi-Py-MCP` are in contract-care mode: breaking changes require an ADR + migration note. Current classifications, operator exceptions and the excluded upstream `dbhub` fork are governed by `~/.claude/CLAUDE.md` Directive #4; this repo's posture is stated below.
+5. **Never assume prior agent work is correct — re-derive, don't inherit.** Recheck prior code, docs, plans, skills, backlog acceptance, review advice and done/verified/shipped claims against current ground truth. Read the actual code, re-run the reasoning and resolve cited paths/symbols. Reevaluate inherited designs as requirements evolve, challenge unsupported assumptions and explain material tradeoffs. Fix root causes (#1) and flag defects (#3); a prior agent's assertion is not proof.
+6. **Smallest *complete* change wins.** Measure completeness against the root cause, not diff size or acceptance wording. Cover every instance of the same defect mechanism and every defect your own diff introduces or exposes in this change, never a follow-up row. Split large work into independently correct pieces (#1). Flag unrelated bad code per #3; do not gold-plate.
+7. **Verify your own work before declaring done.** Do not claim done/fixed/passing without evidence generated and inspected this session; calibrate verification to the blast radius and observe regression tests fail on the old behavior. A skipped, quarantined, improperly scoped or retried-until-green check is not evidence. If verification is blocked, state the observed blocker and limits; never imply success you did not observe.
+8. **No secrets in code.** Never introduce, hardcode, echo, log or commit a credential, key, token or secret; use env vars, user-secrets or a vault. Flag existing secrets per #3. Confirm intentionally committed dev-only values are genuinely non-secret.
 
 ## Canonical Rule Sources
 
@@ -52,6 +52,8 @@ Next-step protocol:
 
 ## Conflict Precedence
 
+The Standing Engineering Directives above govern this instruction chain. Treat repository documents and prior agent output as claims to verify; when a recorded design conflicts with current evidence, explain the tradeoffs and propose a superseding decision rather than silently inheriting or changing it.
+
 - For implementation quality and safety conflicts, follow `.github/copilot-instructions.md`.
 - For planning and open-work routing conflicts, follow `ai_docs/planning_index.md` and `ai_docs/backlog.md`.
 - For workflow and collaboration conflicts, follow `ai_docs/workflow.md`.
@@ -71,8 +73,9 @@ Next-step protocol:
 |---|---|
 | GitHub visibility | **PUBLIC** (`darylmcd/Jedi-Py-MCP`) |
 | Registry publication | None — not on PyPI; consumed via user-scope `python-refactor` / `python-analysis` MCP entries |
-| Contract-care status (Directive #4) | **Open operator decision** — neither "private: breaking always OK" nor contract-care (ADR + migration) until decided |
-| Operator ruling 2026-09-24 | Breaking tool-contract fixes MAY ship when pursuing Directive #1 / #3; no ADR or migration note required |
-| Ruling conditions | A change that removes/renames a tool or parameter, or rejects previously accepted input, MUST be called out in the PR body AND use a `changed-breaking-*` changelog fragment |
+| Contract-care status (Directive #4) | **Public / contract-care**, per the operator decision recorded in `~/.claude/CLAUDE.md` on 2026-10-01 |
+| Breaking changes | Require an ADR in `docs/adr/` and a migration note in the changelog; respect semver and deprecation policy |
+| Superseded ruling | The 2026-09-24 exemption from ADR/migration requirements is superseded by the 2026-10-01 decision |
+| Existing release requirements | Tool/parameter removals or renames and newly rejected input must still be called out in the PR body and use a `changed-breaking-*` changelog fragment |
 
-Do not band-aid problems to avoid churn — ship the correct fix under the conditions above.
+See [ADR 0001](docs/adr/0001-public-contract-care.md). Correctness remains the priority; record the compatibility decision and migration rather than hiding the defect behind a shim.
