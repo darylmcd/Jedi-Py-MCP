@@ -11,6 +11,11 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 - The CI job mirrors the local validation table exactly; update both together
 	when commands or tooling change.
 
+## Hosted execution policy
+
+- Public-repository standard Windows runners provide the actual Windows validation surface. Keep every check and the locked Python dependency environment.
+- Validate PRs targeting main and pushes to main; feature pushes do not duplicate the PR gate. Cancel superseded PR runs and bound the validate job to 30 minutes.
+
 ## Standard Validation Commands
 
 | Scope | Command |

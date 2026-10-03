@@ -10,7 +10,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Item | Value |
 |---|---|
 | Repository | Jedi-Py-MCP |
-| Repo class | Private |
+| Repo class | Public (contract-care mode) |
 | Primary language | Python 3.14+ |
 | Build backend | Hatchling (`pyproject.toml`) |
 | Entrypoints | `python -m python_refactor_mcp [workspace_root]`, `python-refactor-mcp [workspace_root]` |

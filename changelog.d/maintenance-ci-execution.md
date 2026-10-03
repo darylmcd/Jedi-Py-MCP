@@ -1,0 +1,1 @@
+- **Maintenance:** Bound hosted validation and cancel superseded PR runs while preserving the complete Windows gate.
