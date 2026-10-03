@@ -1,5 +1,8 @@
 # Copilot Instructions
 
+The [Standing Engineering Directives](../AGENTS.md#standing-engineering-directives) govern these rules: choose the smallest complete root-cause fix, rederive prior work, surface observed defects and verify current claims. Repository specs and recorded decisions do not authorize a lesser fix; surface conflicts and propose a superseding decision with evidence.
+
+
 Scope: behavior and quality guardrails for AI contributors.
 
 Session bootstrap:
