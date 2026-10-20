@@ -47,4 +47,4 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 - Pre-existing failures may be left unresolved only when they are documented as unrelated and the reviewer can reproduce that assessment.
 - Missing automation is not the same as passing validation; call out the gap.
 
-If this repository later adds automated checks, update this file first and keep other docs referring back here instead of duplicating the policy.
+When validation automation changes, update this file and keep other docs referring back here instead of duplicating the policy.
