@@ -1,0 +1,1 @@
+- **Maintenance:** Add `just machine-validate` to serialize shared dev-host validation through the global tooling gate without changing the underlying checks.

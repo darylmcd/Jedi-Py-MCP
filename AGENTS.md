@@ -79,3 +79,11 @@ The Standing Engineering Directives above govern this instruction chain. Treat r
 | Existing release requirements | Tool/parameter removals or renames and newly rejected input must still be called out in the PR body and use a `changed-breaking-*` changelog fragment |
 
 See [ADR 0001](docs/adr/0001-public-contract-care.md). Correctness remains the priority; record the compatibility decision and migration rather than hiding the defect behind a shim.
+
+## Machine-wide validation
+
+- On the shared Windows dev host, run `just machine-validate` for the full gate or `just machine-validate <recipe>` for a named build/test recipe.
+- The shared helper is `~/.claude/scripts/validation-gate.mjs`; its single slot covers every participating repo and worktree. Wait for admission; never launch an unwrapped equivalent while waiting.
+- For a raw validation command, call `node <absolute-user-profile>/.claude/scripts/validation-gate.mjs -- <executable> [arguments...]`. Pass an interpreter explicitly for shell scripts.
+- Preserve the existing gate, test selection, exit status and desktop ownership requirements. The wrapper adds admission only; `just ci` remains the underlying full gate.
+- Full contract: `~/.claude/ai_docs/validation-gate.md`. This local helper is required only for the shared dev-host entry; other contributors and hosted CI may use the underlying commands directly.
