@@ -100,3 +100,7 @@ clean:
 # Remove all generated artifacts including caches
 clean-all: clean
     pwsh.exe -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .mypy_cache, .pytest_cache, .ruff_cache"
+
+# Serialize agent validation across all participating repos on the Windows dev host.
+machine-validate target="ci":
+    node "{{home_directory()}}/.claude/scripts/validation-gate.mjs" -- just "{{target}}"{{ if os_family() == "windows" { '; exit $LASTEXITCODE' } else { '' } }}
