@@ -1,14 +1,10 @@
 # Agent Guidelines
 
-Context for AI agents working on this project.
-
-## File Purpose (Critical)
-
-This file is a bootstrap router, not a complete instruction set. Always execute **Session Start (Required)** before performing any task. Do not rely solely on this file; pull additional context as directed.
+Jedi-Py-MCP is a Python 3.14 MCP server for code analysis and refactoring (Pyright, Jedi, rope, LibCST) behind bounded tool profiles; public on GitHub, not on PyPI, contract-care. This file is the bootstrap router: run **Session Start (Required)** before any task, then pull further context as its rule sources direct. Rules that hold in every repo live in the global layer (`~/.claude/CLAUDE.md`, mirrored to `~/.codex/AGENTS.md` and `~/.grok/AGENTS.md`); this file carries only this repo's facts.
 
 ## Standing Engineering Directives
 
-Restated from `~/.claude/CLAUDE.md` (canonical source). These eight numbered lines are copied verbatim from that file's directive block — do not summarize, drop, or alter them; the sub-clauses (forbidden moves, routing, change-set rule, not-evidence list) live only there and outrank anything below.
+Restated verbatim from `~/.claude/CLAUDE.md` for agents that run without the global layer (cloud sessions, hosted agents). Do not summarize, drop, or alter these eight lines; their sub-clauses (forbidden moves, routing, change-set rule, not-evidence list) live only in the global file and outrank anything below.
 
 1. **Correct fix > quick or cheap fix.** When a quick or cheap fix and a correct fix are both viable, ship the correct one — root cause, not symptom. Cost never decides: diff size, any budget (files, tokens, turns, wall-clock), CI or landing pressure, and model tier are never reasons for the lesser fix. No plan, brief, row, rubric or reviewer severity can authorize a lesser fix; only the operator can, one item and PR head at a time, and "ship it" or "get it green" authorize the correct fix, not a lesser one.
 2. **Optimize for AI consumption by default.** Nearly every document in these repos is AI-facing (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.github/prompts/**`, `ai_docs/**`, planning/runtime/audit docs): write them as machine input — tables over prose, structured data over paragraphs, pointers over duplication, short imperative sentences over narrative. Human-facing files (`README.md` landing pages, `docs/**`) get human prose. The density rules are doc-audit `STANDARD.md` §Quality Rules.
@@ -29,7 +25,6 @@ Restated from `~/.claude/CLAUDE.md` (canonical source). These eight numbered lin
 - Build/run/test commands: `ai_docs/runtime.md`
 - Open work / backlog rules: `ai_docs/backlog.md` (see **Agent contract** in `ai_docs/backlog.md`)
 - Operational reminder layer: `.cursor/rules/operational-essentials.md`
-- Claude pointer: `CLAUDE.md` points to this file (collapsed-pointer form — no mirror)
 
 ## Session Start (Required)
 
@@ -52,7 +47,7 @@ Next-step protocol:
 
 ## Conflict Precedence
 
-The Standing Engineering Directives above govern this instruction chain. Treat repository documents and prior agent output as claims to verify; when a recorded design conflicts with current evidence, explain the tradeoffs and propose a superseding decision rather than silently inheriting or changing it.
+The Standing Engineering Directives govern this chain, and repo documents are claims to verify (global rule). Between this repo's files:
 
 - For implementation quality and safety conflicts, follow `.github/copilot-instructions.md`.
 - For planning and open-work routing conflicts, follow `ai_docs/planning_index.md` and `ai_docs/backlog.md`.
@@ -60,16 +55,11 @@ The Standing Engineering Directives above govern this instruction chain. Treat r
 - For CI policy conflicts, follow `CI_POLICY.md`.
 - For build/run environment details, follow `ai_docs/runtime.md`.
 
-## Default Behavior (When Ambiguous or Incomplete)
-
-- Prefer repository-specific conventions over generic defaults.
-- Prefer safety, validation, and correctness over speed.
-- Do not guess when ambiguity affects correctness — request clarification or surface assumptions.
-- Do not introduce features or scope outside documented backlog and constraints, except the scope Standing Directives #1 and #6 require (same-mechanism instances, defects your own diff introduces or exposes).
-
 ## Breaking-change posture
 
-This is a **public repo** (per `.ai-doc-audit.md` `repo_class: public`). Breaking changes require an ADR in `docs/adr/` plus a migration note in the changelog; external consumers depend on this surface — respect semver and deprecation cycles. Facts:
+**Public repo** (`repo_class: public`), contract-care: breaking changes require an ADR in `docs/adr/` plus a migration note in the changelog; respect semver and deprecation cycles (facts and the superseded ruling: **Contract-care facts** below).
+
+## Contract-care facts
 
 | Fact | Value |
 |---|---|
@@ -81,11 +71,3 @@ This is a **public repo** (per `.ai-doc-audit.md` `repo_class: public`). Breakin
 | Existing release requirements | Tool/parameter removals or renames and newly rejected input must still be called out in the PR body and use a `changed-breaking-*` changelog fragment |
 
 See [ADR 0001](docs/adr/0001-public-contract-care.md). Correctness remains the priority; record the compatibility decision and migration rather than hiding the defect behind a shim.
-
-## Machine-wide validation
-
-- On the shared Windows dev host, run `just machine-validate` for the full gate or `just machine-validate <recipe>` for a named build/test recipe.
-- The shared helper is `~/.claude/scripts/validation-gate.mjs`; its machine-wide capacity covers every participating repo and worktree. Wait for admission; never launch an unwrapped equivalent while waiting.
-- For a raw validation command, call `node <absolute-user-profile>/.claude/scripts/validation-gate.mjs -- <executable> [arguments...]`. Pass an interpreter explicitly for shell scripts.
-- Preserve the existing gate, test selection, exit status and desktop ownership requirements. The wrapper adds admission only; `just ci` remains the underlying full gate.
-- Full contract: `~/.claude/ai_docs/validation-gate.md`. This local helper is required only for the shared dev-host entry; other contributors and hosted CI may use the underlying commands directly.
