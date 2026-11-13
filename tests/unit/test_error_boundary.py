@@ -43,7 +43,7 @@ from python_refactor_mcp.tool_runtime import (
     tool_error_boundary,
 )
 from python_refactor_mcp.util.shared import validate_workspace_path
-from python_refactor_mcp.workspace_registry import WorkspaceBackends
+from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 
 def _rename_step(file_path: str, new_name: str = "renamed") -> RenameStep:
@@ -148,7 +148,7 @@ async def test_resolve_backends_no_path_uses_most_recent(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 async def test_resolve_backends_cli_fallback_when_no_recent(tmp_path: Path) -> None:
-    """No path + empty registry -> the CLI workspace __fallback__ path is used."""
+    """No path and an empty registry select the CLI workspace directory."""
     cli_root = tmp_path / "cli"
     backends = _backends(cli_root)
     registry = MagicMock()
@@ -160,7 +160,7 @@ async def test_resolve_backends_cli_fallback_when_no_recent(tmp_path: Path) -> N
     resolved = await _resolve_backends(ctx, {})
 
     assert resolved is backends
-    registry.get_backends.assert_awaited_once_with(str(cli_root / "__fallback__"))
+    registry.get_backends.assert_awaited_once_with(str(cli_root))
 
 
 @pytest.mark.asyncio
@@ -324,6 +324,28 @@ def test_validate_params_refuses_unvalidated_transaction_step(tmp_path: Path) ->
 
 
 # ── _tool_error_boundary (wrapper integration) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_nested_workspace_call_rejects_paths_in_enclosing_workspace(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    nested = root / ".worktrees" / "branch"
+    nested.mkdir(parents=True)
+    (nested / ".git").touch()
+    registry = WorkspaceRegistry()
+    await registry.set_roots([root])
+    registry._workspaces = {root: _backends(root), nested: _backends(nested)}
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=root))
+
+    @tool_error_boundary
+    async def diagnostic_tool(ctx: object, file_paths: list[str]) -> Path:
+        return get_current_backends().config.workspace_root
+
+    nested_file = str(nested / "module.py")
+    assert await diagnostic_tool(ctx, file_paths=[nested_file]) == nested
+
+    with pytest.raises(ToolError, match="outside the workspace root"):
+        await diagnostic_tool(ctx, file_paths=[nested_file, str(root / "module.py")])
 
 
 @pytest.mark.asyncio
