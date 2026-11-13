@@ -66,12 +66,13 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0047` | Low | bl-0036 | **Rope op/kind normalization unreachable** — drop `strip().lower()` on `change_signature` op and `generate_code` kind in `rope_backend.py`; exact membership check raising `ToolInputError`. [type: refactor] [source: bl-0046] | S | items/bl-0047.md |
-| `bl-0050` | Low | bl-0047 | **Rope backend stale docstring and dead offset helper** — fix `_build_step_changes` raise docs after bl-0036 and delete or wire `_offset_to_position`. [type: chore] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0050.md |
+| `bl-0047` | Low | bl-0036 | **Rope signature op normalization** — Dispatch and validate signature operations by exact op name. [type: refactor] [source: bl-0046] | S | items/bl-0047.md |
+| `bl-0050` | Low | rope-generate-exact-kind | **Rope backend stale docstring and dead offset helper** — fix `_build_step_changes` raise docs after bl-0036 and delete or wire `_offset_to_position`. [type: chore] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0050.md |
 | `bl-0051` | Low | — | **Test-file exclusion ignores tests/ trees** — `is_test_file` matches filenames only, so fixture modules under `tests/` become sweep targets with `exclude_test_files=True`. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0051.md |
 | `bl-0052` | Low | — | **get_diagnostics batch has no per-file failure channel** — one publish timeout aborts a `file_paths` batch; report per-file failures and stop recording `CancelledError` as a scan failure. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0052.md |
 | `bl-0053` | Low | — | **Silent limit/offset guards unreachable after schema bounds** — reject or share the backend `limit > 0` / `offset > 0` branches bl-0018 made MCP-unreachable. [type: refactor] [source: backlog-remediate-20260926T234845Z] | M | items/bl-0053.md |
 | `bl-0054` | Low | — | **Two LSP-range converters diverge** — merge `helpers._lsp_range` (fails on missing coords) and `lsp_converters.model_range` (zero-defaults them) into one converter with explicit strictness. [type: refactor] [source: backlog-remediate-20260927T020158Z] | M | items/bl-0054.md |
+| `rope-generate-exact-kind` | Low | bl-0047 | **Rope generation kind normalization** — Validate exact kind names and raise ToolInputError for invalid input. [type: refactor] [source: bl-0047] | S | items/rope-generate-exact-kind.md |
 
 ## Defer
 
