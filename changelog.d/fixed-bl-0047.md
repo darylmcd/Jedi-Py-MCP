@@ -1,0 +1,1 @@
+- **Fixed:** Rope signature dispatch now uses the exact operation names defined by the MCP schema and reports invalid names as input errors.
