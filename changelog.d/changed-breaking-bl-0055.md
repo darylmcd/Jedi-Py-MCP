@@ -1,1 +1,1 @@
-Files and directories now select the deepest matching workspace, including nested Git worktrees and Python projects. Split scans by workspace. Use another tool for a cross-workspace move or atomic transaction.
+- **Changed — BREAKING:** Files and directories now select the deepest matching workspace, including nested Git worktrees and Python projects. Split scans by workspace. Use another tool for a cross-workspace move or atomic transaction.
