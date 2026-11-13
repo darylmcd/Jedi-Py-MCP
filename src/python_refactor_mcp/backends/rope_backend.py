@@ -1229,20 +1229,22 @@ class RopeBackend:
         apply: bool,
     ) -> RefactorResult:
         """Generate a missing class, function, variable, module, or package from a usage site."""
+        if kind not in _GENERATE_KINDS:
+            raise ToolInputError(
+                f"Unsupported generation kind: {kind!r}; expected one of "
+                f"{', '.join(_GENERATE_KINDS)} (parameter: kind)"
+            )
 
         def _work() -> RefactorResult:
-            kind_lower = kind.strip().lower()
-            if kind_lower not in _GENERATE_KINDS:
-                raise RopeError(f"Unsupported generation kind: {kind}. Use: {', '.join(_GENERATE_KINDS)}")
             project = self._require_project()
             project.validate(project.root)
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
             # rope's factory builds the matching _Generate subclass from the usage site;
             # module/package kinds carry resource-creation changes beside the import edit.
-            generator = rope_generate.create_generate(kind_lower, project, resource, offset)
+            generator = rope_generate.create_generate(kind, project, resource, offset)
             changes = generator.get_changes()
-            return self._build_result(changes, f"Generated {kind_lower}", apply)
+            return self._build_result(changes, f"Generated {kind}", apply)
 
         return await run_in_thread(
             _work, timeout=self._timeout, error_cls=RopeError, op_name="rope.generate_code", logger=_LOGGER,

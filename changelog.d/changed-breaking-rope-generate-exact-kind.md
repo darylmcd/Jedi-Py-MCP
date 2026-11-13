@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** Direct Python callers of Rope code generation must pass a lowercase kind without surrounding whitespace. Invalid kinds raise `ToolInputError`.
