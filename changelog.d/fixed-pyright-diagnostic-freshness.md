@@ -1,0 +1,1 @@
+- **Fixed:** File diagnostics wait for Pyright to analyze the current document, including on the first workspace scan and immediately after applying edits.

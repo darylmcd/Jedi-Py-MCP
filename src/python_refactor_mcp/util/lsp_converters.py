@@ -309,21 +309,12 @@ def type_hierarchy_item_to_lsp(item: TypeHierarchyItem) -> dict[str, JSONValue]:
 # ── Diagnostics conversion ──────────────────────────────────────────────
 
 
-def convert_publish_diagnostics(params: JSONDict) -> tuple[str, list[Diagnostic]]:
-    """Convert a publishDiagnostics notification into (file_path, diagnostics).
-
-    Returns ("", []) when the notification payload is malformed.
-    """
-    uri_value = params.get("uri")
-    diagnostics_value = params.get("diagnostics")
-    if not isinstance(uri_value, str) or not isinstance(diagnostics_value, list):
-        return "", []
-
-    file_path = uri_to_path(uri_value)
+def convert_diagnostics(file_path: str, items: list[JSONValue]) -> list[Diagnostic]:
+    """Convert LSP diagnostics, rejecting malformed required fields."""
     converted: list[Diagnostic] = []
-    for entry in diagnostics_value:
+    for entry in items:
         if not isinstance(entry, dict):
-            continue
+            raise ValueError("Expected a diagnostic object.")
 
         range_value = entry.get("range")
         message_value = entry.get("message")
@@ -331,7 +322,14 @@ def convert_publish_diagnostics(params: JSONDict) -> tuple[str, list[Diagnostic]
         code_value = entry.get("code")
 
         if not isinstance(range_value, dict) or not isinstance(message_value, str):
-            continue
+            raise ValueError("Expected a diagnostic range and message.")
+        for endpoint in (range_value.get("start"), range_value.get("end")):
+            if not isinstance(endpoint, dict) or any(
+                type(endpoint.get(coordinate)) is not int
+                or as_int(endpoint.get(coordinate), -1) < 0
+                for coordinate in ("line", "character")
+            ):
+                raise ValueError("Expected nonnegative integer diagnostic coordinates.")
 
         code: str | None = None
         if isinstance(code_value, str):
@@ -348,11 +346,11 @@ def convert_publish_diagnostics(params: JSONDict) -> tuple[str, list[Diagnostic]
             Diagnostic(
                 file_path=file_path,
                 range=model_range(range_value),
-                severity=severity_to_string(as_int(severity_value, 3)),
+                severity=severity_to_string(severity_value if type(severity_value) is int else 3),
                 message=message_value,
                 code=code,
                 tags=tags,
             )
         )
 
-    return file_path, converted
+    return converted
