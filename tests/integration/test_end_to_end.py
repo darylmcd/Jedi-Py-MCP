@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
+import os
+import sys
 from pathlib import Path
 
 import pytest
 from mcp.client.session import ClientSession
 from mcp.types import CallToolResult, TextContent
+
+from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+from python_refactor_mcp.config import discover_config
+from python_refactor_mcp.models import RefactorResult
+from python_refactor_mcp.util.shared import attach_post_apply_diagnostics
 
 
 def _unwrap_result_payload(payload: object) -> object:
@@ -109,16 +115,6 @@ async def test_get_diagnostics_reports_intentional_error(
 ) -> None:
     """Ensure diagnostics include the intentional type mismatch in service.py."""
     service_path = sample_workspace / "src" / "service.py"
-
-    await mcp_session.call_tool(
-        "find_references",
-        {
-            "file_path": str(service_path),
-            "line": 0,
-            "character": 0,
-            "include_declaration": True,
-        },
-    )
 
     result = await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
 
@@ -314,35 +310,59 @@ async def test_get_workspace_diagnostics_returns_summary(
 ) -> None:
     """Ensure workspace diagnostic summary includes the intentionally broken file."""
     service_path = sample_workspace / "src" / "service.py"
-    await mcp_session.call_tool("get_diagnostics", {"file_path": str(service_path)})
+    first = await mcp_session.call_tool("get_workspace_diagnostics", {})
+    assert first.is_error is not True
+    payload = first.structured_content
+    assert isinstance(payload, dict)
+    assert payload["scan_failures"] == []
+    assert payload["total_count"] == 1
+    assert Path(payload["items"][0]["file_path"]) == service_path
+    assert payload["items"][0]["error_count"] == 1
 
-    payload: object = None
-    items: list[object] = []
-    for _ in range(8):
-        result = await mcp_session.call_tool("get_workspace_diagnostics", {})
-        assert result.is_error is not True
-        payload = _unwrap_result_payload(result.structured_content)
-        if isinstance(payload, dict):
-            raw_items = payload.get("items", [])
-            items = raw_items if isinstance(raw_items, list) else []
-        elif isinstance(payload, list):
-            items = payload
-        else:
-            items = []
-        if any(
-            str(item.get("file_path", "")).endswith("service.py")
-            for item in items
-            if isinstance(item, dict)
-        ):
-            break
-        await asyncio.sleep(0.1)
+    repeated = await mcp_session.call_tool("get_workspace_diagnostics", {})
+    assert repeated.is_error is not True
+    assert repeated.structured_content == payload
 
-    assert isinstance(payload, (dict, list))
-    assert any(
-        str(item.get("file_path", "")).endswith("service.py")
-        for item in items
-        if isinstance(item, dict)
+
+@pytest.mark.asyncio
+async def test_applied_edit_replaces_prior_diagnostics(
+    sample_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if os.environ.get("RUN_MCP_INTEGRATION") != "1":
+        pytest.skip("Run the MCP integration gate to start a real Pyright server.")
+    monkeypatch.setenv(
+        "PYRIGHT_REQUEST_TIMEOUT_SECONDS",
+        os.environ.get("PYRIGHT_REQUEST_TIMEOUT_SECONDS", "30"),
     )
+    service_path = sample_workspace / "src" / "service.py"
+    config = discover_config(sample_workspace)
+    config.python_executable = Path(sys.executable)
+    backend = PyrightLSPClient(config)
+    await backend.start()
+    try:
+        original = service_path.read_text(encoding="utf-8")
+        before = await backend.get_diagnostics(str(service_path))
+        assert [item.code for item in before] == ["reportAssignmentType"]
+        service_path.write_text(original.replace('= "bad"', "= 1"), encoding="utf-8")
+
+        result = RefactorResult(
+            edits=[],
+            description="Fix assignment",
+            applied=True,
+            files_affected=[str(service_path)],
+        )
+        assert (await attach_post_apply_diagnostics(backend, result)).diagnostics_after == []
+
+        service_path.write_text(original, encoding="utf-8")
+        restored = await backend.get_diagnostics(str(service_path))
+        assert [item.code for item in restored] == ["reportAssignmentType"]
+
+        await backend.restart_server()
+        after_restart = await backend.get_diagnostics(str(service_path))
+        assert [item.code for item in after_restart] == ["reportAssignmentType"]
+    finally:
+        await backend.shutdown()
 
 
 @pytest.mark.asyncio

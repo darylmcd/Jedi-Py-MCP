@@ -91,8 +91,12 @@ class LSPClient:
         self._notification_handlers: dict[str, NotificationHandler] = {}
 
     def is_alive(self) -> bool:
-        """Return True if the underlying subprocess is still running."""
-        return self._subprocess_mgr.is_alive()
+        """Return True while the subprocess and its response reader are running."""
+        return (
+            self._subprocess_mgr.is_alive()
+            and self._reader_task is not None
+            and not self._reader_task.done()
+        )
 
     def register_notification_handler(self, method: str, handler: NotificationHandler) -> None:
         """Register an async callback for an LSP notification method."""

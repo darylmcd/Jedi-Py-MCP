@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
 
@@ -42,7 +42,7 @@ from python_refactor_mcp.util.lsp_converters import (
     as_str,
     call_hierarchy_item_to_lsp,
     call_hierarchy_item_to_model,
-    convert_publish_diagnostics,
+    convert_diagnostics,
     definition_entry_to_locations,
     extract_hover_text,
     is_unhandled_method_error,
@@ -205,81 +205,98 @@ class PyrightLSPClient:
             self._request_timeout_seconds = 5.0
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
-        self._content_hashes: dict[str, str] = {}
         self._file_contents: dict[str, str] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
-        self._diagnostics_events: dict[str, asyncio.Event] = {}
+        self._document_lock = asyncio.Lock()
+        self._restart_lock = asyncio.Lock()
+        self._session_invalid = False
         self._startup_command: list[str] | None = None
-        self._restarting = False
         self._server_capabilities: JSONDict | None = None
 
     @property
     def is_running(self) -> bool:
         """Whether the Pyright language-server subprocess is alive.
 
-        Cheap and non-blocking: delegates to the transport's ``is_alive()``
-        (a process ``returncode is None`` check, no IPC round-trip).
+        Cheap and non-blocking: checks the process and transport reader state.
         """
-        return self._client.is_alive()
+        return not self._session_invalid and self._client.is_alive()
 
     # ── LSP transport ─────────────────────────────────────────────────
 
-    async def _request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+    async def _request(
+        self,
+        method: str,
+        params: dict[str, JSONValue],
+        *,
+        prepare: Callable[[LSPClient], Awaitable[None]] | None = None,
+    ) -> JSONDict:
         """Send an LSP request with a bounded timeout and auto-restart on crash."""
-        await self._ensure_healthy()
+        client = await self._ensure_healthy()
         timeout_message = f"{method} request timed out after {self._request_timeout_seconds:.1f}s"
-        try:
-            async with timed(_LOGGER, f"pyright.{method}"):
-                return await asyncio.wait_for(
-                    self._client.send_request(method, params),
-                    timeout=self._request_timeout_seconds,
-                )
-        except TimeoutError as exc:
-            raise PyrightError(timeout_message) from exc
-        except PyrightError:
-            if self._client.is_alive():
-                raise
-            # Process died during request — attempt single restart and retry.
-            _LOGGER.warning("Pyright process died during %s request, attempting restart", method)
-            await self._restart()
+
+        async def attempt(transport: LSPClient) -> JSONDict:
+            if prepare is not None:
+                await prepare(transport)
+                if transport is not self._client:
+                    raise PyrightError("Pyright session changed while preparing the request.")
+            return await transport.send_request(method, params)
+
+        async def bounded_attempt(transport: LSPClient) -> JSONDict:
             try:
                 return await asyncio.wait_for(
-                    self._client.send_request(method, params),
+                    attempt(transport),
                     timeout=self._request_timeout_seconds,
                 )
             except TimeoutError as exc:
                 raise PyrightError(timeout_message) from exc
 
-    async def _ensure_healthy(self) -> None:
-        """Check if Pyright is alive and restart if it has crashed."""
-        if self._restarting or self._client.is_alive():
-            return
-        _LOGGER.warning("Pyright process detected as dead, attempting restart")
-        await self._restart()
+        async with timed(_LOGGER, f"pyright.{method}"):
+            try:
+                return await bounded_attempt(client)
+            except (BrokenPipeError, ConnectionResetError):
+                replacement = await self._ensure_healthy(disconnected=client)
+            except PyrightError as exc:
+                if isinstance(exc.__cause__, TimeoutError) or (client is self._client and self.is_running):
+                    raise
+                replacement = await self._ensure_healthy()
+            try:
+                return await bounded_attempt(replacement)
+            except (BrokenPipeError, ConnectionResetError) as exc:
+                raise PyrightError("Pyright request transport disconnected.") from exc
+
+    async def _ensure_healthy(self, *, disconnected: LSPClient | None = None) -> LSPClient:
+        """Return the initialized transport, restarting if it has crashed."""
+        async with self._restart_lock:
+            if self._client is disconnected or not self.is_running:
+                _LOGGER.warning("Pyright process detected as dead, attempting restart")
+                await self._restart()
+            return self._client
 
     async def _restart(self) -> None:
         """Restart the Pyright process using the stored startup command."""
         if self._startup_command is None:
             raise PyrightError("Cannot restart Pyright: no startup command recorded")
-        if self._restarting:
-            return
-        self._restarting = True
-        try:
-            await self._client.shutdown()
-            # Clear stale state.
-            self._open_files.clear()
-            self._file_versions.clear()
-            self._content_hashes.clear()
-            self._file_contents.clear()
-            self._diagnostics.clear()
-            self._diagnostics_events.clear()
-            # Create fresh client and re-run startup.
+        async with self._document_lock:
+            self._session_invalid = True
+            try:
+                await self._client.shutdown()
+            except Exception as exc:
+                raise PyrightError("Could not stop the previous Pyright language server.") from exc
+            self._clear_documents()
             self._client = self._make_client()
-            await self._client.start(self._startup_command)
-            await self._initialize_session()
+            try:
+                await self._client.start(self._startup_command)
+                await self._initialize_session()
+            except (Exception, asyncio.CancelledError) as exc:
+                try:
+                    await self._client.shutdown()
+                except Exception:
+                    _LOGGER.warning("Could not clean up failed Pyright restart.", exc_info=True)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                raise PyrightError("Could not restart the Pyright language server.") from exc
+            self._session_invalid = False
             _LOGGER.info("Pyright process restarted successfully")
-        finally:
-            self._restarting = False
 
     def _make_client(self) -> LSPClient:
         """Create and configure a fresh LSP transport client."""
@@ -342,7 +359,7 @@ class PyrightLSPClient:
             "rootUri": root_uri,
             "capabilities": {
                 "textDocument": {
-                    "publishDiagnostics": {"relatedInformation": True},
+                    "publishDiagnostics": {"relatedInformation": True, "versionSupport": True},
                     "rename": {
                         "prepareSupport": True,
                         "prepareSupportDefaultBehavior": 1,
@@ -436,131 +453,126 @@ class PyrightLSPClient:
 
     # ── File tracking ─────────────────────────────────────────────────
 
-    async def ensure_file_open(self, file_path: str) -> None:
-        """Ensure a file is opened and tracked in the language server session.
+    def _clear_documents(self) -> None:
+        self._open_files.clear()
+        self._file_versions.clear()
+        self._file_contents.clear()
+        self._diagnostics.clear()
 
-        A nonexistent ``file_path`` is the caller's own input error and raises
-        :class:`ToolInputError` naming ``file_path``; an existing file that
-        cannot be read or decoded is a backend failure and raises
-        :class:`PyrightError`.
-        """
-        absolute_path = normalize_path(file_path)
-        if absolute_path in self._open_files:
-            return
-
-        file_uri = path_to_uri(absolute_path)
+    def _read_document(self, absolute_path: str) -> str:
         try:
-            text = Path(absolute_path).read_text(encoding="utf-8")
+            return Path(absolute_path).read_text(encoding="utf-8")
         except FileNotFoundError as exc:
-            raise ToolInputError(f"file_path does not exist: {file_path}") from exc
+            self._diagnostics.pop(absolute_path, None)
+            raise ToolInputError(f"file_path does not exist: {absolute_path}") from exc
         except (UnicodeDecodeError, OSError) as exc:
+            self._diagnostics.pop(absolute_path, None)
             raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
-        version = 1
 
-        params: dict[str, JSONValue] = {
-            "textDocument": {
-                "uri": file_uri,
-                "languageId": "python",
-                "version": version,
-                "text": text,
-            }
-        }
-        await self._client.send_notification("textDocument/didOpen", params)
-        self._open_files.add(absolute_path)
-        self._file_versions[absolute_path] = version
-        self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
-        self._file_contents[absolute_path] = text
+    async def ensure_file_open(self, file_path: str) -> None:
+        """Open a document in the language server session if needed."""
+        absolute_path = normalize_path(file_path)
+        await self._ensure_healthy()
+        async with self._document_lock:
+            if absolute_path not in self._file_contents:
+                await self._sync_document(absolute_path, self._read_document(absolute_path))
 
-    async def _refresh_if_changed(self, absolute_path: str) -> None:
-        """Re-read a file from disk and send didChange if its content has changed."""
-        if absolute_path not in self._open_files:
-            return
-        try:
-            text = Path(absolute_path).read_text(encoding="utf-8")
-        except (FileNotFoundError, UnicodeDecodeError, OSError):
-            return
-        new_hash = hashlib.md5(text.encode()).hexdigest()
-        old_hash = self._content_hashes.get(absolute_path)
-        if old_hash == new_hash:
-            return
-        # File changed on disk — send didChange to Pyright.
-        version = self._file_versions.get(absolute_path, 1) + 1
+    async def _refresh_document(self, absolute_path: str, transport: LSPClient) -> None:
+        """Synchronize current disk contents with Pyright before analysis."""
+        async with self._document_lock:
+            if transport is not self._client or self._session_invalid:
+                raise PyrightError("Pyright session changed while preparing the document.")
+            text = self._read_document(absolute_path)
+            if self._file_contents.get(absolute_path) != text:
+                await self._sync_document(absolute_path, text)
+
+    async def _sync_document(self, absolute_path: str, text: str) -> None:
+        """Send document contents while holding the document lock."""
+        if self._session_invalid:
+            raise PyrightError("Pyright session is unavailable while synchronizing the document.")
+        file_uri = path_to_uri(absolute_path)
+        previous_version = self._file_versions.get(absolute_path)
+        version = 1 if previous_version is None else previous_version + 1
         self._file_versions[absolute_path] = version
-        self._content_hashes[absolute_path] = new_hash
-        params: dict[str, JSONValue] = {
-            "textDocument": {
-                "uri": path_to_uri(absolute_path),
-                "version": version,
-            },
-            "contentChanges": [{"text": text}],
-        }
-        await self._client.send_notification("textDocument/didChange", params)
-        self._content_hashes[absolute_path] = new_hash
-        self._file_contents[absolute_path] = text
-        # Clear stale diagnostics so they get refreshed.
         self._diagnostics.pop(absolute_path, None)
+        self._file_contents.pop(absolute_path, None)
+
+        document: dict[str, JSONValue] = {"uri": file_uri, "version": version}
+        if absolute_path in self._open_files:
+            await self._client.send_notification(
+                "textDocument/didChange",
+                {"textDocument": document, "contentChanges": [{"text": text}]},
+            )
+        else:
+            document.update({"languageId": "python", "text": text})
+            try:
+                await self._client.send_notification("textDocument/didOpen", {"textDocument": document})
+            except (Exception, asyncio.CancelledError):
+                # The server may have received the open before the send was interrupted.
+                self._session_invalid = True
+                raise
+            self._open_files.add(absolute_path)
+        self._file_contents[absolute_path] = text
 
     async def notify_file_changed(self, file_path: str) -> None:
-        """Notify Pyright that a file's full contents changed."""
+        """Synchronize an edited file and invalidate its previous diagnostics."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
+
+        async def synchronize(transport: LSPClient) -> None:
+            await asyncio.wait_for(
+                self._refresh_document(absolute_path, transport),
+                timeout=self._request_timeout_seconds,
+            )
 
         try:
-            text = Path(absolute_path).read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
-            raise PyrightError(f"File not found: {absolute_path}") from exc
-        except (UnicodeDecodeError, OSError) as exc:
-            raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
-        version = self._file_versions.get(absolute_path, 1) + 1
-        self._file_versions[absolute_path] = version
-
-        params: dict[str, JSONValue] = {
-            "textDocument": {
-                "uri": path_to_uri(absolute_path),
-                "version": version,
-            },
-            "contentChanges": [{"text": text}],
-        }
-        await self._client.send_notification("textDocument/didChange", params)
-        self._content_hashes[absolute_path] = hashlib.md5(text.encode()).hexdigest()
-        self._file_contents[absolute_path] = text
+            client = await self._ensure_healthy()
+            try:
+                await synchronize(client)
+            except (BrokenPipeError, ConnectionResetError):
+                replacement = await self._ensure_healthy(disconnected=client)
+                await synchronize(replacement)
+            except PyrightError:
+                if client is self._client and self.is_running:
+                    raise
+                replacement = await self._ensure_healthy()
+                await synchronize(replacement)
+        except (ToolInputError, BrokenPipeError, ConnectionResetError, TimeoutError) as exc:
+            raise PyrightError("Could not synchronize edited file with Pyright.") from exc
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return diagnostics for one file or the whole project.
-
-        Diagnostics on lines with ``# type: ignore`` or ``# pyright: ignore``
-        comments are filtered out, mirroring standard client-side behavior.
-
-        Raises:
-            PyrightError: When a per-file ``publishDiagnostics`` notification does
-                not arrive within ``PYRIGHT_REQUEST_TIMEOUT_SECONDS``. A missed
-                publish is unknown state, never a clean file.
-        """
+        """Return analyzed file diagnostics or the current workspace push snapshot."""
         if file_path is not None:
             normalized = normalize_path(file_path)
-            await self.ensure_file_open(normalized)
-            # Detect externally-modified files and refresh Pyright's view.
-            await self._refresh_if_changed(normalized)
-            if normalized not in self._diagnostics:
-                event = self._diagnostics_events.setdefault(normalized, asyncio.Event())
-                event.clear()
-                try:
-                    await asyncio.wait_for(event.wait(), timeout=self._request_timeout_seconds)
-                except TimeoutError as exc:
-                    raise PyrightError(
-                        f"publishDiagnostics for {normalized} not received within "
-                        f"{self._request_timeout_seconds:.1f}s"
-                    ) from exc
-            diagnostics = self._diagnostics.get(normalized, [])
+
+            async def prepare(transport: LSPClient) -> None:
+                await self._refresh_document(normalized, transport)
+
+            response = await self._request(
+                "textDocument/diagnostic",
+                {"textDocument": {"uri": path_to_uri(normalized)}},
+                prepare=prepare,
+            )
+            if is_unhandled_method_error(response):
+                raise LspFeatureUnsupportedError("Pyright does not implement textDocument/diagnostic.")
+            if "error" in response:
+                raise PyrightError(f"textDocument/diagnostic failed: {response['error']}")
+            report = response.get("result")
+            if not isinstance(report, dict) or report.get("kind") != "full":
+                raise PyrightError("Expected a full textDocument/diagnostic report.")
+            items = report.get("items")
+            if not isinstance(items, list):
+                raise PyrightError("Expected an items array in the textDocument/diagnostic report.")
+            try:
+                diagnostics = convert_diagnostics(normalized, items)
+            except ValueError as exc:
+                raise PyrightError("Invalid diagnostic in the textDocument/diagnostic report.") from exc
         else:
             diagnostics = [item for items in self._diagnostics.values() for item in items]
 
-        diagnostics = _filter_type_ignore(diagnostics)
-
         return sorted(
-            diagnostics,
+            _filter_type_ignore(diagnostics),
             key=lambda item: (
                 item.file_path,
                 item.range.start.line,
@@ -569,14 +581,27 @@ class PyrightLSPClient:
         )
 
     async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
-        """Handle textDocument/publishDiagnostics notifications from Pyright."""
-        file_path, converted = convert_publish_diagnostics(params)
+        """Update the workspace snapshot for the published document version."""
+        uri = params.get("uri")
+        items = params.get("diagnostics")
+        if not isinstance(uri, str) or not isinstance(items, list):
+            return
+        try:
+            file_path = uri_to_path(uri)
+        except ValueError:
+            _LOGGER.warning("Invalid URI in publishDiagnostics notification", exc_info=True)
+            return
         if not file_path:
             return
-        self._diagnostics[file_path] = converted
-        event = self._diagnostics_events.get(file_path)
-        if event is not None:
-            event.set()
+        version = params.get("version")
+        current_version = self._file_versions.get(file_path)
+        if current_version is not None and (type(version) is not int or version != current_version):
+            return
+        try:
+            self._diagnostics[file_path] = convert_diagnostics(file_path, items)
+        except ValueError:
+            self._diagnostics.pop(file_path, None)
+            _LOGGER.warning("Invalid publishDiagnostics notification for %s", file_path, exc_info=True)
 
     # ── Analysis features ─────────────────────────────────────────────
 
@@ -601,12 +626,9 @@ class PyrightLSPClient:
         zero-result (Pyright silently returns ``null`` for both) and from a
         backend outage.
         """
-        was_open = absolute_path in self._open_files
-        await self.ensure_file_open(absolute_path)
-        if was_open:
-            # One disk read refreshes both Pyright and the validation cache.
-            await self._refresh_if_changed(absolute_path)
-        self._validate_position(absolute_path, line, char)
+        async def prepare(transport: LSPClient) -> None:
+            await self._refresh_document(absolute_path, transport)
+            self._validate_position(absolute_path, line, char)
 
         params: dict[str, JSONValue] = {
             "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -619,7 +641,7 @@ class PyrightLSPClient:
                 raise ValueError(f"extra_params may not override reserved LSP envelope keys: {names}")
             params.update(extra_params)
 
-        return await self._request(lsp_method, params)
+        return await self._request(lsp_method, params, prepare=prepare)
 
     def _validate_position(self, absolute_path: str, line: int, char: int) -> None:
         """Bounds-check a 0-based LSP position against the file's contents.
@@ -1511,26 +1533,6 @@ class PyrightLSPClient:
 
     async def restart_server(self) -> str:
         """Restart Pyright analysis, discarding cached type information."""
-        response = await self._request(
-            "workspace/executeCommand",
-            {
-                "command": "pyright.restartserver",
-                "arguments": [],
-            },
-        )
-        self._diagnostics.clear()
-        self._file_versions.clear()
-        self._content_hashes.clear()
-        self._file_contents.clear()
-        self._open_files.clear()
-        self._diagnostics_events.clear()
-        if "error" in response:
-            if is_unhandled_method_error(response):
-                _LOGGER.debug("pyright.restartserver not supported, performing manual restart")
-                await self.shutdown()
-                await self.start()
-                return "Pyright server restarted (manual restart)"
-            raise PyrightError(f"restartserver failed: {response['error']}")
-        # Allow Pyright time to re-analyze before subsequent diagnostics requests.
-        await asyncio.sleep(1.0)
+        async with self._restart_lock:
+            await self._restart()
         return "Pyright server restarted successfully"

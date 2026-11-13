@@ -1304,21 +1304,22 @@ async def test_post_restart_retry_timeout_raises_pyright_error(tmp_path: Path) -
     assert client.send_count == 2
 
 
-class DiagnosticsTimeoutHarness(PyrightClientHarness):
-    """Harness with a short request timeout that can inject publishDiagnostics."""
+class DiagnosticsHarness(PyrightClientHarness):
+    """Expose transport setup and notifications for diagnostics tests."""
 
-    def __init__(self, config: ServerConfig) -> None:
-        super().__init__(config)
-        self._request_timeout_seconds = 0.2
+    def set_timeout(self, seconds: float) -> None:
+        self._request_timeout_seconds = seconds
 
     async def publish(self, params: JSONDict) -> None:
-        """Deliver a publishDiagnostics notification through the real handler."""
         await self._handle_publish_diagnostics(params)
 
+    async def select_transport(self, *, disconnected: LSPClient | None = None) -> LSPClient:
+        return await super()._ensure_healthy(disconnected=disconnected)
 
-def _diagnostics_harness(tmp_path: Path) -> tuple[DiagnosticsTimeoutHarness, Path]:
+
+def _diagnostics_harness(tmp_path: Path, client: FakeLSPClient) -> tuple[DiagnosticsHarness, Path]:
     sample = tmp_path / "sample.py"
-    sample.write_text("x = 1\n", encoding="utf-8")
+    sample.write_text("x: int = 'bad'\n", encoding="utf-8")
     config = ServerConfig(
         workspace_root=tmp_path,
         python_executable=Path("python"),
@@ -1327,43 +1328,301 @@ def _diagnostics_harness(tmp_path: Path) -> tuple[DiagnosticsTimeoutHarness, Pat
         pyrightconfig_path=None,
         rope_prefs={},
     )
-    backend = DiagnosticsTimeoutHarness(config)
-    backend.set_client(cast(LSPClient, FakeLSPClient()))
+    backend = DiagnosticsHarness(config)
+    backend.set_client(cast(LSPClient, client))
     return backend, sample
 
 
-@pytest.mark.asyncio
-async def test_get_diagnostics_missed_publish_raises_pyright_error(tmp_path: Path) -> None:
-    """A per-file publish that never arrives is an error, not a clean file."""
-    backend, sample = _diagnostics_harness(tmp_path)
+def _diagnostic_item(message: str) -> JSONDict:
+    return {
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+        "message": message,
+        "severity": 1,
+    }
 
-    with pytest.raises(PyrightError, match=r"publishDiagnostics for .* not received within 0\.2s$") as raised:
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_request_timeout_is_backend_error(tmp_path: Path) -> None:
+    class HangingClient(FakeLSPClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            await asyncio.Event().wait()
+            raise AssertionError("Request should have been cancelled at the deadline")
+
+    backend, sample = _diagnostics_harness(tmp_path, HangingClient())
+    backend.set_timeout(0.1)
+
+    with pytest.raises(PyrightError, match=r"textDocument/diagnostic request timed out") as raised:
         await backend.get_diagnostics(str(sample))
 
     assert isinstance(raised.value.__cause__, TimeoutError)
 
 
 @pytest.mark.asyncio
-async def test_get_diagnostics_returns_publish_arriving_inside_window(tmp_path: Path) -> None:
-    """A publish delivered within the timeout window is returned."""
-    backend, sample = _diagnostics_harness(tmp_path)
-    params: JSONDict = {
-        "uri": path_to_uri(str(sample.resolve())),
-        "diagnostics": [
-            {
-                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
-                "message": "boom",
-                "severity": 1,
-            }
-        ],
-    }
+@pytest.mark.parametrize(
+    "report",
+    [
+        None,
+        {"kind": "unchanged", "resultId": "1"},
+        {"kind": "full"},
+        {"kind": "full", "items": [None]},
+        {"kind": "full", "items": [{"message": "malformed", "range": {}}]},
+        {"kind": "full", "items": [{
+            "message": "invalid coordinate",
+            "range": {"start": {"line": float("inf"), "character": 0}, "end": {"line": 1, "character": 0}},
+        }]},
+    ],
+)
+async def test_get_diagnostics_rejects_invalid_full_report(tmp_path: Path, report: JSONValue) -> None:
+    client = FakeLSPClient(responses={"textDocument/diagnostic": {"result": report}})
+    backend, sample = _diagnostics_harness(tmp_path, client)
 
-    async def _deliver() -> None:
-        await asyncio.sleep(0.05)
-        await backend.publish(params)
+    with pytest.raises(PyrightError, match="textDocument/diagnostic report"):
+        await backend.get_diagnostics(str(sample))
 
-    deliver = asyncio.create_task(_deliver())
-    diagnostics = await backend.get_diagnostics(str(sample))
-    await deliver
 
-    assert [d.message for d in diagnostics] == ["boom"]
+@pytest.mark.asyncio
+async def test_get_diagnostics_reports_unsupported_method(tmp_path: Path) -> None:
+    client = FakeLSPClient(responses={"textDocument/diagnostic": {"error": {"code": -32601}}})
+    backend, sample = _diagnostics_harness(tmp_path, client)
+
+    with pytest.raises(LspFeatureUnsupportedError, match="textDocument/diagnostic"):
+        await backend.get_diagnostics(str(sample))
+
+
+@pytest.mark.asyncio
+async def test_post_edit_diagnostics_use_current_contents(tmp_path: Path) -> None:
+    class EditingClient(FakeLSPClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            assert method == "textDocument/diagnostic"
+            edited = any(name == "textDocument/didChange" for name, _ in self.notifications)
+            items = [] if edited else [_diagnostic_item("before edit")]
+            return {"result": {"kind": "full", "items": items}}
+
+    client = EditingClient()
+    backend, sample = _diagnostics_harness(tmp_path, client)
+    path = str(sample)
+    uri = path_to_uri(path)
+    await backend.ensure_file_open(path)
+    await backend.publish({"uri": uri, "version": 1, "diagnostics": [_diagnostic_item("before edit")]})
+    assert [item.message for item in await backend.get_diagnostics(path)] == ["before edit"]
+
+    sample.write_text("x: int = 1\n", encoding="utf-8")
+    await backend.notify_file_changed(path)
+    await backend.publish({"uri": uri, "version": 1, "diagnostics": [_diagnostic_item("late old result")]})
+
+    assert await backend.get_diagnostics(None) == []
+    assert await backend.get_diagnostics(path) == []
+    assert client.notifications[-1] == (
+        "textDocument/didChange",
+        {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": "x: int = 1\n"}]},
+    )
+    await backend.publish({"uri": uri, "version": 2, "diagnostics": [_diagnostic_item("current result")]})
+    assert [item.message for item in await backend.get_diagnostics(None)] == ["current result"]
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_rejects_deleted_warm_file(tmp_path: Path) -> None:
+    client = FakeLSPClient()
+    backend, sample = _diagnostics_harness(tmp_path, client)
+    await backend.ensure_file_open(str(sample))
+    sample.unlink()
+
+    with pytest.raises(ToolInputError, match="file_path does not exist"):
+        await backend.get_diagnostics(str(sample))
+
+    assert client.requests == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_diagnostics_reopen_after_transport_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RestartClient(FakeLSPClient):
+        def __init__(self, *, crash: bool) -> None:
+            super().__init__()
+            self.crash = crash
+            self.alive = True
+            self.started = False
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+        async def start(self, command: list[str]) -> None:
+            self.started = True
+
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            if method == "initialize":
+                assert self.started
+                return {"result": {"capabilities": {}}}
+            if self.crash:
+                raise BrokenPipeError("closed")
+            requested = params["textDocument"]
+            assert isinstance(requested, dict)
+            opened = [
+                payload["textDocument"]
+                for name, payload in self.notifications
+                if name == "textDocument/didOpen"
+            ]
+            assert any(
+                isinstance(document, dict) and document["uri"] == requested["uri"]
+                for document in opened
+            )
+            return {"result": {"kind": "full", "items": [_diagnostic_item("after restart")]}}
+
+    first = RestartClient(crash=True)
+    second = RestartClient(crash=False)
+    backend, sample = _diagnostics_harness(tmp_path, first)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: second)
+    other = tmp_path / "other.py"
+    other.write_text("x = 1\n", encoding="utf-8")
+
+    diagnostics = await asyncio.gather(
+        backend.get_diagnostics(str(sample)),
+        backend.get_diagnostics(str(other)),
+    )
+
+    assert [[item.message for item in result] for result in diagnostics] == [
+        ["after restart"],
+        ["after restart"],
+    ]
+    assert [name for name, _ in second.notifications].count("textDocument/didOpen") == 2
+
+
+@pytest.mark.asyncio
+async def test_edit_sync_recovers_from_disconnected_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class DisconnectedWriter(FakeLSPClient):
+        async def send_notification(self, method: str, params: dict[str, JSONValue]) -> None:
+            if method == "textDocument/didChange":
+                raise BrokenPipeError("closed")
+            await super().send_notification(method, params)
+
+    backend, sample = _diagnostics_harness(tmp_path, DisconnectedWriter())
+    replacement = FakeLSPClient({"initialize": {"result": {"capabilities": {}}}})
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+    await backend.ensure_file_open(str(sample))
+    sample.write_text("x = 2\n", encoding="utf-8")
+
+    await backend.notify_file_changed(str(sample))
+
+    assert replacement.notifications[-1] == (
+        "textDocument/didOpen",
+        {"textDocument": {
+            "uri": path_to_uri(str(sample)),
+            "version": 1,
+            "languageId": "python",
+            "text": "x = 2\n",
+        }},
+    )
+
+
+@pytest.mark.asyncio
+async def test_edit_sync_reports_failed_respawn_as_backend_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class OfflineClient(FakeLSPClient):
+        def is_alive(self) -> bool:
+            return False
+
+        async def start(self, command: list[str]) -> None:
+            raise FileNotFoundError(command[0])
+
+    backend, sample = _diagnostics_harness(tmp_path, OfflineClient())
+    monkeypatch.setattr(backend, "_startup_command", ["missing-pyright"])
+    monkeypatch.setattr(backend, "_make_client", OfflineClient)
+
+    with pytest.raises(PyrightError, match="Could not restart") as error:
+        await backend.notify_file_changed(str(sample))
+
+    assert isinstance(error.value.__cause__, FileNotFoundError)
+
+
+@pytest.mark.asyncio
+async def test_restart_reports_teardown_failure_as_backend_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ShutdownFailure(FakeLSPClient):
+        async def shutdown(self) -> None:
+            raise OSError("cannot terminate process")
+
+    backend, _ = _diagnostics_harness(tmp_path, ShutdownFailure())
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+
+    with pytest.raises(PyrightError, match="Could not stop the previous") as error:
+        await backend.restart_server()
+
+    assert isinstance(error.value.__cause__, OSError)
+
+
+@pytest.mark.asyncio
+async def test_invalid_push_uri_does_not_interrupt_diagnostic_reads(tmp_path: Path) -> None:
+    client = FakeLSPClient({"textDocument/diagnostic": {"result": {"kind": "full", "items": []}}})
+    backend, sample = _diagnostics_harness(tmp_path, client)
+
+    await backend.publish({"uri": "invalid://sample.py", "diagnostics": []})
+
+    assert await backend.get_diagnostics(str(sample)) == []
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_preparation_uses_replacement_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = FakeLSPClient()
+    replacement = FakeLSPClient({
+        "initialize": {"result": {"capabilities": {}}},
+        "textDocument/diagnostic": {"result": {"kind": "full", "items": []}},
+    })
+    backend, sample = _diagnostics_harness(tmp_path, old)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+    swapped = False
+
+    async def restart_after_selecting_transport(
+        *, disconnected: LSPClient | None = None
+    ) -> LSPClient:
+        nonlocal swapped
+        transport = await backend.select_transport(disconnected=disconnected)
+        if not swapped:
+            swapped = True
+            await backend.restart_server()
+        return transport
+
+    monkeypatch.setattr(backend, "_ensure_healthy", restart_after_selecting_transport)
+
+    assert await backend.get_diagnostics(str(sample)) == []
+    assert old.notifications == []
+    assert old.requests == []
+    assert [name for name, _ in replacement.notifications].count("textDocument/didOpen") == 1
+    assert [name for name, _ in replacement.requests] == ["initialize", "textDocument/diagnostic"]
+
+
+@pytest.mark.asyncio
+async def test_interrupted_did_open_replaces_transport_before_next_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class StalledOpen(FakeLSPClient):
+        async def send_notification(self, method: str, params: dict[str, JSONValue]) -> None:
+            await super().send_notification(method, params)
+            if method == "textDocument/didOpen":
+                await asyncio.Event().wait()
+
+    old = StalledOpen()
+    replacement = FakeLSPClient({
+        "initialize": {"result": {"capabilities": {}}},
+        "textDocument/diagnostic": {"result": {"kind": "full", "items": []}},
+    })
+    backend, sample = _diagnostics_harness(tmp_path, old)
+    backend.set_timeout(0.1)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+
+    with pytest.raises(PyrightError, match="textDocument/diagnostic request timed out"):
+        await backend.get_diagnostics(str(sample))
+
+    assert await backend.get_diagnostics(str(sample)) == []
+    assert [name for name, _ in old.notifications] == ["textDocument/didOpen"]
+    assert [name for name, _ in replacement.notifications].count("textDocument/didOpen") == 1
