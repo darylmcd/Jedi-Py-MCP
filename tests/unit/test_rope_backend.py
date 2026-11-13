@@ -830,6 +830,8 @@ async def test_path_outside_workspace_is_invalid_input(tmp_path: Path) -> None:
         (SignatureOperation(op="inline_default"), "operations[0].index"),
         (SignatureOperation(op="rename", index=0), "operations[0].new_name"),
         (SignatureOperation.model_construct(op="bogus"), "operations[0].op"),
+        (SignatureOperation.model_construct(op="Normalize"), "operations[0].op"),
+        (SignatureOperation.model_construct(op=" normalize "), "operations[0].op"),
     ],
 )
 async def test_change_signature_operation_errors_are_invalid_input(

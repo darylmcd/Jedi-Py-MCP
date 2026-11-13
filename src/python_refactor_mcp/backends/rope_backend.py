@@ -176,7 +176,7 @@ def _build_signature_changers(operations: list[SignatureOperation]) -> list[obje
     """Map signature operation descriptors to rope changer objects."""
     changers: list[object] = []
     for position, operation in enumerate(operations):
-        builder = _OP_DISPATCH.get(operation.op.strip().lower())
+        builder = _OP_DISPATCH.get(operation.op)
         if builder is None:
             raise ToolInputError(
                 f"Unsupported change_signature operation: {operation.op!r}; expected one of "
@@ -202,7 +202,7 @@ def _validate_inline_default_targets(
     """
     count = len(args)
     for position, operation in enumerate(operations):
-        op = operation.op.strip().lower()
+        op = operation.op
         if op == "add":
             count += 1
             continue
