@@ -495,7 +495,7 @@ async def test_generate_code_apply_writes_function_stub(tmp_path: Path) -> None:
     source = "def main():\n    return compute(1, 2)\n"
     backend, module = _generate_fixture(tmp_path, source)
 
-    result = await backend.generate_code(str(module), 1, 11, "Function", apply=True)
+    result = await backend.generate_code(str(module), 1, 11, "function", apply=True)
 
     assert result.applied is True
     assert "    def compute(arg0, arg1):\n        pass\n" in module.read_text(encoding="utf-8")
@@ -556,11 +556,15 @@ async def test_generate_code_module_apply_keeps_existing_resource(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_generate_code_rejects_unknown_kind(tmp_path: Path) -> None:
-    backend, module = _generate_fixture(tmp_path, "value = thing\n")
+@pytest.mark.parametrize("kind", ["method", "Function", " function "])
+async def test_generate_code_rejects_invalid_kind(tmp_path: Path, kind: str) -> None:
+    source = "def main():\n    return compute(1, 2)\n"
+    backend, module = _generate_fixture(tmp_path, source)
 
-    with pytest.raises(RopeError, match="Unsupported generation kind: method"):
-        await backend.generate_code(str(module), 0, 8, "method", apply=False)
+    with pytest.raises(ToolInputError, match=r"Unsupported generation kind.*\(parameter: kind\)$"):
+        await backend.generate_code(str(module), 1, 11, kind, apply=False)
+
+    assert module.read_text(encoding="utf-8") == source
 
 
 def _resolved(path: str | None) -> Path | None:
