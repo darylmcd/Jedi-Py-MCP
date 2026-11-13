@@ -102,6 +102,59 @@ def test_resolve_longest_prefix_match(tmp_path: Path) -> None:
     assert result == inner
 
 
+@pytest.mark.parametrize("known_outer", [False, True])
+@pytest.mark.parametrize("resolve_directory", [False, True])
+def test_resolve_nested_worktree(
+    tmp_path: Path, known_outer: bool, resolve_directory: bool
+) -> None:
+    outer = tmp_path / "primary"
+    worktree = outer / ".worktrees" / "branch"
+    worktree.mkdir(parents=True)
+    (outer / "pyproject.toml").touch()
+    (worktree / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    (worktree / "pyproject.toml").touch()
+    module = worktree / "module.py"
+    module.touch()
+    registry = WorkspaceRegistry()
+    if known_outer:
+        registry._known_roots = [outer]
+
+    target = worktree if resolve_directory else module
+    assert registry.resolve_workspace_root(target) == worktree
+    assert registry.get_known_roots().count(worktree) == 1
+    assert registry.resolve_workspace_root(target) == worktree
+    assert registry.get_known_roots().count(worktree) == 1
+
+
+def test_resolve_unregistered_project_directory(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "setup.cfg").touch()
+
+    assert WorkspaceRegistry().resolve_workspace_root(root) == root
+
+
+def test_resolve_nested_project_marker_under_known_git_root(tmp_path: Path) -> None:
+    project = tmp_path / "packages" / "project"
+    project.mkdir(parents=True)
+    (tmp_path / ".git").mkdir()
+    (project / "pyproject.toml").touch()
+    registry = WorkspaceRegistry()
+    registry._known_roots = [tmp_path]
+
+    assert registry.resolve_workspace_root(project / "module.py") == project
+
+
+def test_resolve_exact_known_root_before_ancestor_marker(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").touch()
+    root = tmp_path / "not-created-yet"
+    registry = WorkspaceRegistry()
+    registry._known_roots = [root]
+
+    assert registry.resolve_workspace_root(root) == root
+    assert registry.resolve_workspace_root(root / "module.py") == root
+
+
 def test_resolve_walks_parents_for_markers(tmp_path: Path) -> None:
     project_root = tmp_path / "my_project"
     project_root.mkdir()

@@ -169,7 +169,7 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
 
     backends = registry.get_most_recent()
     if backends is None and multi_ctx.cli_workspace_root is not None:
-        backends = await registry.get_backends(str(multi_ctx.cli_workspace_root / "__fallback__"))
+        backends = await registry.get_backends(str(multi_ctx.cli_workspace_root))
     return backends
 
 

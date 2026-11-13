@@ -154,44 +154,24 @@ class WorkspaceRegistry:
     # ── Workspace resolution ─────────────────────────────────────────────
 
     def resolve_workspace_root(self, file_path: Path) -> Path:
-        """Map a file path to its workspace root.
-
-        Resolution order:
-        1. Longest-prefix match against known roots (handles nested workspaces)
-        2. Walk parent directories looking for project markers
-        3. Raise WorkspaceResolutionError if nothing found
-        """
+        """Return the deepest known root or project marker enclosing a path."""
         resolved = file_path.resolve()
+        if resolved in self._known_roots:
+            return resolved
 
-        # 1. Longest-prefix match against known roots.
-        best_match: Path | None = None
-        best_depth = -1
-        for root in self._known_roots:
-            try:
-                resolved.relative_to(root)
-            except ValueError:
-                continue
-            depth = len(root.parts)
-            if depth > best_depth:
-                best_depth = depth
-                best_match = root
-
-        if best_match is not None:
-            return best_match
-
-        # 2. Walk parent directories for project markers.
-        for parent in resolved.parents:
+        directory = resolved if resolved.is_dir() else resolved.parent
+        for parent in (directory, *directory.parents):
+            if parent in self._known_roots:
+                return parent
             for marker in _PROJECT_MARKERS:
                 if (parent / marker).exists():
-                    # Auto-register discovered root.
-                    if parent not in self._known_roots:
-                        self._known_roots.append(parent)
-                        _LOGGER.info("Auto-discovered workspace root: %s (marker: %s)", parent, marker)
+                    self._known_roots.append(parent)
+                    _LOGGER.info("Auto-discovered workspace root: %s (marker: %s)", parent, marker)
                     return parent
 
         raise WorkspaceResolutionError(
             f"Cannot determine workspace root for: {file_path}. "
-            f"No project markers ({', '.join(_PROJECT_MARKERS)}) found in parent directories, "
+            f"No project markers ({', '.join(_PROJECT_MARKERS)}) found in enclosing directories, "
             f"and the path is not under any known root."
         )
 

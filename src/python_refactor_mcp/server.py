@@ -80,7 +80,7 @@ async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContex
     if _workspace_root is not None:
         await registry.set_roots([_workspace_root])
         # Eagerly initialize backends for the CLI workspace.
-        await registry.get_backends(str(_workspace_root / "__init__.py"))
+        await registry.get_backends(str(_workspace_root))
 
     try:
         yield MultiWorkspaceContext(
