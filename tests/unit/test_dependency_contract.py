@@ -23,20 +23,38 @@ def test_mcp_dependency_targets_current_major_version() -> None:
     assert not mcp_requirement.specifier.contains("3.0")
 
 
-def test_hosted_ci_syncs_the_authoritative_lockfile() -> None:
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-
-    assert "uv sync --locked --all-extras" in workflow
-    assert 'pip install -e ".[dev,build]"' not in workflow
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+SETUP_ACTION_REF = "./.github/actions/setup-python-env"
+SETUP_ACTION = REPO_ROOT / ".github" / "actions" / "setup-python-env" / "action.yml"
 
 
-def test_hosted_ci_actions_are_pinned_to_commits() -> None:
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    action_refs = [
+def _action_refs(text: str) -> list[str]:
+    return [
         line.partition("uses:")[2].strip().split(maxsplit=1)[0]
-        for line in workflow.splitlines()
+        for line in text.splitlines()
         if "uses:" in line
     ]
 
-    assert action_refs
-    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action_ref) for action_ref in action_refs)
+
+def test_hosted_ci_syncs_the_authoritative_lockfile() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    setup_action = SETUP_ACTION.read_text(encoding="utf-8")
+
+    assert "uv sync --locked --all-extras" in setup_action
+    assert "pip install" not in setup_action
+    assert "pip install" not in workflow
+    # Every Windows job validates against the locked environment from the shared setup action.
+    windows_jobs = workflow.count("runs-on: windows-latest")
+    assert windows_jobs
+    assert _action_refs(workflow).count(SETUP_ACTION_REF) == windows_jobs
+
+
+def test_hosted_ci_actions_are_pinned_to_commits() -> None:
+    action_files = [WORKFLOW, *sorted((REPO_ROOT / ".github" / "actions").glob("*/action.yml"))]
+    action_refs = [ref for path in action_files for ref in _action_refs(path.read_text(encoding="utf-8"))]
+    remote_refs = [ref for ref in action_refs if not ref.startswith("./")]
+    local_refs = [ref for ref in action_refs if ref.startswith("./")]
+
+    assert remote_refs
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action_ref) for action_ref in remote_refs)
+    assert all((REPO_ROOT / ref / "action.yml").is_file() for ref in local_refs)

@@ -1,0 +1,1 @@
+- **Maintenance:** Run unit/contract and integration tests in parallel with pytest-xdist, and split hosted CI into parallel `checks` and `integration` jobs behind the unchanged required `Validate (Python 3.14, Windows)` check.

@@ -67,6 +67,7 @@
 | `pyright-diagnostics-import-freshness` | Medium | — | **Refresh changed imports before diagnostic analysis** — Synchronize edited open dependencies before analyzing their importers. [type: bug] [source: remediate-20261113] | M | items/pyright-diagnostics-import-freshness.md |
 | `diagnostics-ignore-comment-parsing` | Medium | — | **Respect the scope of diagnostic ignore comments** — Avoid discarding diagnostics for string literals or for unrelated selective ignore rules. [type: bug] [source: remediate-20261113] | S | items/diagnostics-ignore-comment-parsing.md |
 | `workspace-eviction-active-requests` | Medium | — | **Keep active workspace backends alive through dispatch** — Coordinate registry eviction with in-flight requests and prohibit respawning an evicted transport. [type: bug] [source: remediate-20261113] | M | items/workspace-eviction-active-requests.md |
+| `bl-0057` | Medium | — | **Assert real highlights in integration test** — make test_document_highlights_and_folding_ranges assert non-empty highlights and folding ranges; an empty highlights result passes today. [source: gate-speed red probe 2026-11-17] | S | items/bl-0057.md |
 
 ## Low
 

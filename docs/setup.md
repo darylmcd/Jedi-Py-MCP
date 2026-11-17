@@ -81,7 +81,7 @@ Direct commands:
 - `python -m ruff check .` validates lint cleanliness.
 - `python -m pyright .` validates the Pyright lane used by CI.
 - `python -m mypy .` validates the strict mypy lane used by CI.
-- `python -m pytest tests/unit/ tests/contract/ -v` runs the unit + contract suite.
+- `python -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8` runs the unit + contract suite.
 - `.\scripts\test-integration.ps1` runs the integration suite against the supported test harness.
 
 ## Configuration

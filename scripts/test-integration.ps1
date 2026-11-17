@@ -19,7 +19,7 @@ Push-Location $repoRoot
 $previousRunIntegration = $env:RUN_MCP_INTEGRATION
 $env:RUN_MCP_INTEGRATION = "1"
 try {
-	& $pythonExe -m pytest tests/integration/ -v
+	& $pythonExe -m pytest tests/integration/ -v -n logical --maxprocesses=8
 }
 finally {
 	$env:RUN_MCP_INTEGRATION = $previousRunIntegration
