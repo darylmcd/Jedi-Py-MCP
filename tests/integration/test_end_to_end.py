@@ -427,9 +427,16 @@ async def test_document_highlights_and_folding_ranges(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
-    """Ensure local highlights and folding ranges are available for a sample file."""
+    """Ensure highlights cover every use of the queried local and each function folds."""
     service_path = sample_workspace / "src" / "service.py"
     line, character = _find_position(service_path, "current_user")
+    source_lines = service_path.read_text(encoding="utf-8").splitlines()
+    expected_highlights = {
+        (index, column, index, column + len("current_user"))
+        for index, text in enumerate(source_lines)
+        if (column := text.find("current_user")) >= 0
+    }
+    function_def_lines = [index for index, text in enumerate(source_lines) if text.startswith("def ")]
 
     highlights = await mcp_session.call_tool(
         "get_document_highlights",
@@ -446,6 +453,25 @@ async def test_document_highlights_and_folding_ranges(
     folding_payload = _unwrap_result_payload(folding.structured_content)
     assert isinstance(highlight_payload, list)
     assert isinstance(folding_payload, list)
+
+    # The definition and its one use, nothing else in the file.
+    assert len(expected_highlights) == 2
+    highlighted = {
+        (
+            item["range"]["start"]["line"],
+            item["range"]["start"]["character"],
+            item["range"]["end"]["line"],
+            item["range"]["end"]["character"],
+        )
+        for item in highlight_payload
+    }
+    assert highlighted == expected_highlights
+
+    # Every multi-line function body folds from its def line.
+    assert len(function_def_lines) == 3
+    folded = {(item["start_line"], item["end_line"]) for item in folding_payload}
+    for def_line in function_def_lines:
+        assert any(start == def_line and end > def_line for start, end in folded), (def_line, folded)
 
 
 @pytest.mark.asyncio
