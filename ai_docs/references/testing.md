@@ -12,7 +12,7 @@ Purpose: stable reference for local validation and test execution.
 
 | Purpose | Direct command | Runner |
 |---|---|---|
-| Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v` | `just test` |
+| Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8` | `just test` |
 | Integration tests | `./scripts/test-integration.ps1` | `just test-integration` |
 | Lint | `python -m ruff check .` | `just lint` |
 | Type check (Pyright) | `python -m pyright .` | `just typecheck` |

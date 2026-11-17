@@ -26,7 +26,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 
 - `just --list`: lists every supported recipe.
 - `just validate`: fast pre-push check (changelog fragments + `ruff` lint + semantic-converter format check + `pyright` + unit + contract tests).
-- `just ci`: exact local mirror of the hosted CI validate job.
+- `just ci`: exact local mirror of the hosted CI jobs (`checks` + `integration`), run serially.
 - `just full`: full local validation surface, currently the same as `just ci`.
 
 ## Standard Commands
@@ -38,7 +38,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | Semantic converter formatting | `python -m ruff format --check <semantic converter files + focused tests>` | `just format-check-converters` |
 | Type check (Pyright) | `python -m pyright .` | `just typecheck` |
 | Type check (mypy) | `python -m mypy .` | `just typecheck-mypy` |
-| Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v` | `just test` |
+| Unit + contract tests | `python -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8` | `just test` |
 | Integration tests | `./scripts/test-integration.ps1` | `just test-integration` |
 | Local CI mirror | aggregate: changelog + lint + pyright + mypy + unit + integration | `just ci` |
 | Build executable (directory bundle) | `./scripts/build.ps1` | `just build-release` |
@@ -88,15 +88,13 @@ Interpreter discovery order in `config.py`: `.venv` -> `venv` -> Poetry virtuale
 
 ## CI Summary
 
-1. Install the repository-required uv version.
-2. Sync `.venv` from `uv.lock` with all extras.
-3. Validate changelog fragments (and PR change coverage when `CHANGELOG_BASE_REF` is set).
-4. Run `ruff`.
-5. Check the semantic converter surface with the pinned Ruff formatter.
-6. Run `pyright`.
-7. Run `mypy`.
-8. Run unit + contract tests.
-9. Run integration tests.
+| Job | Runs | Steps |
+|---|---|---|
+| `checks` | parallel with `integration` | setup → changelog fragments (PR coverage when `CHANGELOG_BASE_REF` is set) → `ruff` → converter format check → `pyright` → `mypy` → unit + contract tests (xdist) |
+| `integration` | parallel with `checks` | setup → `scripts/test-integration.ps1` (xdist) |
+| `validate` (`Validate (Python 3.14, Windows)`, required check) | after both | fails unless both jobs succeeded |
+
+Setup = `.github/actions/setup-python-env`: Python 3.14, repository-required uv, `uv sync --locked --all-extras`.
 
 ## Policy Boundaries
 

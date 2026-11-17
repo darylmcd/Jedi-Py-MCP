@@ -31,7 +31,7 @@ build-onefile:
 
 # Run unit + contract tests (both are fast, in-process)
 test:
-    {{ python }} -m pytest tests/unit/ tests/contract/ -v
+    {{ python }} -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8
 
 # Run integration tests
 test-integration:

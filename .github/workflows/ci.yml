@@ -21,8 +21,8 @@ defaults:
     shell: pwsh
 
 jobs:
-  validate:
-    name: Validate (Python 3.14, Windows)
+  checks:
+    name: Static checks + unit/contract tests
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -31,16 +31,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-
-      - name: Sync locked dependencies
-        run: uv sync --locked --all-extras
+      - uses: ./.github/actions/setup-python-env
 
       - name: Validate changelog fragments
         env:
@@ -66,7 +57,36 @@ jobs:
         run: .\.venv\Scripts\python -m mypy .
 
       - name: Unit + contract tests
-        run: .\.venv\Scripts\python -m pytest tests/unit/ tests/contract/ -v
+        run: .\.venv\Scripts\python -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8
+
+  integration:
+    name: Integration tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-python-env
 
       - name: Integration tests
         run: .\scripts\test-integration.ps1
+
+  # Required status check: branch protection names this job, so it reports the
+  # combined result of the parallel jobs above. A failed, cancelled or skipped job fails it.
+  validate:
+    name: Validate (Python 3.14, Windows)
+    needs: [checks, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every validation job to succeed
+        shell: bash
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          echo "checks=$CHECKS integration=$INTEGRATION"
+          test "$CHECKS" = success && test "$INTEGRATION" = success

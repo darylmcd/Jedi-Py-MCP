@@ -8,13 +8,16 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 - Hosted CI is configured in `.github/workflows/ci.yml` and runs changelog
   validation, lint, targeted semantic-converter formatting, type checking,
   unit + contract tests, and integration tests on Python 3.14 (Windows).
-- The CI job mirrors the local validation table exactly; update both together
-	when commands or tooling change.
+- The CI jobs together mirror the local validation table exactly; update both
+  together when commands or tooling change.
+- Both pytest lanes run in parallel with pytest-xdist (`-n logical --maxprocesses=8`);
+  each integration test still starts its own server and workspace copy.
 
 ## Hosted execution policy
 
 - Public-repository standard Windows runners provide the actual Windows validation surface. Keep every check and the locked Python dependency environment.
-- Validate PRs targeting main and pushes to main; feature pushes do not duplicate the PR gate. Cancel superseded PR runs and bound the validate job to 30 minutes.
+- Validate PRs targeting main and pushes to main; feature pushes do not duplicate the PR gate. Cancel superseded PR runs and bound each Windows job to 30 minutes.
+- Two Windows jobs run in parallel: `checks` (changelog, lint, converter format, Pyright, mypy, unit + contract) and `integration`. Both share the `.github/actions/setup-python-env` setup. The required status check `Validate (Python 3.14, Windows)` is an aggregator job that passes only when both succeed; keep that job name, because branch protection names it.
 
 ## Standard Validation Commands
 
@@ -25,7 +28,7 @@ Scope: validation requirements, merge gates, and handling of failing checks.
 | Semantic converter formatting | python -m ruff format --check src/python_refactor_mcp/tools/refactoring/_converter_preflight.py src/python_refactor_mcp/tools/refactoring/dataclass_conversion.py src/python_refactor_mcp/tools/refactoring/typed_dict_conversion.py src/python_refactor_mcp/tools/refactoring/pydantic_conversion.py tests/unit/test_semantic_converters.py |
 | Type check (Pyright) | python -m pyright . |
 | Type check (mypy) | python -m mypy . |
-| Unit + contract tests | python -m pytest tests/unit/ tests/contract/ -v |
+| Unit + contract tests | python -m pytest tests/unit/ tests/contract/ -v -n logical --maxprocesses=8 |
 | Integration tests | ./scripts/test-integration.ps1 |
 
 ## Validation Contract
