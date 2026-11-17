@@ -1,0 +1,1 @@
+- **Maintenance:** The document-highlights integration test now asserts the exact highlight ranges for the queried local and a folding range for every function, so empty results fail it.
