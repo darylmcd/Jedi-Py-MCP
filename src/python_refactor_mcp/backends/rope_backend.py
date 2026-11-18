@@ -77,7 +77,7 @@ from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.param_rename import function_ordinal, rename_parameter_bindings
 from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
-from python_refactor_mcp.util.shared import validate_identifier
+from python_refactor_mcp.util.shared import require_local_path, validate_identifier
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
@@ -829,8 +829,11 @@ class RopeBackend:
         """Resolve one existing Python file and its workspace-relative path.
 
         ``role`` labels the file in the message; ``param`` names the caller's
-        parameter in the ``ToolInputError`` raised for an invalid path.
+        parameter in the ``ToolInputError`` raised for an invalid path. A UNC or
+        device-namespace path is refused before ``resolve()``: ``split_module``
+        ``target_modules`` keys never pass through the tool boundary's path tables.
         """
+        require_local_path(file_path, f"parameter: {param}")
         absolute = Path(file_path).resolve()
         try:
             relative = absolute.relative_to(self._config.workspace_root.resolve())

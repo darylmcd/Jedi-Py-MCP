@@ -20,6 +20,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from python_refactor_mcp.errors import BackendError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.models import TransactionStepArgs
 from python_refactor_mcp.util.shared import (
+    require_local_path,
     resolve_workspace_dir,
     validate_identifier,
     validate_workspace_path,
@@ -48,6 +49,11 @@ PATH_PARAMS: tuple[str, ...] = (
     "destination_package",
 )
 _LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
+
+# List parameters of extra Rope project roots (``multi_project_rename``). They neither select a
+# workspace nor are contained in one (that policy is the open row ``multi-project-rename-roots``),
+# but each string still reaches ``Project(root)``, so the boundary refuses UNC and device paths.
+_LOCAL_ONLY_LIST_PARAMS: tuple[str, ...] = ("additional_roots",)
 
 # List parameters whose items are models carrying a ``file_path`` (``TextEdit``,
 # ``SymbolAnchor``). Each item's path is validated, anchors and is rewritten
@@ -271,7 +277,11 @@ def _resolve_workspace_root(ctx: Context | None, kwargs: dict[str, Any]) -> Path
 
 
 def _require_absolute(value: str, param_label: str) -> None:
-    """Raise ``ToolInputError`` naming *param_label* when *value* is not an absolute path."""
+    """Raise ``ToolInputError`` naming *param_label* when *value* is a UNC or device path or not absolute.
+
+    The UNC check comes first: such a path is absolute, and resolving it touches the network.
+    """
+    require_local_path(value, f"parameter: {param_label}")
     if not Path(value).is_absolute():
         raise ToolInputError(f"'{value}' is not an absolute path (parameter: {param_label})")
 
@@ -286,6 +296,20 @@ def _reject_relative_paths(kwargs: dict[str, Any]) -> None:
     """
     for label, value in _workspace_path_args(kwargs):
         _require_absolute(value, label)
+
+
+def _reject_network_only_paths(kwargs: dict[str, Any]) -> None:
+    """Reject UNC and device-namespace entries of the uncontained root lists before any tool I/O.
+
+    Only the string is classified: these roots have no absolute or containment rule here.
+    Non-list and non-string values are left to the SDK schema.
+    """
+    for param_name in _LOCAL_ONLY_LIST_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            for index, value in enumerate(values):
+                if isinstance(value, str):
+                    require_local_path(value, f"parameter: {param_name}[{index}]")
 
 
 def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
@@ -416,6 +440,7 @@ def tool_error_boundary(
         try:
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
+            _reject_network_only_paths(kwargs)
             workspace_root: Path | None
             if workspace is WorkspaceUse.NONE:
                 workspace_root = None

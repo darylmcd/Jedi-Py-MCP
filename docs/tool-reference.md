@@ -11,6 +11,11 @@ already selected, and otherwise fails with `[AMBIGUOUS_WORKSPACE]` listing the
 live roots. `server_status` needs no workspace. See
 [ADR 0007](adr/0007-explicit-workspace-selection.md).
 
+Paths: every path argument must be a local path. UNC and device-namespace
+paths (`\\server\share`, `\\?\UNC\...`, `\\.\...`) are refused with
+`[INVALID_INPUT]` before any filesystem access; map the share to a drive
+letter. See [ADR 0011](adr/0011-reject-unc-and-device-paths.md).
+
 ## Analysis (19)
 
 | Tool | Purpose | Returns |

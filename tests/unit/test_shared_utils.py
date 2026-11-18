@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ntpath
 import os
+import posixpath
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -11,7 +14,15 @@ from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.models import Diagnostic, Location, Position, Range
 from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_path
-from python_refactor_mcp.util.shared import apply_limit, diagnostic_key, location_key, resolve_workspace_dir
+from python_refactor_mcp.util.shared import (
+    apply_limit,
+    diagnostic_key,
+    is_network_or_device_path,
+    location_key,
+    require_local_path,
+    resolve_workspace_dir,
+    validate_workspace_path,
+)
 
 # --- apply_limit ---
 
@@ -228,3 +239,72 @@ class TestResolveWorkspaceDir:
         workspace.mkdir()
         with pytest.raises(ToolInputError, match="outside the workspace root"):
             resolve_workspace_dir(str(tmp_path / "elsewhere"), workspace)
+
+
+# --- is_network_or_device_path / require_local_path ---
+
+_UNC_OR_DEVICE_SPELLINGS = [
+    r"\\srv\share\a.py",
+    "//srv/share/a.py",
+    r"\/srv\share\a.py",
+    r"\\?\UNC\srv\s\a.py",
+    "//?/UNC/srv/share/a.py",
+    r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\a.py",
+    r"\\?\GLOBALROOT\Device\x",
+    r"\\?\C::\a.py",
+    r"\\.\pipe\x",
+    r"\\.\C:\a.py",
+]
+_LOCAL_SPELLINGS = [
+    r"C:\work\a.py",
+    "C:/work/a.py",
+    r"\\?\C:\work\a.py",
+    r"\\?\c:\work\a.py",
+    r"\\?\C:",
+    r"\work\a.py",
+    r"rel\a.py",
+    "a.py",
+]
+
+
+class TestNetworkOrDevicePath:
+    """UNC and device-namespace classification is pure string work, so it runs on any OS through ``pathmod``."""
+
+    @pytest.mark.parametrize("value", _UNC_OR_DEVICE_SPELLINGS)
+    def test_unc_and_device_spellings_are_rejected(self, value: str) -> None:
+        assert is_network_or_device_path(value, pathmod=ntpath)
+        with pytest.raises(ToolInputError, match="UNC or device-namespace path"):
+            require_local_path(value, "parameter: file_path", pathmod=ntpath)
+
+    @pytest.mark.parametrize("value", _LOCAL_SPELLINGS)
+    def test_local_spellings_are_allowed(self, value: str) -> None:
+        assert not is_network_or_device_path(value, pathmod=ntpath)
+        require_local_path(value, "parameter: file_path", pathmod=ntpath)
+
+    @pytest.mark.parametrize("value", ["//srv/share/a.py", r"\\srv\share\a.py", "/work/a.py"])
+    def test_posix_rules_never_classify_a_path_as_unc(self, value: str) -> None:
+        assert not is_network_or_device_path(value, pathmod=posixpath)
+
+    def test_the_message_names_the_value_and_where(self) -> None:
+        with pytest.raises(ToolInputError, match=r"'\\\\srv\\share' .*\(parameter: root_path\)"):
+            require_local_path(r"\\srv\share", "parameter: root_path", pathmod=ntpath)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+class TestUncRejectedBeforeFilesystemAccess:
+    """On Windows the host rules apply, so the shared helpers reject before ``Path.resolve()``."""
+
+    @pytest.mark.parametrize("value", [r"\\unc-srv\share\a.py", r"\\?\UNC\unc-srv\share\a.py", r"\\.\pipe\unc-srv"])
+    def test_validate_workspace_path(self, tmp_path: Path, value: str) -> None:
+        with (
+            patch.object(Path, "resolve", side_effect=AssertionError("resolve reached")),
+            pytest.raises(ToolInputError, match="UNC or device-namespace path"),
+        ):
+            validate_workspace_path(value, tmp_path)
+
+    def test_resolve_workspace_dir(self, tmp_path: Path) -> None:
+        with (
+            patch.object(Path, "resolve", side_effect=AssertionError("resolve reached")),
+            pytest.raises(ToolInputError, match="UNC or device-namespace path"),
+        ):
+            resolve_workspace_dir(r"\\unc-srv\share\out", tmp_path)
