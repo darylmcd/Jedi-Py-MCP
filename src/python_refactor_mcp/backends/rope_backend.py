@@ -228,20 +228,40 @@ def _build_operation_changers(operations: list[SignatureOperation]) -> list[list
     return built
 
 
+def _separator_parameters_error(function_ast: ast.FunctionDef) -> ToolInputError | None:
+    """Explain why rope cannot re-emit a header with keyword-only or positional-only parameters, or return ``None``.
+
+    rope's ``DefinitionInfo`` has no representation for the ``*`` and ``/``
+    separators. For keyword-only parameters it emits an unparseable header
+    (``def f(a, c, *)``), loses the parameters or fails with a generic error; for
+    positional-only parameters it silently drops the ``/``, which makes them
+    callable by keyword.
+    """
+    arguments = function_ast.args
+    if arguments.kwonlyargs:
+        kind, separator = "keyword-only", "*"
+    elif arguments.posonlyargs:
+        kind, separator = "positional-only", "/"
+    else:
+        return None
+    return ToolInputError(
+        f"change_signature does not support functions with {kind} parameters: rope cannot rewrite their "
+        f"header (it has no representation for the `{separator}` separator) (parameter: line)"
+    )
+
+
 def _positional_parameters(function_ast: ast.FunctionDef) -> list[tuple[str, str | None]]:
     """Return ``(name, default source)`` for the positional parameters of *function_ast*.
 
     The definition's AST is the source of truth for which parameters have a
-    default (rope's ``DefinitionInfo.read`` shifts the defaults before ``*args``;
-    ``change_signature`` refuses such targets before this walk). Keyword-only
-    parameters never take part in the required-after-default ordering and are
-    not listed.
+    default (rope's ``DefinitionInfo.read`` shifts the defaults before ``*args``).
+    ``change_signature`` refuses targets with ``*args``, keyword-only or
+    positional-only parameters before this walk, so only ``args`` remains.
     """
     arguments = function_ast.args
-    positional = [*arguments.posonlyargs, *arguments.args]
-    defaults: list[str | None] = [None] * (len(positional) - len(arguments.defaults))
+    defaults: list[str | None] = [None] * (len(arguments.args) - len(arguments.defaults))
     defaults.extend(ast.unparse(default) for default in arguments.defaults)
-    return [(parameter.arg, default) for parameter, default in zip(positional, defaults, strict=True)]
+    return [(parameter.arg, default) for parameter, default in zip(arguments.args, defaults, strict=True)]
 
 
 def _simulate_signature_operations(
@@ -1312,6 +1332,8 @@ class RopeBackend:
                     "their header (it emits an unparseable `*args=<default>` and shifts the "
                     "defaults before it) (parameter: line)"
                 )
+            if (separator_error := _separator_parameters_error(pyfunction.get_ast())) is not None:
+                raise separator_error
             renames = _simulate_signature_operations(
                 DefinitionInfo.read(pyfunction), pyfunction.get_ast(), operations, changers_by_operation,
             )

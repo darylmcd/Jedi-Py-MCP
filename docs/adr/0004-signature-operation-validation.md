@@ -52,11 +52,11 @@ The refusals are not a complete guarantee. The compiled-code comparison proves t
 
 ### Decision
 
-- `change_signature` refuses every operation on a target with `*args` (`ToolInputError`, `parameter: line`, decided from the definition's AST). rope cannot rewrite such a header: it emits an unparseable `*args=<default>` (`def f(a, b=1, *args)` + `inline_default` previews `def f(a, b, *args=1)`) and shifts the defaults before `*args`, so no check on its parameter list can make the result valid. A bare `*` (keyword-only parameters) is not refused here; its broken emission (`def f(a, *, k=1)` + `add` previews `def f(a, c, *)`) stays with the keyword-only row.
-- The simulated walk takes the positional parameters and their defaults from the target definition's AST, not from rope's `DefinitionInfo` (keyword-only parameters are not listed).
+- `change_signature` refuses every operation on a target with `*args` (`ToolInputError`, `parameter: line`, decided from the definition's AST). rope cannot rewrite such a header: it emits an unparseable `*args=<default>` (`def f(a, b=1, *args)` + `inline_default` previews `def f(a, b, *args=1)`) and shifts the defaults before `*args`, so no check on its parameter list can make the result valid. A bare `*` (keyword-only parameters) is not refused by this addendum; its broken emission (`def f(a, *, k=1)` + `add` previews `def f(a, c, *)`) is refused by the keyword-only and positional-only addendum below.
+- The simulated walk takes the positional parameters and their defaults from the target definition's AST, not from rope's `DefinitionInfo`.
 - After the walk, the FINAL signature must not hold a required parameter after a defaulted one. Only the final state is checked because rope emits only that: `add` a required parameter then `reorder` it before the default, or `add` then `remove` the default, is valid. The error names the last `add` or `reorder` operation that placed either parameter (`operations[i].default` or `operations[i].new_order`).
 - `reorder.new_order` must be a permutation of the positional parameter indexes (`ToolInputError`, `operations[i].new_order`).
-- Unchanged and out of scope: `_check_rename_default` still checks per step; add-name validity (duplicate or invalid identifier) belongs to the identifier validators; keyword-only and positional-only separators are handled by other rows.
+- Unchanged and out of scope: `_check_rename_default` still checks per step; add-name validity (duplicate or invalid identifier) belongs to the identifier validators; keyword-only and positional-only separators are refused by the keyword-only and positional-only addendum below.
 
 ### Migration
 
@@ -75,7 +75,7 @@ Three caller-input failures surfaced as a generic `RopeError` (`ROPE_BACKEND`, "
 - Non-NFKC identifier (constructor or `get_changes`): after the `MismatchedTokenError`, tokenize the workspace Python files; a `ToolInputError` names up to five `path:line` sites. No site found: the original error propagates unchanged.
 - `**` call site (`AssertionError` from `get_changes` only): after the failure, find `ast.Call` nodes with a `**` keyword whose callee name is the target (or its class for `__init__`); a `ToolInputError` names the sites. No site found: the original error propagates unchanged.
 - Limits: the `**` attribution is by callee name, so it can name a call to an unrelated function of the same name, and an unrelated assertion inside `get_changes` can be mislabelled when such a call exists; the diagnosis runs only after rope failed and nothing was written. Under `python -O` rope's assert is stripped and the `**` path is not reached. The non-NFKC attribution can likewise mislabel a different `MismatchedTokenError` when a non-NFKC identifier exists elsewhere in the workspace.
-- Out of scope: other rope tools raise the same errors for the same inputs (a non-NFKC workspace fails every rope refactoring); keyword-only emission stays with `rope-signature-override-and-kwonly-gaps`.
+- Out of scope: other rope tools raise the same errors for the same inputs (a non-NFKC workspace fails every rope refactoring); keyword-only emission is refused by the keyword-only and positional-only addendum below.
 
 ### Migration
 
@@ -98,3 +98,19 @@ rope gives every definition it resolves to the target (a redefinition, a conditi
 ### Migration
 
 Newly rejected with `ToolInputError`: `add`, `remove`, `reorder`, `normalize` and `inline_default` on a target when rope would also rewrite another definition with the same name. Change the signatures by hand, or remove or rename the duplicate definitions first.
+
+## Addendum: keyword-only and positional-only targets (rope-signature-override-and-kwonly-gaps, part 1)
+
+### Context
+
+rope's `DefinitionInfo` has no representation for the `*` and `/` separators. For a keyword-only target every operation either emitted an unparseable header (`def f(a, *, k=1)` + `add` previewed `def f(a, c, *)`; `remove`/`reorder`/`normalize` lost `k`), failed with a generic `RopeError` (`def f(a, b=1, *, k, j=2)`: `'NoneType' object has no attribute 'lineno'`), or was refused for an unrelated reason (`rename`: "does not parse"; `inline_default`: "index out of range"). For a positional-only target rope silently dropped the `/` (`def f(a, b, /, c=1)` + `remove` previewed `def f(a, c=1)`), making the parameters callable by keyword.
+
+### Decision
+
+- `change_signature` refuses every operation on a target with keyword-only parameters (a `*` separator) or positional-only parameters (a `/` separator): `ToolInputError`, `parameter: line`, decided from the definition's AST, before `DefinitionInfo.read` and the simulated walk. Checked after the `*args` refusal, so a target with `*args` keeps that message. The tools that call `change_signature` (`argument_normalizer`, `argument_default_inliner`) inherit it.
+- `_positional_parameters` no longer reads positional-only parameters (refused earlier). The earlier addenda that defer keyword-only and positional-only handling to other rows are superseded by this one; subclass overrides remain open under `rope-signature-override-and-kwonly-gaps`.
+- Out of scope: `introduce_parameter` and `inline_parameter` also emit unparseable output for keyword-only targets (row `introduce-inline-parameter-kwonly`).
+
+### Migration
+
+Newly rejected with `ToolInputError`: every `change_signature` operation (and `argument_normalizer`, `argument_default_inliner`) on a function with keyword-only or positional-only parameters. Change such a signature by hand, or temporarily make the parameters ordinary positional ones, run the tool, and restore the separator.

@@ -75,8 +75,8 @@ def _parse(source: str) -> ast.Module:
         return ast.parse(source)
     except (SyntaxError, ValueError, RecursionError) as exc:
         raise _refuse(
-            f"the source does not parse ({exc}); rope cannot re-emit keyword-only parameters, "
-            "and a byte-order mark or other invalid text is not supported"
+            f"the source does not parse ({exc}); rope produced unparseable text, "
+            "or a byte-order mark or other invalid text is not supported"
         ) from exc
 
 
