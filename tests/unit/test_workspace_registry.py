@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from python_refactor_mcp.errors import AmbiguousWorkspaceError, ToolInputError, WorkspaceResolutionError
-from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
+from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry, _run_to_completion
 
 
 def _mock_config(root: Path) -> MagicMock:
@@ -293,6 +294,124 @@ async def test_shutdown_all() -> None:
     assert registry._auto_roots == set()
     backends_a.pyright.shutdown.assert_awaited_once()
     backends_b.pyright.shutdown.assert_awaited_once()
+
+
+class _GatedShutdowns:
+    """Makes every registered backend's Pyright shutdown wait on one gate and signal its entry."""
+
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def gate(self, backends: WorkspaceBackends) -> None:
+        async def _shutdown() -> None:
+            self.entered.set()
+            await self.release.wait()
+
+        backends._initialized = True
+        backends.pyright.shutdown.side_effect = _shutdown
+
+
+@pytest.mark.asyncio
+async def test_set_roots_cancelled_mid_shutdown_leaves_no_removed_workspace_registered() -> None:
+    registry = WorkspaceRegistry()
+    keep = Path("/keep").resolve()
+    gates = _GatedShutdowns()
+    removed = [_mock_backends(Path(name).resolve()) for name in ("/gone-a", "/gone-b")]
+    for backends in removed:
+        gates.gate(backends)
+        registry._workspaces[backends.config.workspace_root] = backends
+    registry._known_roots = [backends.config.workspace_root for backends in removed]
+
+    task = asyncio.ensure_future(registry.set_roots([keep]))
+    await gates.entered.wait()
+    task.cancel()
+    gates.release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert registry._workspaces == {}
+    assert registry.get_known_roots() == [keep]
+    for backends in removed:
+        backends.pyright.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_all_cancelled_mid_shutdown_stops_every_workspace_and_clears_roots() -> None:
+    registry = WorkspaceRegistry()
+    gates = _GatedShutdowns()
+    workspaces = [_mock_backends(Path(name).resolve()) for name in ("/one", "/two")]
+    for backends in workspaces:
+        gates.gate(backends)
+        registry._workspaces[backends.config.workspace_root] = backends
+    registry._known_roots = [backends.config.workspace_root for backends in workspaces]
+    registry._auto_roots = {workspaces[1].config.workspace_root}
+
+    task = asyncio.ensure_future(registry.shutdown_all())
+    await gates.entered.wait()
+    task.cancel()
+    gates.release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert registry._workspaces == {}
+    assert registry._known_roots == []
+    assert registry._auto_roots == set()
+    for backends in workspaces:
+        backends.pyright.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_path_less_call_never_resolves_a_workspace_that_shutdown_all_is_stopping() -> None:
+    registry = WorkspaceRegistry()
+    gates = _GatedShutdowns()
+    only = _mock_backends(Path("/only").resolve())
+    gates.gate(only)
+    only.selected = True
+    registry._workspaces[only.config.workspace_root] = only
+
+    task = asyncio.ensure_future(registry.shutdown_all())
+    await gates.entered.wait()
+    with pytest.raises(AmbiguousWorkspaceError, match="no workspace is live"):
+        registry.implicit_workspace()
+    gates.release.set()
+    await task
+
+
+class _CleanupFailure(BaseException):
+    """A non-Exception failure, which the cleanup coroutines do not swallow."""
+
+
+@pytest.mark.asyncio
+async def test_run_to_completion_reads_and_logs_a_cleanup_failure_when_cancelled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    inner: list[asyncio.Task[None]] = []
+
+    async def _cleanup() -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        inner.append(task)
+        entered.set()
+        await release.wait()
+        raise _CleanupFailure("cleanup blew up")
+
+    outer = asyncio.ensure_future(_run_to_completion(_cleanup()))
+    await entered.wait()
+    outer.cancel()
+    release.set()
+    with caplog.at_level(logging.WARNING, logger="python_refactor_mcp.workspace_registry"), pytest.raises(
+        asyncio.CancelledError
+    ):
+        await outer
+
+    assert isinstance(inner[0].exception(), _CleanupFailure)
+    failure_records = [r for r in caplog.records if "Cleanup task failed" in r.getMessage()]
+    assert len(failure_records) == 1
+    assert failure_records[0].exc_info is not None
+    assert isinstance(failure_records[0].exc_info[1], _CleanupFailure)
 
 
 # ── WorkspaceRegistry implicit workspace selection ───────────────────────

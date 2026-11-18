@@ -1,0 +1,1 @@
+- **Fixed:** Cancelling `set_roots` or server teardown mid-shutdown no longer leaves removed workspaces registered or running, a path-less call can no longer resolve a workspace that teardown is stopping, and a cleanup task's failure during cancellation is now logged instead of left unretrieved.
