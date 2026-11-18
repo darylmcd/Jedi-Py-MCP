@@ -1,6 +1,6 @@
 # pure-file-tools-start-backends — Pure file/AST tools should not start backends
 
-**row:** `pure-file-tools-start-backends` · **pri:** `Low` · **size:** `M` · **verified:** `93cd1b324525daf60c5666c8f1107db9ce846b21` · **deps:** `bl-0056`
+**row:** `pure-file-tools-start-backends` · **pri:** `Low` · **size:** `M` · **verified:** `93cd1b324525daf60c5666c8f1107db9ce846b21`
 
 ## Anchors
 
