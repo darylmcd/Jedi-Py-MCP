@@ -9,6 +9,7 @@ translation.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import subprocess
@@ -16,7 +17,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp.server.mcpserver import MCPServer
@@ -25,6 +26,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from python_refactor_mcp import server, tool_runtime
 from python_refactor_mcp.config import TOOL_PROFILES
 from python_refactor_mcp.errors import (
+    AmbiguousWorkspaceError,
     BackendError,
     ConfigError,
     JediError,
@@ -134,38 +136,95 @@ async def test_resolve_backends_uses_nested_transaction_path(tmp_path: Path) -> 
     registry.get_backends.assert_awaited_once_with(str(target))
 
 
+def _live_registry_ctx(
+    tmp_path: Path, *, selected: tuple[bool, ...]
+) -> tuple[SimpleNamespace, WorkspaceRegistry, list[WorkspaceBackends]]:
+    """Build a ctx over a real registry holding one live mocked workspace per *selected* flag."""
+    registry = _BackendlessRegistry()
+    live: list[WorkspaceBackends] = []
+    for index, flag in enumerate(selected):
+        root = (tmp_path / f"ws{index}").resolve()
+        backends = _backends(root)
+        backends.selected = flag
+        backends.last_accessed = 1.0
+        registry._workspaces[root] = backends
+        live.append(backends)
+    return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), registry, live
+
+
 @pytest.mark.asyncio
-async def test_resolve_backends_no_path_uses_most_recent(tmp_path: Path) -> None:
-    """No path params -> registry.get_most_recent() supplies the fallback."""
-    backends = _backends(tmp_path / "ws")
-    registry = MagicMock()
-    registry.get_most_recent = MagicMock(return_value=backends)
-    registry.get_backends = AsyncMock()
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=None)
-    ctx = _ctx_with(multi_ctx)
+async def test_resolve_backends_no_path_rejects_several_live_workspaces(tmp_path: Path) -> None:
+    """A path-less call never picks among several live workspaces, however recently each was used."""
+    ctx, _registry, live = _live_registry_ctx(tmp_path, selected=(True, True))
+    live[0].last_accessed = 99.0
+
+    with pytest.raises(AmbiguousWorkspaceError, match=r"2 workspaces are live.*root_path") as excinfo:
+        await _resolve_backends(ctx, {"limit": 5})
+
+    for backends in live:
+        assert str(backends.config.workspace_root) in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_resolve_backends_no_path_rejects_the_prewarmed_root_nothing_selected(tmp_path: Path) -> None:
+    """A path-less call does not fall back to the pre-warmed CLI root no path-bearing call has selected."""
+    ctx, _registry, _live = _live_registry_ctx(tmp_path, selected=(False,))
+
+    with pytest.raises(AmbiguousWorkspaceError, match=r"pre-warmed, not selected.*root_path"):
+        await _resolve_backends(ctx, {})
+
+
+@pytest.mark.asyncio
+async def test_resolve_backends_no_path_rejects_a_cold_registry(tmp_path: Path) -> None:
+    """With no live workspace a path-less call raises the coded error instead of a RuntimeError."""
+    ctx, _registry, _live = _live_registry_ctx(tmp_path, selected=())
+
+    with pytest.raises(AmbiguousWorkspaceError, match=r"no workspace is live.*root_path"):
+        await _resolve_backends(ctx, {})
+
+
+@pytest.mark.asyncio
+async def test_resolve_backends_no_path_uses_and_touches_the_sole_selected_workspace(tmp_path: Path) -> None:
+    """Once a path-bearing call selected the only live workspace, path-less calls resolve to it."""
+    ctx, _registry, live = _live_registry_ctx(tmp_path, selected=(True,))
 
     resolved = await _resolve_backends(ctx, {"limit": 5})
 
-    assert resolved is backends
-    registry.get_most_recent.assert_called_once()
-    registry.get_backends.assert_not_awaited()
+    assert resolved is live[0]
+    assert live[0].last_accessed > 1.0
 
 
 @pytest.mark.asyncio
-async def test_resolve_backends_cli_fallback_when_no_recent(tmp_path: Path) -> None:
-    """No path and an empty registry select the CLI workspace directory."""
-    cli_root = tmp_path / "cli"
-    backends = _backends(cli_root)
-    registry = MagicMock()
-    registry.get_most_recent = MagicMock(return_value=None)
-    registry.get_backends = AsyncMock(return_value=backends)
-    multi_ctx = MultiWorkspaceContext(registry=registry, cli_workspace_root=cli_root)
-    ctx = _ctx_with(multi_ctx)
+async def test_wrapper_surfaces_ambiguous_workspace_code_before_any_tool_runs(tmp_path: Path) -> None:
+    """The boundary renders [AMBIGUOUS_WORKSPACE] and a mutating tool body (apply) never runs."""
+    ctx, _registry, _live = _live_registry_ctx(tmp_path, selected=(True, True))
+    called = False
 
-    resolved = await _resolve_backends(ctx, {})
+    @tool_error_boundary
+    async def fix_module_names(ctx: object, apply: bool = False) -> str:
+        nonlocal called
+        called = True
+        return "renamed"
 
-    assert resolved is backends
-    registry.get_backends.assert_awaited_once_with(str(cli_root))
+    with pytest.raises(ToolError, match=r"^\[AMBIGUOUS_WORKSPACE\] .*root_path"):
+        await fix_module_names(ctx, apply=True)
+    assert called is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected", [(), (False,), (True, True)])
+async def test_none_mode_tool_runs_without_resolving_a_workspace(tmp_path: Path, selected: tuple[bool, ...]) -> None:
+    """A workspace-less tool (server_status) works with a cold, pre-warm-only or multi-workspace registry and no ctx."""
+    ctx, _registry, _live = _live_registry_ctx(tmp_path, selected=selected)
+
+    async def status_like(ctx: object) -> str:
+        assert tool_runtime._current_backends.get(None) is None
+        return "ok"
+
+    wrapped = tool_error_boundary(status_like, workspace=tool_runtime.WorkspaceUse.NONE)
+
+    assert await wrapped(ctx) == "ok"
+    assert await wrapped(None) == "ok"
 
 
 @pytest.mark.asyncio
@@ -542,7 +601,7 @@ async def test_wrapper_rejects_output_dir_outside_workspace(tmp_path: Path) -> N
     root.mkdir()
     backends = _backends(root)
     registry = MagicMock()
-    registry.get_most_recent = MagicMock(return_value=backends)
+    registry.implicit_workspace = MagicMock(return_value=backends)
     registry.get_backends = AsyncMock(return_value=backends)
     ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
 
@@ -569,7 +628,7 @@ def _relative_path_ctx(root: Path) -> tuple[SimpleNamespace, MagicMock]:
     backends = _backends(root)
     registry = MagicMock()
     registry.get_backends = AsyncMock(return_value=backends)
-    registry.get_most_recent = MagicMock(return_value=backends)
+    registry.implicit_workspace = MagicMock(return_value=backends)
     return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), registry
 
 
@@ -1298,3 +1357,119 @@ async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> Non
         f"path-bearing nested params missing from NESTED_PATH_PARAMS: {sorted(uncovered_nested)}"
     )
     assert seen_allowlisted == set(_PATH_LIKE_ALLOWLIST), "stale allowlist entry: no live tool takes it"
+
+
+# ── root_path selection (bl-0056) ────────────────────────────────────────
+
+
+def _patched_backend_classes() -> contextlib.ExitStack:
+    """Patch the registry's backend constructors so a real ``WorkspaceRegistry`` starts mocks only."""
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        patch(
+            "python_refactor_mcp.workspace_registry.discover_config",
+            side_effect=lambda root: SimpleNamespace(workspace_root=root),
+        )
+    )
+    stack.enter_context(
+        patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock())
+    )
+    stack.enter_context(patch("python_refactor_mcp.workspace_registry.JediBackend"))
+    stack.enter_context(patch("python_refactor_mcp.workspace_registry.RopeBackend"))
+    return stack
+
+
+@pytest.mark.asyncio
+async def test_root_path_selects_an_unregistered_repo_root_in_a_real_registry(tmp_path: Path) -> None:
+    """A path-less tool with ``root_path`` selects that repo root and marks it selected."""
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    registry = WorkspaceRegistry()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+    seen: list[WorkspaceBackends] = []
+
+    @tool_error_boundary
+    async def search_like(ctx: object, root_path: str | None = None) -> str:
+        seen.append(get_current_backends())
+        return "ok"
+
+    with _patched_backend_classes():
+        assert await search_like(ctx, root_path=str(repo)) == "ok"
+        assert await search_like(ctx) == "ok"
+
+    assert [backends.config.workspace_root for backends in seen] == [repo.resolve(), repo.resolve()]
+    assert seen[0] is seen[1]
+    assert seen[0].selected is True
+
+
+@pytest.mark.asyncio
+async def test_root_path_selects_a_worktree_root_inside_a_known_primary(tmp_path: Path) -> None:
+    """With the primary checkout known, ``root_path=<primary>/.worktrees/x`` selects the worktree (ADR 0002)."""
+    primary = (tmp_path / "primary").resolve()
+    worktree = primary / ".worktrees" / "x"
+    worktree.mkdir(parents=True)
+    (primary / ".git").mkdir()
+    (worktree / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    registry = WorkspaceRegistry()
+    await registry.set_roots([primary])
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=primary))
+
+    @tool_error_boundary
+    async def search_like(ctx: object, root_path: str | None = None) -> Path:
+        return get_current_backends().config.workspace_root
+
+    with _patched_backend_classes():
+        assert await search_like(ctx, root_path=str(worktree)) == worktree
+
+
+@pytest.mark.asyncio
+async def test_root_path_with_a_file_path_in_another_workspace_keeps_the_multi_workspace_error(
+    tmp_path: Path,
+) -> None:
+    """``root_path`` is one more selector: a conflicting ``file_path`` is rejected before any backend starts."""
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for root in (first, second):
+        root.mkdir()
+        (root / ".git").mkdir()
+        (root / "a.py").touch()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=_BackendlessRegistry(), cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, root_path: str | None = None, file_path: str | None = None) -> str:
+        raise AssertionError("tool body must not run")
+
+    with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
+        await tool(ctx, root_path=str(first), file_path=str(second / "a.py"))
+
+
+@pytest.mark.asyncio
+async def test_relative_root_path_is_rejected_before_any_backend_starts(tmp_path: Path) -> None:
+    """A relative ``root_path`` cannot select (or start) a workspace through the server cwd."""
+    ctx = _ctx_with(MultiWorkspaceContext(registry=_BackendlessRegistry(), cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, root_path: str | None = None) -> str:
+        raise AssertionError("tool body must not run")
+
+    with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: root_path\)"):
+        await tool(ctx, root_path="some/dir")
+
+
+@pytest.mark.asyncio
+async def test_root_only_path_bearing_call_does_not_select_the_workspace(tmp_path: Path) -> None:
+    """A diff_preview call resolves a root only: it must not make a pre-warmed workspace look selected."""
+    workspace, _outside = _escape_layout(tmp_path)
+    registry = _BackendlessRegistry()
+    warmed = _backends(workspace.resolve())
+    warmed.selected = False
+    registry._workspaces[workspace.resolve()] = warmed
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=workspace.resolve()))
+
+    result = await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py"))])
+
+    assert "-x = 1" in result[0].unified_diff
+    assert warmed.selected is False
+    with pytest.raises(AmbiguousWorkspaceError, match="pre-warmed, not selected"):
+        registry.implicit_workspace()

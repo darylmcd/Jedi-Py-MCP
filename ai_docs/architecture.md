@@ -41,7 +41,7 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 ## Runtime Flow
 
 1. `config.py` selects and validates the bounded tool profile before registration.
-2. Optional CLI `workspace_root` pre-warms one workspace; otherwise the first path-bearing tool call discovers its project root.
+2. Optional CLI `workspace_root` pre-warms one workspace WITHOUT selecting it (single-project registrations only); path-bearing tool calls (including `root_path`) discover and select project roots. A path-less call resolves only to a sole selected workspace, else `[AMBIGUOUS_WORKSPACE]` (ADR 0007).
 3. `config.py` resolves the interpreter and `pyrightconfig.json` for each discovered workspace.
 4. FastMCP lifespan initializes all three backends and a `MultiWorkspaceContext`.
 5. Incoming tool calls are routed through `tools/` orchestration modules.

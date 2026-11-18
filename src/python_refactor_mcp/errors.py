@@ -23,8 +23,9 @@ class ToolInputError(ValueError):
     Unlike ``BackendError``, the message IS the caller-facing contract: the MCP
     boundary surfaces it verbatim as ``[INVALID_INPUT] <message>``. Messages must
     name the offending parameter and the reason, and may only echo values the
-    caller supplied or user-facing choices (e.g. available code-action titles) —
-    never raw provider output, tracebacks, or server-internal state.
+    caller supplied or user-facing choices (e.g. available code-action titles or
+    the live workspace roots a caller can select) — never raw provider output,
+    tracebacks, or other server-internal state.
 
     Subclasses ``ValueError`` so existing ``except ValueError`` handlers keep
     working; it deliberately does not subclass ``BackendError`` so the backend
@@ -32,6 +33,16 @@ class ToolInputError(ValueError):
     """
 
     code: ClassVar[str] = "INVALID_INPUT"
+
+
+class AmbiguousWorkspaceError(ToolInputError):
+    """Raised when a call names no file or ``root_path`` and no single workspace is unambiguously meant.
+
+    The message names the live workspace roots and the ``root_path`` parameter that
+    selects one; the boundary surfaces it as ``[AMBIGUOUS_WORKSPACE] <message>``.
+    """
+
+    code: ClassVar[str] = "AMBIGUOUS_WORKSPACE"
 
 
 class PyrightError(BackendError):

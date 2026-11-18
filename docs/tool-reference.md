@@ -3,6 +3,14 @@
 Complete 108-tool catalog organized by category. A running server advertises
 the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
+Workspace selection: a tool that can be called without a file path (for
+example `search_symbols`, `fix_module_names`, `undo_refactoring`,
+`get_workspace_diagnostics`) accepts an absolute `root_path` naming its
+workspace. Without one it uses only the sole workspace a path-bearing call
+already selected, and otherwise fails with `[AMBIGUOUS_WORKSPACE]` listing the
+live roots. `server_status` needs no workspace. See
+[ADR 0007](adr/0007-explicit-workspace-selection.md).
+
 ## Analysis (19)
 
 | Tool | Purpose | Returns |
