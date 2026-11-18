@@ -13,7 +13,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp import server
+from python_refactor_mcp import server, tool_runtime
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
 from python_refactor_mcp.tool_params import PARAM_DESCRIPTIONS
 from python_refactor_mcp.tool_registry import (
@@ -235,6 +235,16 @@ async def test_annotation_variants_exist() -> None:
     assert any(
         not a.read_only_hint and not a.destructive_hint for a in annotations
     ), "No tools use ADDITIVE annotations"
+
+
+def test_diff_preview_is_the_only_root_only_tool() -> None:
+    """The boundary resolves backends by default; only diff_preview, which never uses them, resolves a root."""
+    root_only = {
+        record.func.__name__
+        for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
+        if record.workspace is tool_runtime.WorkspaceUse.ROOT_ONLY
+    }
+    assert root_only == {"diff_preview"}
 
 
 @pytest.mark.asyncio

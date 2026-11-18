@@ -9,6 +9,7 @@ import traceback
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from enum import Enum
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -129,6 +130,20 @@ def _nested_path_models(kwargs: dict[str, Any]) -> list[tuple[str, Any]]:
     return found
 
 
+class WorkspaceUse(Enum):
+    """What a tool needs from the workspace its explicit paths select.
+
+    ``BACKENDS`` resolves (and lazily starts) the workspace's Pyright, Jedi and
+    rope backends. ``ROOT_ONLY`` is for a tool that only validates and reads
+    caller paths: the boundary derives the workspace root from those paths, never
+    resolves or starts a backend, and so also works with zero or several live
+    backends.
+    """
+
+    BACKENDS = "backends"
+    ROOT_ONLY = "root_only"
+
+
 @dataclass(slots=True)
 class MultiWorkspaceContext:
     """Lifespan context holding the workspace registry."""
@@ -230,6 +245,25 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
     if backends is None and multi_ctx.cli_workspace_root is not None:
         backends = await registry.get_backends(str(multi_ctx.cli_workspace_root))
     return backends
+
+
+def _resolve_workspace_root(ctx: Context | None, kwargs: dict[str, Any]) -> Path | None:
+    """Resolve only the workspace root selected by a call's explicit paths, starting no backend.
+
+    Returns ``None`` when there is no context or no selecting path. Rejects mixed
+    workspaces exactly like ``_resolve_backends``; the first path's resolution
+    error propagates.
+    """
+    if ctx is None:
+        return None
+
+    registry = get_multi_context(ctx).registry
+    paths = [value for _label, value in _workspace_path_args(kwargs)]
+    if not paths:
+        return None
+
+    _require_single_workspace(registry, kwargs)
+    return registry.resolve_workspace_root(Path(paths[0]))
 
 
 def _require_absolute(value: str, param_label: str) -> None:
@@ -357,8 +391,14 @@ def _translate_input_error(exc: ToolInputError, tool_name: str) -> ToolError:
 
 def tool_error_boundary(
     func: Callable[..., Awaitable[Any]],
+    *,
+    workspace: WorkspaceUse = WorkspaceUse.BACKENDS,
 ) -> Callable[..., Awaitable[Any]]:
-    """Resolve request backends and translate anticipated caller-input and backend failures."""
+    """Resolve the request workspace and translate anticipated caller-input and backend failures.
+
+    *workspace* selects what is resolved: the backends (default) or, for
+    ``WorkspaceUse.ROOT_ONLY`` tools, only the validated workspace root.
+    """
 
     @wraps(func)
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -367,11 +407,16 @@ def tool_error_boundary(
         try:
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
-            backends = await _resolve_backends(ctx, kwargs)
+            backends: WorkspaceBackends | None = None
+            if workspace is WorkspaceUse.ROOT_ONLY:
+                workspace_root = _resolve_workspace_root(ctx, kwargs)
+            else:
+                backends = await _resolve_backends(ctx, kwargs)
+                workspace_root = backends.config.workspace_root if backends is not None else None
             token = _current_backends.set(backends) if backends is not None else None
 
-            if backends is not None:
-                _validate_params(kwargs, backends.config.workspace_root)
+            if workspace_root is not None:
+                _validate_params(kwargs, workspace_root)
             else:
                 _validate_identifiers(kwargs)
                 for step_args in _transaction_step_args(kwargs):

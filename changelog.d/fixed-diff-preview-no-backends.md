@@ -1,0 +1,1 @@
+- **Fixed:** `diff_preview` no longer resolves or starts language backends: it derives only the workspace root from the edit paths, so it works with an empty `edits` list (previously a `RuntimeError`), with no live workspace, and with several live workspaces, and it no longer starts Pyright, Jedi and rope for a pure diff.

@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -33,7 +35,7 @@ from python_refactor_mcp.errors import (
     WorkspaceResolutionError,
 )
 from python_refactor_mcp.models import Position, Range, RenameStep, RenameStepArgs, SymbolAnchor, TextEdit
-from python_refactor_mcp.tool_registry import build_tools, diff_preview
+from python_refactor_mcp.tool_registry import TOOL_RECORDS, build_tools, diff_preview
 from python_refactor_mcp.tool_runtime import (
     DIR_PARAMS,
     PATH_PARAMS,
@@ -918,6 +920,12 @@ async def test_wrapper_keeps_outside_workspace_error_for_unmarked_second_path(tm
 # ── nested edit paths (diff-preview-path-scope) ─────────────────────────
 
 
+def _diff_preview_tool() -> Callable[..., Awaitable[Any]]:
+    """Wrap ``diff_preview`` under the boundary exactly as its registration does."""
+    (record,) = (record for record in TOOL_RECORDS if record.func is diff_preview)
+    return tool_error_boundary(record.func, workspace=record.workspace)
+
+
 def _edit(file_path: str) -> TextEdit:
     """Build a schema-validated one-character edit, as the SDK hands it to the boundary."""
     return TextEdit(
@@ -975,12 +983,64 @@ async def test_diff_preview_in_scope_preview_succeeds_with_resolved_paths(tmp_pa
     ctx, spy = _real_registry_ctx()
     spelled = workspace / "sub" / ".." / "a.py"
 
-    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(spelled))])
+    result = await _diff_preview_tool()(ctx, edits=[_edit(str(spelled))])
 
     assert len(result) == 1
     assert "-x = 1" in result[0].unified_diff
     assert result[0].file_path == str((workspace / "a.py").resolve())
-    spy.assert_awaited_once()
+    spy.assert_not_awaited()
+
+
+def _backendless_registry_ctx() -> tuple[SimpleNamespace, WorkspaceRegistry]:
+    """Build a ctx over a real registry that fails loudly if any workspace backend is initialized."""
+    registry = WorkspaceRegistry()
+
+    async def _forbid(root: Path) -> WorkspaceBackends:
+        raise AssertionError(f"a workspace backend was initialized for {root}")
+
+    registry._initialize_workspace = _forbid  # type: ignore[method-assign]
+    return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), registry
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_without_edits_needs_no_workspace() -> None:
+    """An empty edit list selects no workspace, so it returns no diffs instead of failing on missing backends."""
+    ctx, registry = _backendless_registry_ctx()
+
+    assert await _diff_preview_tool()(ctx, edits=[]) == []
+    assert registry.active_backends() == []
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_with_zero_live_backends_starts_none(tmp_path: Path) -> None:
+    """An in-scope preview on a cold registry validates the path and diffs without starting a backend."""
+    workspace, _outside = _escape_layout(tmp_path)
+    ctx, registry = _backendless_registry_ctx()
+
+    result = await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py"))])
+
+    assert "-x = 1" in result[0].unified_diff
+    assert registry.active_backends() == []
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_with_several_live_workspaces_touches_none(tmp_path: Path) -> None:
+    """With two workspaces live, a preview scoped to one of them neither starts nor touches any backend."""
+    workspace, _outside = _escape_layout(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".git").mkdir()
+    ctx, registry = _backendless_registry_ctx()
+    live = {workspace.resolve(): _backends(workspace.resolve()), other.resolve(): _backends(other.resolve())}
+    for backends in live.values():
+        backends.last_accessed = 1.0
+    registry._workspaces.update(live)
+
+    result = await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py"))])
+
+    assert "-x = 1" in result[0].unified_diff
+    assert set(registry._workspaces) == set(live)
+    assert [backends.last_accessed for backends in live.values()] == [1.0, 1.0]
 
 
 @pytest.mark.asyncio
@@ -1008,7 +1068,7 @@ async def test_diff_preview_rejects_edit_paths_leaving_the_workspace(
     ctx, _spy = _real_registry_ctx()
 
     with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(workspace / "a.py")), _edit(str(bad))])
+        await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py")), _edit(str(bad))])
 
     assert seen == []
 
@@ -1024,7 +1084,7 @@ async def test_diff_preview_rejects_unmarked_first_edit_without_registering_a_ro
     registry = get_multi_context(ctx).registry
 
     with pytest.raises(ToolError, match=r"^\[(INVALID_INPUT|WORKSPACE_RESOLUTION)\]"):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(outside / "secret.txt"))])
+        await _diff_preview_tool()(ctx, edits=[_edit(str(outside / "secret.txt"))])
 
     assert seen == []
     assert registry._known_roots == []
@@ -1044,7 +1104,7 @@ async def test_diff_preview_rejects_edits_spanning_nested_workspaces(
     ctx, spy = _real_registry_ctx()
 
     with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(first / "a.py")), _edit(str(second / "a.py"))])
+        await _diff_preview_tool()(ctx, edits=[_edit(str(first / "a.py")), _edit(str(second / "a.py"))])
 
     assert seen == []
     spy.assert_not_awaited()
@@ -1058,7 +1118,7 @@ async def test_diff_preview_rejects_relative_edit_path_naming_the_edit(tmp_path:
     ctx, spy = _real_registry_ctx()
 
     with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: edits\[1\]\.file_path\)"):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(workspace / "a.py")), _edit(relative)])
+        await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py")), _edit(relative)])
 
     spy.assert_not_awaited()
 
@@ -1072,7 +1132,7 @@ async def test_diff_preview_rejects_windows_non_absolute_edit_paths(tmp_path: Pa
     bad = "\\x.py" if spelling == "rooted_no_drive" else "C:x.py"
 
     with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: edits\[0\]\.file_path\)"):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(bad)])
+        await _diff_preview_tool()(ctx, edits=[_edit(bad)])
 
     spy.assert_not_awaited()
 
@@ -1088,14 +1148,14 @@ async def test_diff_preview_windows_spellings_resolve_to_the_same_workspace(
     ctx, _spy = _real_registry_ctx()
 
     lowered = in_scope[0].lower() + in_scope[1:]
-    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit(lowered)])
+    result = await _diff_preview_tool()(ctx, edits=[_edit(lowered)])
     assert "-x = 1" in result[0].unified_diff
-    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit("\\\\?\\" + in_scope)])
+    result = await _diff_preview_tool()(ctx, edits=[_edit("\\\\?\\" + in_scope)])
     assert "-x = 1" in result[0].unified_diff
 
     seen = _forbid_disk_diff(monkeypatch)
     with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
-        await tool_error_boundary(diff_preview)(
+        await _diff_preview_tool()(
             ctx, edits=[_edit(in_scope), _edit("\\\\?\\" + str(outside / "secret.txt"))]
         )
     assert seen == []
@@ -1111,7 +1171,7 @@ async def test_diff_preview_routes_unc_edit_path_through_workspace_resolution() 
     ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
 
     with pytest.raises(ToolError, match=r"^\[WORKSPACE_RESOLUTION\]"):
-        await tool_error_boundary(diff_preview)(ctx, edits=[_edit("\\\\server\\share\\x.py")])
+        await _diff_preview_tool()(ctx, edits=[_edit("\\\\server\\share\\x.py")])
 
     registry.resolve_workspace_root.assert_called_once()
     registry.get_backends.assert_not_awaited()

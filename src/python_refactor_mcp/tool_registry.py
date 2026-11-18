@@ -148,7 +148,7 @@ from python_refactor_mcp.tool_params import (
     TransactionSteps,
     TypeDirection,
 )
-from python_refactor_mcp.tool_runtime import get_current_backends, tool_error_boundary
+from python_refactor_mcp.tool_runtime import WorkspaceUse, get_current_backends, tool_error_boundary
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
 
 _LOGGER = logging.getLogger(__name__)
@@ -1519,7 +1519,6 @@ async def diff_preview(
     edits: Annotated[list[TextEdit], Field(description=PARAM_DESCRIPTIONS["edits"])],
 ) -> list[DiffPreview]:
     """Generate unified diff previews for a list of TextEdit objects. Use to visualize what changes will look like before applying them. Pass edits from any refactoring tool's preview output. Every edit file_path must be absolute and inside one workspace; other paths are rejected before any file is read. Related: rename_symbol, extract_method (any tool returning TextEdit lists)."""
-    _ = get_current_backends()
     result = await composite.diff_preview(edits)
     _LOGGER.debug("diff_preview files=%s", len(result))
     return result
@@ -1674,11 +1673,14 @@ class ToolRecord:
     """One declarative tool registration.
 
     ``func`` is the *undecorated* delegate coroutine; ``annotations`` is the
-    MCP :class:`ToolAnnotations` constant passed through verbatim per tool.
+    MCP :class:`ToolAnnotations` constant passed through verbatim per tool;
+    ``workspace`` says what the boundary resolves for the tool (see
+    :class:`WorkspaceUse`).
     """
 
     func: Callable[..., Awaitable[Any]]
     annotations: ToolAnnotations
+    workspace: WorkspaceUse = WorkspaceUse.BACKENDS
 
 
 # Advertising 80 or more tools in one profile leaves too little model
@@ -1801,7 +1803,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(interface_conformance, READ_ONLY_ANNOTATIONS),
     ToolRecord(extract_protocol, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_module_public_api, READ_ONLY_ANNOTATIONS),
-    ToolRecord(diff_preview, READ_ONLY_ANNOTATIONS),
+    ToolRecord(diff_preview, READ_ONLY_ANNOTATIONS, WorkspaceUse.ROOT_ONLY),
     ToolRecord(refactor_transaction, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(get_keyword_help, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_sub_definitions, READ_ONLY_ANNOTATIONS),
@@ -1959,7 +1961,7 @@ def build_tools(
     return [
         _forbid_unknown_arguments(
             Tool.from_function(
-                tool_error_boundary(record.func),
+                tool_error_boundary(record.func, workspace=record.workspace),
                 description=profile_description(inspect.getdoc(record.func) or "", selected_names),
                 annotations=record.annotations,
             )
