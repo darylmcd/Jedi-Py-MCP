@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import keyword
 import logging
 import os
@@ -36,6 +37,7 @@ from rope.refactor.change_signature import (  # type: ignore[import-untyped]
 )
 from rope.refactor.encapsulate_field import EncapsulateField  # type: ignore[import-untyped]
 from rope.refactor.extract import ExtractMethod, ExtractVariable  # type: ignore[import-untyped]
+from rope.refactor.functionutils import DefinitionInfo  # type: ignore[import-untyped]
 from rope.refactor.importutils import ImportOrganizer  # type: ignore[import-untyped]
 from rope.refactor.inline import create_inline  # type: ignore[import-untyped]
 from rope.refactor.introduce_factory import IntroduceFactory  # type: ignore[import-untyped]
@@ -172,9 +174,9 @@ _OP_DISPATCH: dict[str, Callable[[SignatureOperation, int], list[object]]] = {
 }
 
 
-def _build_signature_changers(operations: list[SignatureOperation]) -> list[object]:
-    """Map signature operation descriptors to rope changer objects."""
-    changers: list[object] = []
+def _build_operation_changers(operations: list[SignatureOperation]) -> list[list[object]]:
+    """Map each signature operation descriptor to its rope changer objects."""
+    built: list[list[object]] = []
     for position, operation in enumerate(operations):
         builder = _OP_DISPATCH.get(operation.op)
         if builder is None:
@@ -182,54 +184,48 @@ def _build_signature_changers(operations: list[SignatureOperation]) -> list[obje
                 f"Unsupported change_signature operation: {operation.op!r}; expected one of "
                 f"{', '.join(_OP_DISPATCH)} (parameter: operations[{position}].op)"
             )
-        changers.extend(builder(operation, position))
-    return changers
+        built.append(builder(operation, position))
+    return built
 
 
-def _validate_inline_default_targets(
-    args: Sequence[tuple[str, str | None]],
+def _validate_signature_operations(
+    definition_info: Any,
     operations: list[SignatureOperation],
+    changers_by_operation: list[list[object]],
 ) -> None:
     """Reject ``inline_default`` operations rope would mishandle.
 
-    ``args`` is rope's ``ChangeSignature.get_args()`` for the original
-    definition (``self`` included for methods). The parameter count is tracked
-    through earlier ``add`` / ``remove`` operations so every ``inline_default``
-    index gets a range check. The default checks (the target has a default and
-    no earlier parameter keeps one) run only when ``inline_default`` is the
-    first operation: later operations see a signature rope has already
-    rewritten, which this pre-check cannot model exactly.
+    ``definition_info`` is rope's ``DefinitionInfo`` for the original
+    definition (``self`` included for methods). A copy is walked through the
+    same changers rope will run, in order, so each ``inline_default`` is checked
+    against the signature the earlier operations actually leave: the index is in
+    range, the target has a default, and no earlier parameter keeps one (removing
+    the default would place a required parameter after a defaulted one).
     """
-    count = len(args)
-    for position, operation in enumerate(operations):
-        op = operation.op
-        if op == "add":
-            count += 1
-            continue
-        if op == "remove":
-            count -= 1
-            continue
-        if op != "inline_default" or operation.index is None:
-            continue
-        index = operation.index
-        if not 0 <= index < count:
-            raise ToolInputError(
-                f"index {index} is out of range for inline_default: the target has {count} "
-                "parameter(s) (parameter: index)"
-            )
-        if position != 0:
-            continue
-        if args[index][1] is None:
-            raise ToolInputError(
-                f"index {index} has no default value to inline (parameter: index)"
-            )
-        preceding = [str(i) for i, (_name, default) in enumerate(args[:index]) if default is not None]
-        if preceding:
-            raise ToolInputError(
-                f"cannot inline the default at index {index}: earlier parameter(s) at index "
-                f"{', '.join(preceding)} keep a default, so removing it would place a "
-                "required parameter after a defaulted one (parameter: index)"
-            )
+    state = copy.deepcopy(definition_info)
+    for operation, changers in zip(operations, changers_by_operation, strict=True):
+        if operation.op == "inline_default" and operation.index is not None:
+            _check_inline_default(state.args_with_defaults, operation.index)
+        for changer in changers:
+            changer.change_definition_info(state)  # type: ignore[attr-defined]
+
+
+def _check_inline_default(args: Sequence[tuple[str, str | None]], index: int) -> None:
+    """Raise ``ToolInputError`` when inlining the default at *index* would be invalid."""
+    if not 0 <= index < len(args):
+        raise ToolInputError(
+            f"index {index} is out of range for inline_default: the target has {len(args)} "
+            "parameter(s) (parameter: index)"
+        )
+    if args[index][1] is None:
+        raise ToolInputError(f"index {index} has no default value to inline (parameter: index)")
+    preceding = [str(i) for i, (_name, default) in enumerate(args[:index]) if default is not None]
+    if preceding:
+        raise ToolInputError(
+            f"cannot inline the default at index {index}: earlier parameter(s) at index "
+            f"{', '.join(preceding)} keep a default, so removing it would place a "
+            "required parameter after a defaulted one (parameter: index)"
+        )
 
 
 def _build_autoimport(project: Project) -> AutoImport:
@@ -959,11 +955,11 @@ class RopeBackend:
             ``inline_default`` removal.
 
         ``inline_default`` inlines the default at call sites that omit the
-        argument and removes it from the definition. Its ``index`` is
-        range-checked against the parameter count (tracked through earlier
-        ``add`` / ``remove`` operations); when it is the first operation the
-        target must also have a default and no earlier parameter may keep one.
-        Violations raise :class:`ToolInputError` naming ``index``.
+        argument and removes it from the definition. Each ``inline_default`` is
+        checked against the signature the earlier operations leave: its
+        ``index`` must be in range, the target must have a default and no
+        earlier parameter may keep one. Violations raise
+        :class:`ToolInputError` naming ``index``.
         """
 
         def _work() -> RefactorResult:
@@ -972,10 +968,15 @@ class RopeBackend:
             resource = self._resource_for_path(file_path)
             offset = self._position_to_offset(file_path, line, character)
 
-            changers = _build_signature_changers(operations)
+            changers_by_operation = _build_operation_changers(operations)
             signature = ChangeSignature(project, resource, offset)
-            _validate_inline_default_targets(signature.get_args(), operations)
-            changes = signature.get_changes(changers)
+            pyname = signature.pyname
+            if pyname is None:
+                raise RopeError("rope could not resolve the function to change.")
+            _validate_signature_operations(
+                DefinitionInfo.read(pyname.get_object()), operations, changers_by_operation,
+            )
+            changes = signature.get_changes([c for group in changers_by_operation for c in group])
             return self._build_result(changes, "Changed function signature", apply)
 
         return await run_in_thread(
