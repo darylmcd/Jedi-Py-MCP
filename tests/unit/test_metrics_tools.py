@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -158,7 +159,7 @@ async def test_unused_imports_use_per_file_fallback_and_report_parse_failures(tm
     second.write_text("import sys\n", encoding="utf-8")
     invalid = _invalid_module(tmp_path)
     pyright = AsyncMock()
-    pyright.get_diagnostics.side_effect = [
+    pyright.get_diagnostics_many.return_value = [
         [
             Diagnostic(
                 file_path=str(first.resolve()),
@@ -185,6 +186,48 @@ async def test_unused_imports_use_per_file_fallback_and_report_parse_failures(tm
     assert len(result.scan_failures) == 1
     assert result.scan_failures[0].file_path == str(invalid.resolve())
     assert result.scan_failures[0].error_type == "SyntaxError"
+    pyright.get_diagnostics_many.assert_awaited_once_with([str(first.resolve()), str(second.resolve())])
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unused_imports_report_per_file_diagnostic_failure_and_keep_other_files(tmp_path: Path) -> None:
+    failing = tmp_path / "failing.py"
+    failing.write_text("import os\n", encoding="utf-8")
+    fine = tmp_path / "fine.py"
+    fine.write_text("import sys\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [
+        RuntimeError("backend unavailable"),
+        [
+            Diagnostic(
+                file_path=str(fine.resolve()),
+                range=Range(start=Position(line=0, character=7), end=Position(line=0, character=10)),
+                severity="warning",
+                message='"sys" is not accessed',
+                code="reportUnusedImport",
+            )
+        ],
+    ]
+
+    result = await metrics.find_unused_imports(pyright, str(failing), [str(failing), str(fine)])
+
+    # "os" comes from the AST fallback of the file whose diagnostics failed; "sys" from Pyright.
+    assert {item.name for item in result.items} == {"os", "sys"}
+    assert [(f.file_path, f.phase, f.error_type) for f in result.scan_failures] == [
+        (str(failing.resolve()), "diagnostics", "RuntimeError")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unused_imports_propagate_cancellation(tmp_path: Path) -> None:
+    source = tmp_path / "source.py"
+    source.write_text("import os\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await metrics.find_unused_imports(pyright, str(source))
 
 
 def _layered_package(root: Path) -> Path:

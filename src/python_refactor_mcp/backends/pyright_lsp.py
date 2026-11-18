@@ -654,6 +654,10 @@ class PyrightLSPClient:
         cancellation propagates). ``stop_on_error`` runs sequentially and ends the
         result at the first failure; it cannot be combined with ``concurrency > 1``.
         A failure of the shared resync itself (timeout, dead session) raises.
+
+        Limitation: a document is detected as changed by its ``(mtime_ns, size)``
+        stamp, so an edit that keeps both the size and the modification time is not
+        noticed until the file changes again or the session restarts.
         """
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
@@ -693,7 +697,15 @@ class PyrightLSPClient:
             async with gate:
                 return await one(path)
 
-        return list(await asyncio.gather(*(bounded(path) for path in file_paths)))
+        pulls = [asyncio.ensure_future(bounded(path)) for path in file_paths]
+        try:
+            return list(await asyncio.gather(*pulls))
+        except BaseException:
+            # A cancelled pull (or our own cancellation) must not leave siblings running.
+            for pull in pulls:
+                pull.cancel()
+            await asyncio.gather(*pulls, return_exceptions=True)
+            raise
 
     async def _pull_diagnostics(self, normalized: str, *, sync_peers: bool) -> list[Diagnostic]:
         """Pull one file's diagnostics, optionally resynchronizing the other open documents first."""

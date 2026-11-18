@@ -23,6 +23,8 @@ from ._helpers import (
     score_dead_code_confidence,
 )
 
+_SCAN_CONCURRENCY = 10
+
 
 def _is_dead_code_diagnostic(diagnostic: Diagnostic) -> bool:
     """Return True if the diagnostic indicates unused/dead code."""
@@ -110,20 +112,17 @@ async def dead_code_detection(
     dead_items: dict[tuple[str, str, int, int], DeadCodeItem] = {}
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
 
-    # Phase 1: Collect diagnostics per target file with bounded concurrency.
-    sem = asyncio.Semaphore(10)
-
-    async def _fetch_diags(path: Path) -> list[Diagnostic]:
-        async with sem:
-            file_diags = await pyright.get_diagnostics(str(path))
-            return [d for d in file_diags if d.file_path in target_paths]
-
-    diag_results = await asyncio.gather(*[_fetch_diags(p) for p in target_files], return_exceptions=True)
+    # Phase 1: Collect diagnostics for all target files in one batch (one resync of the
+    # open documents, bounded concurrency). A per-file failure is a scan failure;
+    # cancellation propagates.
+    diag_results = await pyright.get_diagnostics_many(
+        [str(path) for path in target_files], concurrency=_SCAN_CONCURRENCY
+    )
     all_diagnostics: list[Diagnostic] = []
     scan_failures: list[ScanFailure] = list(resolved.failures)
     for path, diag_result in zip(target_files, diag_results, strict=True):
         if isinstance(diag_result, list):
-            all_diagnostics.extend(diag_result)
+            all_diagnostics.extend(d for d in diag_result if d.file_path in target_paths)
         else:
             scan_failures.append(
                 ScanFailure(
@@ -141,6 +140,7 @@ async def dead_code_detection(
         dead_items[key] = item
 
     # Phase 2: Collect symbols and check references with bounded concurrency.
+    sem = asyncio.Semaphore(_SCAN_CONCURRENCY)
     symbols_to_check: list[tuple[Path, str, str, Range]] = []
     for path in target_files:
         try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -14,6 +15,7 @@ from python_refactor_mcp.tools import search
 from python_refactor_mcp.tools.search._helpers import resolve_target_files
 from python_refactor_mcp.util.file_filter import is_test_file
 from tests.helpers import make_config as _config
+from tests.helpers import many_returning
 
 
 def _location(path: Path, line: int, character: int) -> Location:
@@ -147,7 +149,7 @@ async def test_dead_code_detection_marks_unreferenced_symbols(tmp_path: Path) ->
     )
 
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
     pyright.get_references.return_value = []
 
     result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
@@ -181,7 +183,7 @@ async def test_dead_code_detection_keeps_once_referenced_same_file_helper(tmp_pa
         return []
 
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
     pyright.get_references.side_effect = _references
 
     result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
@@ -198,7 +200,7 @@ async def test_dead_code_detection_ignores_declaration_self_reference(tmp_path: 
     source.write_text("def dead_func():\n    return 1\n", encoding="utf-8")
 
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
     pyright.get_references.return_value = [_location(source, 0, 4)]
 
     result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
@@ -211,7 +213,7 @@ async def test_dead_code_detection_reports_diagnostic_failures(tmp_path: Path) -
     source = tmp_path / "sample.py"
     source.write_text("# no symbols\n", encoding="utf-8")
     pyright = AsyncMock()
-    pyright.get_diagnostics.side_effect = RuntimeError("backend unavailable")
+    pyright.get_diagnostics_many.side_effect = many_returning(RuntimeError("backend unavailable"))
 
     result = await search.dead_code_detection(pyright, _config(tmp_path), str(source))
 
@@ -316,7 +318,7 @@ async def test_symbol_scans_report_parse_failures(tool_name: str, tmp_path: Path
     invalid = tmp_path / "invalid.py"
     invalid.write_text("def broken(:\n", encoding="utf-8")
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
 
     result = await getattr(search, tool_name)(pyright, _config(tmp_path), str(invalid))
 
@@ -333,7 +335,7 @@ async def test_symbol_scans_report_missing_files(tool_name: str, tmp_path: Path)
     """An explicitly requested missing file remains visible in scan metadata."""
     missing = tmp_path / "missing.py"
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
 
     result = await getattr(search, tool_name)(pyright, _config(tmp_path), str(missing))
 
@@ -351,7 +353,7 @@ async def test_symbol_scans_report_missing_directory(tool_name: str, tmp_path: P
     """A nonexistent directory is a scan failure, never a clean empty result."""
     missing_root = tmp_path / "no-such-dir"
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
 
     result = await getattr(search, tool_name)(pyright, _config(tmp_path), directory=str(missing_root))
 
@@ -369,7 +371,7 @@ async def test_symbol_scans_report_missing_file_paths_member(tool_name: str, tmp
     present.write_text("VALUE = 1\n", encoding="utf-8")
     missing = tmp_path / "missing.py"
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
     pyright.get_references.return_value = [_location(tmp_path / "other.py", 0, 0)]
 
     result = await getattr(search, tool_name)(
@@ -631,7 +633,7 @@ async def test_sweeps_skip_fixture_modules_under_tests_directory(tmp_path: Path)
     fixture.parent.mkdir(parents=True)
     fixture.write_text("class FixtureModel:\n    pass\n", encoding="utf-8")
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = []
+    pyright.get_diagnostics_many.side_effect = many_returning([])
     pyright.get_references.return_value = []
     config = _config(tmp_path)
 
@@ -642,3 +644,64 @@ async def test_sweeps_skip_fixture_modules_under_tests_directory(tmp_path: Path)
     assert [item.name for item in sweep.items] == []
     assert [item.name for item in dead.items] == []
     assert "FixtureModel" in {item.name for item in sweep_all.items}
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_fetches_diagnostics_in_one_bounded_batch(tmp_path: Path) -> None:
+    """Diagnostics go through one get_diagnostics_many call, so open documents resync once."""
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first.write_text("VALUE = 1\n", encoding="utf-8")
+    second.write_text("OTHER = 2\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [[], []]
+    pyright.get_references.return_value = [_location(tmp_path / "x.py", 0, 0)]
+
+    await search.dead_code_detection(pyright, _config(tmp_path), directory=str(tmp_path))
+
+    pyright.get_diagnostics_many.assert_awaited_once_with(
+        [str(first.resolve()), str(second.resolve())], concurrency=10
+    )
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_propagates_cancellation(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await search.dead_code_detection(pyright, _config(tmp_path), str(source))
+
+
+@pytest.mark.asyncio
+async def test_dead_code_detection_records_per_file_failure_and_filters_foreign_diagnostics(
+    tmp_path: Path,
+) -> None:
+    good = tmp_path / "good.py"
+    bad = tmp_path / "bad.py"
+    good.write_text("VALUE = 1\n", encoding="utf-8")
+    bad.write_text("OTHER = 2\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [
+        PyrightError("boom"),  # bad.py sorts first
+        [
+            Diagnostic(
+                file_path=str(tmp_path / "elsewhere.py"),
+                range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+                severity="hint",
+                message='"Foreign" is not accessed',
+                code=None,
+            )
+        ],
+    ]
+    pyright.get_references.return_value = [_location(tmp_path / "x.py", 0, 0)]
+
+    result = await search.dead_code_detection(pyright, _config(tmp_path), directory=str(tmp_path))
+
+    assert [(f.file_path, f.phase, f.error_type) for f in result.scan_failures] == [
+        (str(bad.resolve()), "diagnostics", "PyrightError")
+    ]
+    assert all(item.file_path != str(tmp_path / "elsewhere.py") for item in result.items)

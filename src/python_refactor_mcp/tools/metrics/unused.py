@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Sequence
 from typing import Protocol
 
 from python_refactor_mcp.models import Diagnostic, ScanFailure, UnusedImport, UnusedImportScanResult
@@ -10,7 +11,7 @@ from python_refactor_mcp.util.scan import ParsedPythonFile, parse_python_file
 
 
 class _PyrightDiagnosticsBackend(Protocol):
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]: ...
+    async def get_diagnostics_many(self, file_paths: Sequence[str]) -> list[list[Diagnostic] | Exception]: ...
 
 
 async def find_unused_imports(
@@ -23,27 +24,34 @@ async def find_unused_imports(
     results: list[UnusedImport] = []
     scan_failures: list[ScanFailure] = []
 
+    parsed_files: list[ParsedPythonFile] = []
     for fp in paths:
         parsed, failure = parse_python_file(fp)
         if parsed is None:
             if failure is not None:
                 scan_failures.append(failure)
             continue
+        parsed_files.append(parsed)
 
+    # One batch for every parsed file (one resync of the open documents); a per-file
+    # failure is a scan failure, cancellation propagates.
+    batch = await pyright.get_diagnostics_many([str(parsed.path) for parsed in parsed_files])
+
+    for parsed, outcome in zip(parsed_files, batch, strict=True):
         # Read __all__ exports to avoid false positives on re-export facades.
         all_exports = _read_all_exports(parsed)
 
-        try:
-            diagnostics = await pyright.get_diagnostics(str(parsed.path))
-        except Exception as exc:
+        if isinstance(outcome, Exception):
             scan_failures.append(
                 ScanFailure(
                     file_path=str(parsed.path),
                     phase="diagnostics",
-                    error_type=type(exc).__name__,
+                    error_type=type(outcome).__name__,
                 )
             )
-            diagnostics = []
+            diagnostics: list[Diagnostic] = []
+        else:
+            diagnostics = outcome
 
         file_results: list[UnusedImport] = []
         for diag in diagnostics:

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,25 +26,7 @@ from python_refactor_mcp.models import (
 )
 from python_refactor_mcp.tools import analysis
 from tests.helpers import make_location as _location
-
-
-def _many_from(per_file: Callable[[str], Awaitable[list[Diagnostic]]]) -> Callable[..., Awaitable[list[Any]]]:
-    """Adapt a per-file coroutine to the backend's get_diagnostics_many result shape."""
-
-    async def many(
-        paths: list[str], *, concurrency: int = 1, stop_on_error: bool = False
-    ) -> list[list[Diagnostic] | Exception]:
-        results: list[list[Diagnostic] | Exception] = []
-        for path in paths:
-            try:
-                results.append(await per_file(path))
-            except Exception as exc:
-                results.append(exc)
-                if stop_on_error:
-                    break
-        return results
-
-    return many
+from tests.helpers import many_from as _many_from
 
 
 @pytest.mark.asyncio

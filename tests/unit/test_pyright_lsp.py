@@ -2158,7 +2158,7 @@ async def test_failed_change_send_drops_the_stamp_so_the_next_call_retries(tmp_p
     dependency = tmp_path / "dep.py"
     dependency.write_text("VALUE = 1\n", encoding="utf-8")
     await backend.get_diagnostics(str(dependency))
-    dependency.write_text("VALUE = 2\n", encoding="utf-8")
+    dependency.write_text("VALUE = 22\n", encoding="utf-8")  # size differs: no reliance on mtime resolution
 
     with pytest.raises(RuntimeError, match="send interrupted"):
         await backend.get_diagnostics(str(importer))
@@ -2239,6 +2239,38 @@ async def test_get_diagnostics_many_propagates_cancellation(tmp_path: Path) -> N
 
     with pytest.raises(asyncio.CancelledError):
         await backend.get_diagnostics_many([str(importer)], concurrency=4)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_cancels_sibling_pulls_when_one_is_cancelled(tmp_path: Path) -> None:
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    class SplitClient(OrderedClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            document = params["textDocument"]
+            assert isinstance(document, dict)
+            if str(document["uri"]).endswith("a.py"):
+                await sibling_started.wait()
+                raise asyncio.CancelledError
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+            raise AssertionError("unreachable")
+
+    backend, _importer = _diagnostics_harness(tmp_path, SplitClient())
+    first = tmp_path / "a.py"
+    second = tmp_path / "b.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second.write_text("y = 1\n", encoding="utf-8")
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(first), str(second)], concurrency=2)
+
+    assert sibling_cancelled.is_set()  # the surviving pull was cancelled and awaited, not left running
 
 
 @pytest.mark.asyncio
