@@ -14,3 +14,7 @@
 ## Evidence
 
 - PR #208 cold review: transient, both workspaces were chosen by this session so no wrong-repo leak.
+
+## Notes
+
+PR 211 closed the registered-but-shutting-down window in shutdown_all (eviction and init were already invisible: _evict_lru deletes before the shutdown await, _initialize_workspace registers after initialize). Only acceptance 2 remains: the selection-before-validation decision.

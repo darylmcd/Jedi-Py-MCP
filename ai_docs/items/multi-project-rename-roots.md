@@ -1,6 +1,6 @@
 # multi-project-rename-roots — Authorize multi_project_rename additional_roots
 
-**row:** `multi-project-rename-roots` · **pri:** `Medium` · **size:** `M` · **verified:** `de4d87d21cacd62dbbabf881188c339d330b98b7`
+**row:** `multi-project-rename-roots` · **pri:** `Medium` · **size:** `M`
 
 ## Anchors
 
@@ -23,3 +23,7 @@
 ## Context
 
 Operator decision needed first: cross-project by design, so the policy (known/registered roots only vs explicit allowlist) is a product call. Enforce it after the decision.
+
+## Notes
+
+Remediation run 2026-11-17: not worked. The acceptance starts with an operator policy decision recorded in an ADR; no code attempt is meaningful before it. Marked BLOCKED so count skips it.
