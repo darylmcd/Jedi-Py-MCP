@@ -71,7 +71,10 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
     "include_declaration": "Include the symbol's own declaration site in the results.",
     "suppress_codes": "Diagnostic rule codes to drop from the results (for example reportMissingImports).",
     "exclude_patterns": "Regular expressions; files whose path matches any of them are skipped.",
-    "exclude_test_files": "Skip test files (test_*.py, *_test.py, conftest.py, and any module under a tests/ or test/ directory of the workspace).",
+    "exclude_test_files": (
+        "Skip test files (test_*.py, *_test.py, conftest.py, and any module under a tests/ or test/ "
+        "directory of the workspace)."
+    ),
     "query": "Symbol name or name fragment to search for.",
     "pattern": "LibCST matcher expression (m.* DSL) describing the code to match.",
     "count": "Number of history operations to step through.",
