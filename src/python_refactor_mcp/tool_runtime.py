@@ -50,6 +50,11 @@ PATH_PARAMS: tuple[str, ...] = (
 )
 _LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
 
+# List parameters of extra Rope project roots (``multi_project_rename``). They neither select a
+# workspace nor are contained in one (that policy is the open row ``multi-project-rename-roots``),
+# but each string still reaches ``Project(root)``, so the boundary refuses UNC and device paths.
+_LOCAL_ONLY_LIST_PARAMS: tuple[str, ...] = ("additional_roots",)
+
 # List parameters whose items are models carrying a ``file_path`` (``TextEdit``,
 # ``SymbolAnchor``). Each item's path is validated, anchors and is rewritten
 # exactly like a scalar ``file_path``; ``refactor_transaction`` ``steps`` get
@@ -293,6 +298,20 @@ def _reject_relative_paths(kwargs: dict[str, Any]) -> None:
         _require_absolute(value, label)
 
 
+def _reject_network_only_paths(kwargs: dict[str, Any]) -> None:
+    """Reject UNC and device-namespace entries of the uncontained root lists before any tool I/O.
+
+    Only the string is classified: these roots have no absolute or containment rule here.
+    Non-list and non-string values are left to the SDK schema.
+    """
+    for param_name in _LOCAL_ONLY_LIST_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            for index, value in enumerate(values):
+                if isinstance(value, str):
+                    require_local_path(value, f"parameter: {param_name}[{index}]")
+
+
 def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
     """Validate and normalize path and identifier parameters in place."""
     for param_name in PATH_PARAMS:
@@ -421,6 +440,7 @@ def tool_error_boundary(
         try:
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
+            _reject_network_only_paths(kwargs)
             workspace_root: Path | None
             if workspace is WorkspaceUse.NONE:
                 workspace_root = None

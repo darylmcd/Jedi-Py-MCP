@@ -1328,6 +1328,31 @@ async def test_unc_edit_in_a_later_position_is_rejected_before_io(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+@pytest.mark.parametrize("spelling", _UNC_SPELLINGS)
+async def test_multi_project_rename_rejects_unc_additional_roots_before_any_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str
+) -> None:
+    """``additional_roots`` is uncontained by design but each entry feeds ``Project(root)``, so UNC is refused first."""
+    workspace, _outside = _escape_layout(tmp_path)
+    (record,) = (record for record in TOOL_RECORDS if record.func.__name__ == "multi_project_rename")
+    ctx, spy = _real_registry_ctx()
+    _forbid_unc_io(monkeypatch)
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] .*UNC or device-namespace path.*additional_roots\[1\]"):
+        await tool_error_boundary(record.func, workspace=record.workspace)(
+            ctx,
+            additional_roots=[str(tmp_path), spelling],
+            file_path=str(workspace / "a.py"),
+            line=0,
+            character=0,
+            new_name="renamed",
+        )
+
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_symbol_anchor_paths_are_validated_like_edit_paths(tmp_path: Path) -> None:
     """``symbols[].file_path`` goes through the boundary: outside rejected, in-scope rewritten to resolved."""
     workspace, outside = _escape_layout(tmp_path)

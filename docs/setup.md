@@ -92,7 +92,10 @@ start) during server startup, but it is not selected: a tool call that names no
 file fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call, or an
 absolute `root_path` argument, selects that root. A user-scope registration
 shared by several repositories should omit the argument; the server then starts
-cold and discovers a project root from each path-bearing tool request.
+cold and discovers a project root from each path-bearing tool request. A UNC
+or device-namespace workspace root (`\\server\share\...`) is refused at startup;
+map the share to a drive letter (see
+[ADR 0011](adr/0011-reject-unc-and-device-paths.md)).
 
 Tools that can be called without a file path (for example `search_symbols`,
 `fix_module_names`, `undo_refactoring`) accept an absolute `root_path` that
