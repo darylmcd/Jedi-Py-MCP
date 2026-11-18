@@ -74,7 +74,11 @@ from python_refactor_mcp.util.diff import (
     write_bytes_atomic,
 )
 from python_refactor_mcp.util.file_filter import python_files
-from python_refactor_mcp.util.param_rename import function_ordinal, rename_parameter_bindings
+from python_refactor_mcp.util.param_rename import (
+    function_ordinal,
+    rename_parameter_bindings,
+    require_other_definitions_untouched,
+)
 from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
 from python_refactor_mcp.util.shared import require_local_path, validate_identifier
@@ -478,6 +482,43 @@ def _double_star_call_error(project: Project, names: set[str]) -> ToolInputError
     )
 
 
+def _definition_module_change(changes: ChangeSet, resource: Resource) -> ChangeContents | None:
+    """Return rope's change to the module at *resource*, or ``None`` when rope did not change it."""
+    return next(
+        (
+            change
+            for change in _basic_changes(changes)
+            if isinstance(change, ChangeContents) and change.resource.path == resource.path
+        ),
+        None,
+    )
+
+
+def _definition_site(pyfunction: Any) -> tuple[Resource, str, int]:
+    """Locate a ``def`` target: its module resource, the module text and its ordinal among all defs."""
+    function_ast = pyfunction.get_ast()
+    resource = pyfunction.get_module().get_resource()
+    if not isinstance(function_ast, ast.FunctionDef) or resource is None:
+        raise ToolInputError(
+            "change_signature is supported on functions defined in a workspace file with def "
+            "(parameter: line)"
+        )
+    source = resource.read()
+    return resource, source, function_ordinal(source, function_ast.lineno, function_ast.name)
+
+
+def _require_single_definition(changes: ChangeSet, pyfunction: Any) -> None:
+    """Refuse (``ToolInputError``) when rope also rewrote another definition with the target's name.
+
+    Runs for every operation on rope's result, before anything is applied, so a
+    refusal leaves every file untouched.
+    """
+    resource, source, ordinal = _definition_site(pyfunction)
+    change = _definition_module_change(changes, resource)
+    if change is not None:
+        require_other_definitions_untouched(source, change.new_contents, ordinal)
+
+
 def _rename_parameter_bodies(changes: ChangeSet, pyfunction: Any, renames: dict[str, str]) -> None:
     """Rename the body bindings of renamed parameters in the definition module's rope change.
 
@@ -485,20 +526,11 @@ def _rename_parameter_bodies(changes: ChangeSet, pyfunction: Any, renames: dict[
     refuses (``ToolInputError``) unless it can prove the rewrite equivalent, and
     runs before anything is applied, so a refusal leaves every file untouched.
     """
-    function_ast = pyfunction.get_ast()
-    resource = pyfunction.get_module().get_resource()
-    if not isinstance(function_ast, ast.FunctionDef) or resource is None:
-        raise ToolInputError(
-            "rename is supported on functions defined in a workspace file with def "
-            "(parameter: operations)"
-        )
-    source = resource.read()
-    ordinal = function_ordinal(source, function_ast.lineno, function_ast.name)
-    for change in _basic_changes(changes):
-        if isinstance(change, ChangeContents) and change.resource.path == resource.path:
-            change.new_contents = rename_parameter_bindings(change.new_contents, ordinal, renames, original=source)
-            return
-    raise RopeError("rope produced no edit for the function definition.")
+    resource, source, ordinal = _definition_site(pyfunction)
+    change = _definition_module_change(changes, resource)
+    if change is None:
+        raise RopeError("rope produced no edit for the function definition.")
+    change.new_contents = rename_parameter_bindings(change.new_contents, ordinal, renames, original=source)
 
 
 def _build_autoimport(project: Project) -> AutoImport:
@@ -1289,6 +1321,7 @@ class RopeBackend:
                 if (diagnosis := _double_star_call_error(project, names)) is None:
                     raise
                 raise diagnosis from exc
+            _require_single_definition(changes, pyfunction)
             if renames:
                 _rename_parameter_bodies(changes, pyfunction, renames)
             return self._build_result(changes, "Changed function signature", apply)
