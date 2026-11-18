@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -319,6 +320,13 @@ def test_get_most_recent_returns_latest() -> None:
 def test_max_workspaces_must_be_positive() -> None:
     with pytest.raises(ValueError, match="max_workspaces must be >= 1"):
         WorkspaceRegistry(max_workspaces=0)
+
+
+def test_registry_exposes_only_effective_lifecycle_settings() -> None:
+    """The never-consumed idle timeout is gone; ``max_workspaces`` is the only setting."""
+    assert set(inspect.signature(WorkspaceRegistry).parameters) == {"max_workspaces"}
+    with pytest.raises(TypeError):
+        WorkspaceRegistry(idle_timeout_seconds=1.0)  # type: ignore[call-arg]
 
 
 # ── Startup rollback ─────────────────────────────────────────────────────

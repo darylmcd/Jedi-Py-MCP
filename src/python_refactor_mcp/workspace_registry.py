@@ -107,15 +107,10 @@ class WorkspaceRegistry:
     Thread safety: all mutations are guarded by an asyncio.Lock.
     """
 
-    def __init__(
-        self,
-        max_workspaces: int = 3,
-        idle_timeout_seconds: float = 600.0,
-    ) -> None:
+    def __init__(self, max_workspaces: int = 3) -> None:
         if max_workspaces < 1:
             raise ValueError("max_workspaces must be >= 1")
         self._max_workspaces = max_workspaces
-        self._idle_timeout = idle_timeout_seconds
         self._workspaces: dict[Path, WorkspaceBackends] = {}
         self._known_roots: list[Path] = []
         # Invariant: a subset of _known_roots. Roots found by marker discovery rather
