@@ -63,7 +63,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 
 | Item | Type | Notes |
 |---|---|---|
-| `workspace_root` | optional CLI arg | Single-project registrations only: starts that workspace's backends at startup but does NOT select it. A path-less call (no file path, no `root_path`) fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call or `root_path` selects it. Multi-repo user-scope registrations omit it; path-bearing requests discover project roots dynamically (ADR 0007) |
+| `workspace_root` | optional CLI arg | Single-project registrations only: starts that workspace's backends at startup but does NOT select it. A path-less call (no file path, no `root_path`, no `directory` on the four scan tools) fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call, `root_path` or (scan tools) `directory` selects it. Multi-repo user-scope registrations omit it; path-bearing requests discover project roots dynamically (ADR 0007, ADR 0012) |
 | `PYRIGHT_LANGSERVER` | env var | Overrides the default `pyright-langserver` executable |
 | `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 75) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 108-tool catalog |
 | `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid. An evicted workspace with an in-flight request stays alive until the request ends, so live workspaces may briefly exceed the limit (ADR 0010) |
