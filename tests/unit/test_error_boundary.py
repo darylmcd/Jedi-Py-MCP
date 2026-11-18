@@ -991,14 +991,16 @@ async def test_diff_preview_in_scope_preview_succeeds_with_resolved_paths(tmp_pa
     spy.assert_not_awaited()
 
 
-def _backendless_registry_ctx() -> tuple[SimpleNamespace, WorkspaceRegistry]:
-    """Build a ctx over a real registry that fails loudly if any workspace backend is initialized."""
-    registry = WorkspaceRegistry()
+class _BackendlessRegistry(WorkspaceRegistry):
+    """A real registry that fails loudly if any workspace backend is initialized."""
 
-    async def _forbid(root: Path) -> WorkspaceBackends:
+    async def _initialize_workspace(self, root: Path) -> WorkspaceBackends:
         raise AssertionError(f"a workspace backend was initialized for {root}")
 
-    registry._initialize_workspace = _forbid  # type: ignore[method-assign]
+
+def _backendless_registry_ctx() -> tuple[SimpleNamespace, WorkspaceRegistry]:
+    """Build a ctx over a registry that forbids backend initialization."""
+    registry = _BackendlessRegistry()
     return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), registry
 
 
