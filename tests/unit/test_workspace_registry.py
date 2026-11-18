@@ -12,7 +12,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from python_refactor_mcp.errors import AmbiguousWorkspaceError, ToolInputError, WorkspaceResolutionError
+from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
+from python_refactor_mcp.config import ServerConfig
+from python_refactor_mcp.errors import (
+    AmbiguousWorkspaceError,
+    PyrightError,
+    ToolInputError,
+    WorkspaceResolutionError,
+)
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry, _run_to_completion
 
 
@@ -966,3 +973,32 @@ async def test_explicit_root_is_never_reclassified_as_auto_on_dispatch(tmp_path:
 
     assert registry.get_known_roots() == [project]
     assert registry._auto_roots == set()
+
+
+@pytest.mark.asyncio
+async def test_initialize_on_a_shut_down_pyright_backend_spawns_nothing_and_starts_no_other_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WorkspaceBackends.initialize reaches PyrightLSPClient.start unguarded; the client must refuse."""
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    pyright = PyrightLSPClient(config)
+    spawned: list[object] = []
+    monkeypatch.setattr(pyright, "_make_client", lambda: spawned.append(object()))
+    jedi, rope = MagicMock(), MagicMock()
+    backends = WorkspaceBackends(config=config, pyright=pyright, jedi=jedi, rope=rope)
+    await pyright.shutdown()
+
+    with pytest.raises(PyrightError, match="shut down"):
+        await backends.initialize()
+
+    assert spawned == []
+    jedi.initialize.assert_not_called()
+    rope.initialize.assert_not_called()
+    assert backends.is_initialized is False

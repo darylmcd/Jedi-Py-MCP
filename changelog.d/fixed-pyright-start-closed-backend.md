@@ -1,0 +1,1 @@
+- **Fixed:** A Pyright backend that was shut down can no longer be started again: `start()` now refuses a closed backend, and a shutdown that arrives while a language server is starting stops that server and ends the startup instead of letting the next candidate command launch an unowned process.

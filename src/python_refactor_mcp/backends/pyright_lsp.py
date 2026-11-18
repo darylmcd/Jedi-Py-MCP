@@ -435,26 +435,40 @@ class PyrightLSPClient:
             )
 
     async def start(self) -> None:
-        """Start the Pyright language server and initialize the LSP session."""
-        startup_errors: list[str] = []
-        for command in self._candidate_commands():
-            self._client = self._make_client()
-            try:
-                await self._client.start(command)
-                await self._initialize_session()
-                self._startup_command = command
-                return
-            except (Exception, asyncio.CancelledError) as exc:
-                try:
-                    await self._client.shutdown()
-                except Exception:
-                    _LOGGER.warning("Could not clean up failed Pyright startup attempt.", exc_info=True)
-                if isinstance(exc, asyncio.CancelledError):
-                    raise
-                startup_errors.append(f"{' '.join(command)} -> {exc}")
+        """Start the Pyright language server and initialize the LSP session.
 
-        joined_errors = " | ".join(startup_errors)
-        raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
+        Refuses a backend that :meth:`shutdown` closed, and holds the restart lock for
+        the whole startup, so a ``shutdown`` that begins meanwhile waits for it (it sets
+        ``_closed`` first) and no process outlives the closed backend: the flag is
+        checked before every candidate spawn and again once a candidate is initialized,
+        and a close error is raised outside the per-candidate catch so it is never
+        recorded as a failed attempt that lets the next candidate start.
+        """
+        async with self._restart_lock:
+            startup_errors: list[str] = []
+            for command in self._candidate_commands():
+                self._require_open()
+                self._client = self._make_client()
+                try:
+                    await self._client.start(command)
+                    await self._initialize_session()
+                except (Exception, asyncio.CancelledError) as exc:
+                    try:
+                        await self._client.shutdown()
+                    except Exception:
+                        _LOGGER.warning("Could not clean up failed Pyright startup attempt.", exc_info=True)
+                    if isinstance(exc, asyncio.CancelledError):
+                        raise
+                    startup_errors.append(f"{' '.join(command)} -> {exc}")
+                else:
+                    if self._closed:
+                        await self._client.shutdown()
+                        self._require_open()
+                    self._startup_command = command
+                    return
+
+            joined_errors = " | ".join(startup_errors)
+            raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
 
     def _require_open(self) -> None:
         """Raise ``PyrightError`` once :meth:`shutdown` has closed this backend."""
