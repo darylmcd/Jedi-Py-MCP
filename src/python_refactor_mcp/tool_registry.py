@@ -413,7 +413,7 @@ async def check_type_stub_freshness(
     source_file: SourceFile,
     stub_file: str | None = None,
 ) -> TypeStubFreshnessResult:
-    """Compare a Python module's public callable signatures with its `.pyi` stub. Defaults stub_file to the adjacent same-name `.pyi`. Reports missing callables and calling-convention drift while conservatively skipping overload sets and Protocol classes. Related: create_type_stubs, get_type_coverage."""
+    """Compare a Python module's public callable signatures with its `.pyi` stub. Defaults stub_file to the adjacent same-name `.pyi`; an explicit stub_file must be absolute and inside the workspace. Reports missing callables and calling-convention drift while conservatively skipping overload sets and Protocol classes. Related: create_type_stubs, get_type_coverage."""
     result = analysis.check_type_stub_freshness(source_file, stub_file)
     _LOGGER.debug(
         "check_type_stub_freshness fresh=%s missing_stub=%s missing_source=%s mismatches=%s",
@@ -453,7 +453,7 @@ async def test_impact_select(
     depth: Depth = 2,
     max_items: MaxItems = 200,
 ) -> TestImpactResult:
-    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor has file_path, line, and character. Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map. Positions are 0-based (line and character offsets, LSP convention)."""
+    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor has file_path (absolute, inside one workspace), line, and character.Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     result = await analysis.test_impact_select(app.pyright, symbols, depth, max_items)
     _LOGGER.debug("test_impact_select entries=%s tests=%s", len(result.entries), result.total_affected_tests)
@@ -1518,7 +1518,7 @@ async def diff_preview(
     ctx: Context,
     edits: Annotated[list[TextEdit], Field(description=PARAM_DESCRIPTIONS["edits"])],
 ) -> list[DiffPreview]:
-    """Generate unified diff previews for a list of TextEdit objects. Use to visualize what changes will look like before applying them. Pass edits from any refactoring tool's preview output. Related: rename_symbol, extract_method (any tool returning TextEdit lists)."""
+    """Generate unified diff previews for a list of TextEdit objects. Use to visualize what changes will look like before applying them. Pass edits from any refactoring tool's preview output. Every edit file_path must be absolute and inside one workspace; other paths are rejected before any file is read. Related: rename_symbol, extract_method (any tool returning TextEdit lists)."""
     _ = get_current_backends()
     result = await composite.diff_preview(edits)
     _LOGGER.debug("diff_preview files=%s", len(result))

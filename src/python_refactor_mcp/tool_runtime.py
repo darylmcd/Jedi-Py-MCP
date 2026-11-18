@@ -41,11 +41,18 @@ PATH_PARAMS: tuple[str, ...] = (
     "file_path",
     "source_file",
     "source_path",
+    "stub_file",
     "root_path",
     "destination_file",
     "destination_package",
 )
 _LIST_PATH_PARAMS: tuple[str, ...] = ("file_paths",)
+
+# List parameters whose items are models carrying a ``file_path`` (``TextEdit``,
+# ``SymbolAnchor``). Each item's path is validated, anchors and is rewritten
+# exactly like a scalar ``file_path``; ``refactor_transaction`` ``steps`` get
+# the same treatment through their ``args``.
+NESTED_PATH_PARAMS: tuple[str, ...] = ("edits", "symbols")
 
 # Directory-typed parameters requiring workspace boundary validation. Unlike
 # PATH_PARAMS these are documented as workspace-relative, so a relative value
@@ -97,6 +104,31 @@ def _transaction_step_args(kwargs: dict[str, Any]) -> list[TransactionStepArgs]:
     return step_args
 
 
+def _nested_path_models(kwargs: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Return ``(parameter label, model)`` for every model that carries a nested ``file_path``.
+
+    Covers the ``NESTED_PATH_PARAMS`` list parameters, then the ``refactor_transaction``
+    step arguments, in request order. Like ``_transaction_step_args`` it raises
+    ``TypeError`` for an item that is not a validated model with a string
+    ``file_path``: a skipped item would bypass the workspace and absolute-path checks.
+    """
+    found: list[tuple[str, Any]] = []
+    for param_name in NESTED_PATH_PARAMS:
+        items = kwargs.get(param_name)
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            raise TypeError(f"{param_name} must be a list of validated models, got {type(items).__name__}")
+        for index, item in enumerate(items):
+            if not isinstance(getattr(item, "file_path", None), str):
+                raise TypeError(f"{param_name}[{index}] is not a validated model with a file_path")
+            found.append((f"{param_name}[{index}].file_path", item))
+    found.extend(
+        (f"steps[{index}].args.file_path", args) for index, args in enumerate(_transaction_step_args(kwargs))
+    )
+    return found
+
+
 @dataclass(slots=True)
 class MultiWorkspaceContext:
     """Lifespan context holding the workspace registry."""
@@ -138,7 +170,8 @@ def _workspace_path_args(kwargs: dict[str, Any]) -> list[tuple[str, str]]:
     """Return ``(parameter label, value)`` for every explicit workspace-selecting path.
 
     Order is the anchor order: ``PATH_PARAMS`` entries, then ``file_paths``
-    elements, then ``refactor_transaction`` step paths. Non-string values are
+    elements, then paths nested in ``NESTED_PATH_PARAMS`` models and
+    ``refactor_transaction`` step args. Non-string scalar and list values are
     skipped; ``_validate_params`` rejects them.
     """
     found: list[tuple[str, str]] = []
@@ -150,8 +183,7 @@ def _workspace_path_args(kwargs: dict[str, Any]) -> list[tuple[str, str]]:
         values = kwargs.get(param_name)
         if isinstance(values, list):
             found.extend((param_name, value) for value in values if isinstance(value, str))
-    for index, args in enumerate(_transaction_step_args(kwargs)):
-        found.append((f"steps[{index}].args.file_path", args.file_path))
+    found.extend((label, model.file_path) for label, model in _nested_path_models(kwargs))
     return found
 
 
@@ -237,8 +269,8 @@ def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
         if isinstance(value, str):
             kwargs[param_name] = resolve_workspace_dir(value, workspace_root)
 
-    for args in _transaction_step_args(kwargs):
-        args.file_path = validate_workspace_path(args.file_path, workspace_root)
+    for _label, model in _nested_path_models(kwargs):
+        model.file_path = validate_workspace_path(model.file_path, workspace_root)
 
     _validate_identifiers(kwargs)
     for args in _transaction_step_args(kwargs):

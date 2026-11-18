@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -19,7 +20,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp import server
+from python_refactor_mcp import server, tool_runtime
 from python_refactor_mcp.config import TOOL_PROFILES
 from python_refactor_mcp.errors import (
     BackendError,
@@ -31,8 +32,8 @@ from python_refactor_mcp.errors import (
     ToolInputError,
     WorkspaceResolutionError,
 )
-from python_refactor_mcp.models import RenameStep, RenameStepArgs
-from python_refactor_mcp.tool_registry import build_tools
+from python_refactor_mcp.models import Position, Range, RenameStep, RenameStepArgs, SymbolAnchor, TextEdit
+from python_refactor_mcp.tool_registry import build_tools, diff_preview
 from python_refactor_mcp.tool_runtime import (
     DIR_PARAMS,
     PATH_PARAMS,
@@ -40,8 +41,10 @@ from python_refactor_mcp.tool_runtime import (
     _resolve_backends,
     _validate_params,
     get_current_backends,
+    get_multi_context,
     tool_error_boundary,
 )
+from python_refactor_mcp.tools import composite
 from python_refactor_mcp.util.shared import validate_workspace_path
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
@@ -910,3 +913,326 @@ async def test_wrapper_keeps_outside_workspace_error_for_unmarked_second_path(tm
 
     with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
         await tool(ctx, file_paths=[str(outer / "a.py"), str(unmarked / "x.py")])
+
+
+# ── nested edit paths (diff-preview-path-scope) ─────────────────────────
+
+
+def _edit(file_path: str) -> TextEdit:
+    """Build a schema-validated one-character edit, as the SDK hands it to the boundary."""
+    return TextEdit(
+        file_path=file_path,
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+        new_text="Y",
+    )
+
+
+def _link_dir(link: Path, target: Path) -> None:
+    """Make *link* a directory symlink to *target*; on Windows fall back to a junction."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except OSError:
+        if os.name != "nt":
+            raise
+    created = subprocess.run(  # noqa: S603 - fixed argv, test-owned paths
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],  # noqa: S607
+        capture_output=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        pytest.skip("neither a directory symlink nor a junction can be created here")
+
+
+def _escape_layout(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a marked workspace with one module plus an unmarked sibling holding a secret."""
+    workspace = tmp_path / "ws"
+    (workspace / "sub").mkdir(parents=True)
+    (workspace / ".git").mkdir()
+    (workspace / "a.py").write_text("x = 1\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("TOPSECRET\n", encoding="utf-8")
+    return workspace, outside
+
+
+def _forbid_disk_diff(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Make any attempt to build a diff fail loudly; returns the (empty) list of paths it saw."""
+    seen: list[str] = []
+
+    def _fail(file_path: str, edits: object) -> str:
+        seen.append(file_path)
+        raise AssertionError(f"diff_preview reached the disk read for {file_path}")
+
+    monkeypatch.setattr(composite, "build_unified_diff", _fail)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_in_scope_preview_succeeds_with_resolved_paths(tmp_path: Path) -> None:
+    """An in-scope preview still returns its diff and the edit path is the resolved one."""
+    workspace, _outside = _escape_layout(tmp_path)
+    ctx, spy = _real_registry_ctx()
+    spelled = workspace / "sub" / ".." / "a.py"
+
+    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(spelled))])
+
+    assert len(result) == 1
+    assert "-x = 1" in result[0].unified_diff
+    assert result[0].file_path == str((workspace / "a.py").resolve())
+    spy.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("escape", ["outside", "dotdot", "file_link", "dir_link"])
+async def test_diff_preview_rejects_edit_paths_leaving_the_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, escape: str
+) -> None:
+    """An outside, ``..``, symlinked-file or linked-directory edit path is rejected before any read."""
+    workspace, outside = _escape_layout(tmp_path)
+    secret = outside / "secret.txt"
+    if escape == "outside":
+        bad = secret
+    elif escape == "dotdot":
+        bad = workspace / "sub" / ".." / ".." / "outside" / "secret.txt"
+    elif escape == "file_link":
+        bad = workspace / "link.txt"
+        try:
+            os.symlink(secret, bad)
+        except OSError:
+            pytest.skip("file symlinks need a privilege this runner lacks")
+    else:
+        _link_dir(workspace / "jlink", outside)
+        bad = workspace / "jlink" / "secret.txt"
+    seen = _forbid_disk_diff(monkeypatch)
+    ctx, _spy = _real_registry_ctx()
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(workspace / "a.py")), _edit(str(bad))])
+
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_diff_preview_rejects_unmarked_first_edit_without_registering_a_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path under no marker or known root is rejected and leaves the registry's roots untouched."""
+    _workspace, outside = _escape_layout(tmp_path)
+    seen = _forbid_disk_diff(monkeypatch)
+    ctx, spy = _real_registry_ctx()
+    registry = get_multi_context(ctx).registry
+
+    with pytest.raises(ToolError, match=r"^\[(INVALID_INPUT|WORKSPACE_RESOLUTION)\]"):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(outside / "secret.txt"))])
+
+    assert seen == []
+    assert registry._known_roots == []
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested_marker", [".git", "pyproject.toml"])
+@pytest.mark.parametrize("outer_first", [True, False])
+async def test_diff_preview_rejects_edits_spanning_nested_workspaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nested_marker: str, outer_first: bool
+) -> None:
+    """Edits in an enclosing checkout and a nested project are different workspaces in either order."""
+    outer, nested = _nested_layout(tmp_path, nested_marker)
+    first, second = (outer, nested) if outer_first else (nested, outer)
+    seen = _forbid_disk_diff(monkeypatch)
+    ctx, spy = _real_registry_ctx()
+
+    with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(first / "a.py")), _edit(str(second / "a.py"))])
+
+    assert seen == []
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relative", ["rel.py", "~/rel.py"])
+async def test_diff_preview_rejects_relative_edit_path_naming_the_edit(tmp_path: Path, relative: str) -> None:
+    """A relative edit path is rejected before workspace resolution, located by edit index."""
+    workspace, _outside = _escape_layout(tmp_path)
+    ctx, spy = _real_registry_ctx()
+
+    with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: edits\[1\]\.file_path\)"):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(str(workspace / "a.py")), _edit(relative)])
+
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="drive and UNC spellings exist only on Windows")
+@pytest.mark.parametrize("spelling", ["rooted_no_drive", "drive_relative"])
+async def test_diff_preview_rejects_windows_non_absolute_edit_paths(tmp_path: Path, spelling: str) -> None:
+    """``\\x.py`` and ``C:x.py`` are not absolute on Windows and anchor at the server cwd, so they are rejected."""
+    ctx, spy = _real_registry_ctx()
+    bad = "\\x.py" if spelling == "rooted_no_drive" else "C:x.py"
+
+    with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: edits\[0\]\.file_path\)"):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit(bad)])
+
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="drive-letter casing and extended-length paths exist only on Windows")
+async def test_diff_preview_windows_spellings_resolve_to_the_same_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lowercase-drive and ``\\\\?\\`` spellings of an in-scope file pass; the outside file is still rejected."""
+    workspace, outside = _escape_layout(tmp_path)
+    in_scope = str(workspace / "a.py")
+    ctx, _spy = _real_registry_ctx()
+
+    lowered = in_scope[0].lower() + in_scope[1:]
+    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit(lowered)])
+    assert "-x = 1" in result[0].unified_diff
+    result = await tool_error_boundary(diff_preview)(ctx, edits=[_edit("\\\\?\\" + in_scope)])
+    assert "-x = 1" in result[0].unified_diff
+
+    seen = _forbid_disk_diff(monkeypatch)
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool_error_boundary(diff_preview)(
+            ctx, edits=[_edit(in_scope), _edit("\\\\?\\" + str(outside / "secret.txt"))]
+        )
+    assert seen == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+async def test_diff_preview_routes_unc_edit_path_through_workspace_resolution() -> None:
+    """A UNC edit path is absolute, so it must reach workspace resolution (stubbed: no network) and be rejected."""
+    registry = MagicMock()
+    registry.resolve_workspace_root = MagicMock(side_effect=WorkspaceResolutionError("no workspace for UNC path"))
+    registry.get_backends = AsyncMock()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    with pytest.raises(ToolError, match=r"^\[WORKSPACE_RESOLUTION\]"):
+        await tool_error_boundary(diff_preview)(ctx, edits=[_edit("\\\\server\\share\\x.py")])
+
+    registry.resolve_workspace_root.assert_called_once()
+    registry.get_backends.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_symbol_anchor_paths_are_validated_like_edit_paths(tmp_path: Path) -> None:
+    """``symbols[].file_path`` goes through the boundary: outside rejected, in-scope rewritten to resolved."""
+    workspace, outside = _escape_layout(tmp_path)
+    ctx, _spy = _real_registry_ctx()
+    seen: list[str] = []
+
+    @tool_error_boundary
+    async def tool(ctx: object, symbols: list[SymbolAnchor]) -> str:
+        seen.extend(anchor.file_path for anchor in symbols)
+        return "ok"
+
+    spelled = str(workspace / "sub" / ".." / "a.py")
+    assert await tool(ctx, symbols=[SymbolAnchor(file_path=spelled, line=0, character=0)]) == "ok"
+    assert seen == [str((workspace / "a.py").resolve())]
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool(
+            ctx,
+            symbols=[
+                SymbolAnchor(file_path=str(workspace / "a.py"), line=0, character=0),
+                SymbolAnchor(file_path=str(outside / "secret.txt"), line=0, character=0),
+            ],
+        )
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_stub_file_is_validated_against_the_workspace(tmp_path: Path) -> None:
+    """``stub_file`` is a path parameter: outside and relative values are rejected, in-scope passes."""
+    workspace, outside = _escape_layout(tmp_path)
+    ctx, _spy = _real_registry_ctx()
+    stub = workspace / "a.pyi"
+    stub.write_text("x: int\n", encoding="utf-8")
+
+    @tool_error_boundary
+    async def tool(ctx: object, source_file: str, stub_file: str | None = None) -> str:
+        return "ok"
+
+    source = str(workspace / "a.py")
+    assert await tool(ctx, source_file=source, stub_file=str(stub)) == "ok"
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool(ctx, source_file=source, stub_file=str(outside / "secret.txt"))
+    with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: stub_file\)"):
+        await tool(ctx, source_file=source, stub_file="a.pyi")
+
+
+@pytest.mark.asyncio
+async def test_nested_path_item_without_a_validated_model_is_a_wiring_defect(tmp_path: Path) -> None:
+    """An ``edits`` item that is not a validated model raises instead of silently skipping its path."""
+    workspace, _outside = _escape_layout(tmp_path)
+    ctx, _spy = _real_registry_ctx()
+
+    @tool_error_boundary
+    async def tool(ctx: object, edits: list[object]) -> str:
+        return "unreachable"
+
+    with pytest.raises(TypeError, match=r"edits\[0\]"):
+        await tool(ctx, edits=[{"file_path": str(workspace / "a.py")}])
+
+
+# Top-level parameters that look like paths but are deliberately not boundary-validated here.
+_PATH_LIKE_ALLOWLIST: dict[str, str] = {
+    "additional_roots": "extra Rope project roots by design; policy is the remainder row multi-project-rename-roots",
+    "target_modules": "dict KEYS are paths, validated by RopeBackend._workspace_python_file inside the workspace",
+}
+_PATH_SUFFIXES = ("_file", "_path", "_dir", "_directory")
+
+
+def _schema_path_property_names(
+    schema: object, defs: dict[str, object], seen: frozenset[str] = frozenset()
+) -> set[str]:
+    """Collect every property name ending in a path suffix (or ``file_path``) anywhere under *schema*."""
+    found: set[str] = set()
+    if isinstance(schema, dict):
+        ref = schema.get("$ref")
+        if isinstance(ref, str) and ref not in seen:
+            found |= _schema_path_property_names(defs.get(ref.rsplit("/", 1)[-1]), defs, seen | {ref})
+        for name, child in (schema.get("properties") or {}).items():
+            if name.endswith(_PATH_SUFFIXES):
+                found.add(name)
+            found |= _schema_path_property_names(child, defs, seen)
+        for key, child in schema.items():
+            if key not in {"properties", "$ref", "$defs"}:
+                found |= _schema_path_property_names(child, defs, seen)
+    elif isinstance(schema, list):
+        for child in schema:
+            found |= _schema_path_property_names(child, defs, seen)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> None:
+    """Drift guard: path-like top-level params and path-bearing nested models are all boundary-validated."""
+    covered = set(PATH_PARAMS) | set(DIR_PARAMS) | {"file_paths"}
+    nested_covered = set(tool_runtime.NESTED_PATH_PARAMS) | {"steps"}
+    uncovered_scalars: set[str] = set()
+    uncovered_nested: set[str] = set()
+    seen_allowlisted: set[str] = set()
+    for profile in TOOL_PROFILES:
+        mcp = MCPServer(
+            f"path-param drift guard ({profile})",
+            tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+        )
+        for tool in await mcp.list_tools():
+            defs = tool.input_schema.get("$defs", {})
+            for name, prop in tool.input_schema.get("properties", {}).items():
+                if name in _PATH_LIKE_ALLOWLIST:
+                    seen_allowlisted.add(name)
+                    continue
+                if name.endswith(_PATH_SUFFIXES) and name not in covered:
+                    uncovered_scalars.add(name)
+                if _schema_path_property_names(prop, defs) and name not in covered | nested_covered:
+                    uncovered_nested.add(name)
+    assert not uncovered_scalars, f"path-like params missing from the boundary tables: {sorted(uncovered_scalars)}"
+    assert not uncovered_nested, (
+        f"path-bearing nested params missing from NESTED_PATH_PARAMS: {sorted(uncovered_nested)}"
+    )
+    assert seen_allowlisted == set(_PATH_LIKE_ALLOWLIST), "stale allowlist entry: no live tool takes it"
