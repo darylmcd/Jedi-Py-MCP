@@ -40,7 +40,7 @@ The refusals are not a complete guarantee. The compiled-code comparison proves t
 
 - Refused: `locals`, `vars`, `eval`, `exec`, `dir`, `_getframe`, `currentframe`, `getargvalues`, `stack` (as names or attributes) and `f_locals`.
 - Not detected: an alias (`ev = eval`), `functools.partial(f, b=2)` and `**{'b': ...}` callers, `f.__code__.co_varnames`, `inspect.signature`, `__annotations__`, and subclass overrides (rope does not rename them, so keyword calls through the base break).
-- Same-name definitions: rope rewrites the header of every definition it resolves to the target (a redefinition, conditional `def`, `@overload` stub, property setter), but only the target's body is renamed; such a rename is refused. Same-named methods of different classes are not rewritten by rope (observed) and are not refused.
+- Same-name definitions: rope rewrites the header of every definition it resolves to the target (a redefinition, conditional `def`, `@overload` stub, property setter), but only the target's body is renamed; such a rename is refused (every operation is, see the same-named definitions addendum below). Same-named methods of different classes are not rewritten by rope (observed) and are not refused.
 
 - NFKC widening: the shared `validate_identifier` now also rejects non-NFKC names at the tool boundary for: `base_class_name`, `class_name`, `collaborator_attribute`, `destination_attr`, `new_name`, `new_class_name`, `function_name`, `method_name`, `variable_name`, `parameter_name`, `factory_name`, `classname`, `protocol_name`, `symbol_name`, the list parameters `class_names` and `members` (including the same parameters inside `refactor_transaction` steps), and each segment of `package_name` (`create_type_stubs`). Use the NFKC spelling (`unicodedata.normalize("NFKC", name)`).
 
@@ -80,3 +80,21 @@ Three caller-input failures surfaced as a generic `RopeError` (`ROPE_BACKEND`, "
 ### Migration
 
 No input changes validity; these inputs already failed. The error is now `ToolInputError` (`[INVALID_INPUT]`, message names the cause and `path:line`) instead of the backend error `ROPE_BACKEND`. Clients that matched the backend code or retried on it must match `INVALID_INPUT`: point the call at a `def` function, pass call-site arguments explicitly instead of `**`, or use the NFKC spelling of identifiers.
+
+## Addendum: same-named definitions, every operation (rope-same-name-defs-header-rewrite)
+
+### Context
+
+rope gives every definition it resolves to the target (a redefinition, a conditional `def`, an `@overload` stub, a property setter) the target's rewritten header. Only `rename` refused this. For `add`, `remove`, `reorder`, `normalize` and `inline_default` the other definitions gained the target's parameters and defaults, lost their own annotations, or kept bodies that used a removed parameter.
+
+### Decision
+
+- After rope computes its change, and before anything is applied, every operation compares the parameters (`ast.dump`) of each other definition of the target's name in the definition module before and after. Any difference raises `ToolInputError` (`parameter: line`) naming the definition. The guard moved from the `rename` body pass (`util/param_rename.py`) to `RopeBackend.change_signature`.
+- The check diagnoses what rope did; it never pre-rejects by name. A same-named method of an unrelated class (rope leaves it alone) and a same-named definition whose header rope re-emits identically are accepted.
+- `ast.dump` includes annotations and rope drops them on re-emission, so an annotated same-named definition is refused even when its parameters are unchanged.
+- If rope's output for the definition module does not parse, the operation is refused with the same error class (previously the preview was returned).
+- Not covered: same-named definitions in other modules, and subclass overrides (ADR 0004 limits above).
+
+### Migration
+
+Newly rejected with `ToolInputError`: `add`, `remove`, `reorder`, `normalize` and `inline_default` on a target when rope would also rewrite another definition with the same name. Change the signatures by hand, or remove or rename the duplicate definitions first.

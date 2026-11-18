@@ -17,6 +17,7 @@ from python_refactor_mcp.util.param_rename import (
     ParameterCollector,
     function_ordinal,
     rename_parameter_bindings,
+    require_other_definitions_untouched,
 )
 from python_refactor_mcp.util.shared import validate_identifier
 
@@ -356,3 +357,42 @@ def test_renamed_function_behaves_like_the_original(tmp_path: Path, source: str,
     before.write_text(source, encoding="utf-8")
     after.write_text(_rename(source), encoding="utf-8")
     assert runpy.run_path(str(before))["f"](*args) == runpy.run_path(str(after))["f"](*args)
+
+
+_TWO_DEFS = "def f(a, b):\n    return a\n\n\ndef f(a, b):\n    return b\n"
+
+
+def test_other_definition_with_changed_parameters_is_refused() -> None:
+    rewritten = _TWO_DEFS.replace("def f(a, b):\n    return a", "def f(a):\n    return a")
+    with pytest.raises(ToolInputError, match=r"another definition named 'f' \(line 1\).*\(parameter: line\)$"):
+        require_other_definitions_untouched(_TWO_DEFS, rewritten, 1)
+
+
+def test_other_definition_with_identical_parameters_is_accepted() -> None:
+    require_other_definitions_untouched(_TWO_DEFS, _TWO_DEFS.replace("return b", "return 0"), 0)
+
+
+def test_unparseable_rewritten_module_is_refused() -> None:
+    """rope's keyword-only emission (``def f(a, *)``) is the real-world shape."""
+    with pytest.raises(ToolInputError, match=r"produced source that does not parse.*\(parameter: line\)$"):
+        require_other_definitions_untouched(_TWO_DEFS, "def f(a, *):\n    return a\n", 0)
+
+
+def test_too_deeply_nested_rewritten_module_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ast.parse`` raises RecursionError on source nested too deeply; only the rewritten text is made to."""
+    real_parse = ast.parse
+
+    def parse(source: str, *args: Any, **kwargs: Any) -> ast.Module:
+        if source == rewritten:
+            raise RecursionError("maximum recursion depth exceeded during compilation")
+        return real_parse(source, *args, **kwargs)
+
+    rewritten = _TWO_DEFS.replace("return a", "return 0")
+    monkeypatch.setattr(ast, "parse", parse)
+    with pytest.raises(ToolInputError, match=r"produced source that does not parse.*\(parameter: line\)$"):
+        require_other_definitions_untouched(_TWO_DEFS, rewritten, 0)
+
+
+def test_changed_number_of_definitions_is_refused() -> None:
+    with pytest.raises(ToolInputError, match=r"changed the number of function definitions.*\(parameter: line\)$"):
+        require_other_definitions_untouched(_TWO_DEFS, "def f(a, b):\n    return a\n", 0)

@@ -1627,3 +1627,104 @@ async def test_rename_refuses_attribute_spelled_dynamic_access(tmp_path: Path, b
     with pytest.raises(ToolInputError, match="reads local variables by name"):
         await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=True)
     assert module.read_text(encoding="utf-8") == source
+
+
+# --- change_signature: every operation refuses a rewrite of another same-named definition ---
+
+_ADD_Z = SignatureOperation(op="add", index=2, name="z", default="0")
+_REMOVE_B_OP = SignatureOperation(op="remove", index=1)
+_REORDER_OP = SignatureOperation(op="reorder", new_order=[1, 0])
+_REDEFINITION = "def f(a, b):\n    return a\n\n\ndef f(a, b):\n    return b\n\n\nf(1, 2)\n"
+_REDEFINITION_DEFAULTED = "def f(a, b=1):\n    return a\n\n\ndef f(a, b=1):\n    return b\n\n\nf(1)\n"
+_OVERLOADED = (
+    "from typing import overload\n\n\n@overload\ndef f(a, b): ...\n\n\n@overload\ndef f(a, b): ...\n\n\n"
+    "def f(a, b):\n    return a\n\n\nf(1, 2)\n"
+)
+_PROPERTY = (
+    "class C:\n    @property\n    def x(self):\n        return 1\n\n    @x.setter\n    def x(self, b):\n"
+    "        self._x = b\n"
+)
+_CONDITIONAL = "if True:\n    def f(a, b):\n        return a\nelse:\n    def f(a, b):\n        return b\n\n\nf(1, 2)\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "line", "character", "operation"),
+    [
+        pytest.param(_REDEFINITION, 0, 4, _ADD_Z, id="redefinition-target-first-add"),
+        pytest.param(_REDEFINITION, 4, 4, _ADD_Z, id="redefinition-target-last-add"),
+        pytest.param(_REDEFINITION, 0, 4, _REMOVE_B_OP, id="redefinition-target-first-remove"),
+        pytest.param(_REDEFINITION, 4, 4, _REMOVE_B_OP, id="redefinition-target-last-remove"),
+        pytest.param(_REDEFINITION, 0, 4, _REORDER_OP, id="redefinition-reorder"),
+        pytest.param(
+            _REDEFINITION_DEFAULTED, 4, 4, SignatureOperation(op="inline_default", index=1),
+            id="redefinition-inline-default",
+        ),
+        pytest.param(_CONDITIONAL, 1, 8, _REMOVE_B_OP, id="conditional-remove"),
+        pytest.param(_CONDITIONAL, 4, 8, _ADD_Z, id="conditional-add"),
+        pytest.param(_OVERLOADED, 4, 4, _REMOVE_B_OP, id="overload-stub-remove"),
+        pytest.param(_OVERLOADED, 11, 4, _ADD_Z, id="overload-implementation-add"),
+        pytest.param(_PROPERTY, 6, 8, _ADD_Z, id="property-setter-add"),
+        pytest.param(
+            _PROPERTY.replace("def x(self, b)", "def x(self, b=1)"), 6, 8,
+            SignatureOperation(op="inline_default", index=1), id="property-setter-inline-default",
+        ),
+    ],
+)
+async def test_signature_operations_refuse_when_rope_rewrites_another_same_named_definition(
+    tmp_path: Path, source: str, line: int, character: int, operation: SignatureOperation
+) -> None:
+    """rope gives every same-named ``def`` the target's header; no operation may write that, rename or not."""
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    with pytest.raises(ToolInputError, match=r"another definition named '[fx]'.*\(parameter: line\)$"):
+        await backend.change_signature(str(module), line, character, [operation], apply=True)
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(SignatureOperation(op="add", index=4, name="z", default="0"), id="add"),
+        pytest.param(SignatureOperation(op="remove", index=2), id="remove"),
+        pytest.param(SignatureOperation(op="reorder", new_order=[0, 2, 1, 3]), id="reorder"),
+        pytest.param(SignatureOperation(op="inline_default", index=3), id="inline-default"),
+    ],
+)
+@pytest.mark.parametrize("target", ["A", "B"])
+async def test_signature_operations_leave_a_same_named_method_of_another_class_alone(
+    tmp_path: Path, operation: SignatureOperation, target: str
+) -> None:
+    """Observed: rope rewrites only the method resolving to the target; the other class is not refused."""
+    header = "    def m(self, a, b, c=1):\n        return b\n"
+    source = f"class A:\n{header}\n\nclass B:\n{header}\n\nA().m(1, 2)\nB().m(1, 2)\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    result = await backend.change_signature(str(module), 1 if target == "A" else 6, 8, [operation], apply=False)
+    other = "class B:\n" if target == "A" else "class A:\n"
+    assert f"{other}{header}" in _edit_text(result, module)
+    assert _edit_text(result, module).count("def m(self, a, b, c=1):") == 1
+
+
+@pytest.mark.asyncio
+async def test_identical_header_rewrite_of_unannotated_same_named_definitions_is_accepted(tmp_path: Path) -> None:
+    """``normalize`` re-emits the same unannotated header: nothing differs, so nothing is refused."""
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": _REDEFINITION + "f(b=2, a=1)\n"})
+    result = await backend.change_signature(str(module), 0, 4, [SignatureOperation(op="normalize")], apply=False)
+    assert _edit_text(result, module).count("def f(a, b):") == 2
+    assert _edit_text(result, module).endswith("f(1, 2)\nf(1, 2)\n")
+
+
+@pytest.mark.asyncio
+async def test_annotated_same_named_definition_is_refused_even_when_its_parameters_are_unchanged(
+    tmp_path: Path,
+) -> None:
+    """rope drops annotations when it re-emits a header, so the other definition would lose them."""
+    source = "def f(a: int, b):\n    return a\n\n\ndef f(a: int, b):\n    return b\n\n\nf(b=2, a=1)\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    with pytest.raises(ToolInputError, match="another definition named 'f'"):
+        await backend.change_signature(str(module), 0, 4, [SignatureOperation(op="normalize")], apply=True)
+    assert module.read_text(encoding="utf-8") == source

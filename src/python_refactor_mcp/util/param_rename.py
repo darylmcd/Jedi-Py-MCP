@@ -266,26 +266,44 @@ class ParameterCollector:
             self.visit(node.elt, inner)
 
 
-def _require_other_definitions_untouched(
-    original: str, rewritten: Sequence[ast.FunctionDef | ast.AsyncFunctionDef], ordinal: int
-) -> None:
+def require_other_definitions_untouched(original: str, rewritten: str, ordinal: int) -> None:
     """Refuse when rope also rewrote the signature of another definition with the target's name.
 
     rope rewrites every definition occurrence it resolves to the target (a
     redefinition, a conditional ``def``, an ``@overload`` stub, a property
-    setter). Those headers change identically in the probe and the result, so the
-    compiled-code comparison cannot see them: their bodies would be left using
-    the old name.
+    setter) with the target's header, whatever the other definition declared;
+    only the target's own definition is meant to change. Parameters are compared
+    with ``ast.dump``, which includes annotations: rope drops them, so a
+    same-named annotated definition is refused even when its parameters are
+    unchanged. A definition rope left alone (a same-named method of an unrelated
+    class) is not refused. *ordinal* locates the target (see :func:`function_ordinal`).
+
+    Raises:
+        ToolInputError: another definition of the same name was rewritten, or the
+            rewritten module does not parse.
     """
     before = _function_nodes(_parse(original))
-    if len(before) != len(rewritten):
-        raise _refuse("rope changed the number of function definitions")
+    try:
+        after = _function_nodes(ast.parse(rewritten))
+    # Python 3.14 raises SyntaxError for invalid text (a null byte included) and RecursionError for source
+    # nested too deeply; ValueError is not raised for ``str`` input.
+    except (SyntaxError, RecursionError) as exc:
+        raise ToolInputError(
+            f"change_signature cannot rewrite this definition: rope produced source that does not parse ({exc}) "
+            "(parameter: line)"
+        ) from exc
+    if len(before) != len(after):
+        raise ToolInputError(
+            "change_signature cannot rewrite this definition: rope changed the number of function definitions "
+            "(parameter: line)"
+        )
     name = before[ordinal].name
-    for index, (old, new) in enumerate(zip(before, rewritten, strict=True)):
+    for index, (old, new) in enumerate(zip(before, after, strict=True)):
         if index != ordinal and old.name == name and ast.dump(old.args) != ast.dump(new.args):
-            raise _refuse(
-                f"rope also rewrote the signature of another definition named {name!r} (line {old.lineno}); "
-                "its body would keep the old parameter name"
+            raise ToolInputError(
+                "change_signature cannot rewrite this definition: rope also rewrote the signature of another "
+                f"definition named {name!r} (line {old.lineno}) and would leave its body inconsistent "
+                "(parameter: line)"
             )
 
 
@@ -502,7 +520,6 @@ def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, s
     if not 0 <= ordinal < len(functions):
         raise _refuse("the function was not found in rope's output")
     func = functions[ordinal]
-    _require_other_definitions_untouched(original, functions, ordinal)
 
     arg_edits: list[tuple[ast.Name | ast.arg, str]] = []
     for old, new in renames.items():
