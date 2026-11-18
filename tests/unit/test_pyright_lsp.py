@@ -2282,3 +2282,164 @@ async def test_get_diagnostics_many_validates_its_modes(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="concurrency"):
         await backend.get_diagnostics_many([str(importer)], concurrency=0)
     assert await backend.get_diagnostics_many([]) == []
+
+
+# ── start() refuses a closed backend ──────────────────────────────────
+
+
+def _candidate_harness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clients: list[LifecycleLSPClient]
+) -> tuple[ClosableClientHarness, list[LifecycleLSPClient]]:
+    """A backend whose candidate commands each get the next scripted client; also returns the spawn log."""
+    backend = _closable_harness(tmp_path, LifecycleLSPClient())
+    spawned: list[LifecycleLSPClient] = []
+    pending = iter(clients)
+
+    def make() -> LSPClient:
+        client = next(pending)
+        spawned.append(client)
+        return cast(LSPClient, client)
+
+    monkeypatch.setattr(backend, "_candidate_commands", lambda: [[f"fake-{i}"] for i in range(len(clients))])
+    monkeypatch.setattr(backend, "_make_client", make)
+    return backend, spawned
+
+
+@pytest.mark.asyncio
+async def test_start_after_shutdown_raises_and_spawns_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, spawned = _candidate_harness(tmp_path, monkeypatch, [LifecycleLSPClient()])
+    await backend.shutdown()
+
+    with pytest.raises(PyrightError, match="shut down"):
+        await backend.start()
+
+    assert spawned == []
+    assert backend.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_start_on_an_open_backend_still_starts_the_first_working_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, second = LifecycleLSPClient(), LifecycleLSPClient()
+    backend, spawned = _candidate_harness(tmp_path, monkeypatch, [first, second])
+
+    await backend.start()
+
+    assert spawned == [first]
+    assert first.alive is True
+    assert backend.is_running is True
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_the_first_candidates_start_stops_it_and_spawns_no_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first candidate comes up after shutdown began: it is stopped, the close error surfaces."""
+    first, second = LifecycleLSPClient(), LifecycleLSPClient()
+    gate = asyncio.Event()
+    first.start_gate = gate
+    backend, spawned = _candidate_harness(tmp_path, monkeypatch, [first, second])
+
+    starting = asyncio.create_task(backend.start())
+    await first.entered_start.wait()
+    shutting_down = asyncio.create_task(backend.shutdown())
+    await asyncio.sleep(0)
+    assert not shutting_down.done()  # queued behind the start, which holds the restart lock
+    gate.set()
+
+    with pytest.raises(PyrightError, match="shut down") as raised:
+        await starting
+    await shutting_down
+    assert "Unable to start" not in str(raised.value)
+    assert spawned == [first]
+    assert second.start_calls == 0
+    assert first.alive is False
+    assert backend.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_a_failing_first_candidate_does_not_try_the_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A candidate that fails after shutdown began is not recorded as a startup failure that moves on."""
+
+    class FailingStart(LifecycleLSPClient):
+        async def start(self, command: list[str]) -> None:
+            await super().start(command)
+            raise RuntimeError("cannot launch")
+
+    first, second = FailingStart(), LifecycleLSPClient()
+    gate = asyncio.Event()
+    first.start_gate = gate
+    backend, spawned = _candidate_harness(tmp_path, monkeypatch, [first, second])
+
+    starting = asyncio.create_task(backend.start())
+    await first.entered_start.wait()
+    shutting_down = asyncio.create_task(backend.shutdown())
+    await asyncio.sleep(0)
+    gate.set()
+
+    with pytest.raises(PyrightError, match="shut down") as raised:
+        await starting
+    await shutting_down
+    assert "Unable to start" not in str(raised.value)
+    assert spawned == [first]
+    assert second.start_calls == 0
+    assert backend.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_the_only_candidate_failing_reports_the_close_not_the_aggregate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The last (here: only) candidate fails after shutdown began: a closed backend reports the close."""
+
+    class FailingStart(LifecycleLSPClient):
+        async def start(self, command: list[str]) -> None:
+            await super().start(command)
+            raise RuntimeError("cannot launch")
+
+    only = FailingStart()
+    gate = asyncio.Event()
+    only.start_gate = gate
+    backend, spawned = _candidate_harness(tmp_path, monkeypatch, [only])
+
+    starting = asyncio.create_task(backend.start())
+    await only.entered_start.wait()
+    shutting_down = asyncio.create_task(backend.shutdown())
+    await asyncio.sleep(0)
+    gate.set()
+
+    with pytest.raises(PyrightError, match="shut down") as raised:
+        await starting
+    await shutting_down
+    assert "Unable to start" not in str(raised.value)
+    assert spawned == [only]
+
+
+@pytest.mark.asyncio
+async def test_a_failing_shutdown_of_the_fresh_client_does_not_mask_the_close_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class StubbornShutdown(LifecycleLSPClient):
+        async def shutdown(self) -> None:
+            raise OSError("cannot terminate")
+
+    first = StubbornShutdown()
+    gate = asyncio.Event()
+    first.start_gate = gate
+    backend, _spawned = _candidate_harness(tmp_path, monkeypatch, [first])
+
+    starting = asyncio.create_task(backend.start())
+    await first.entered_start.wait()
+    shutting_down = asyncio.create_task(backend.shutdown())
+    await asyncio.sleep(0)
+    gate.set()
+
+    with pytest.raises(PyrightError, match="shut down"):
+        await starting
+    with pytest.raises(OSError, match="cannot terminate"):
+        await shutting_down  # the backend's own shutdown still reports the stuck process
