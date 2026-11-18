@@ -372,11 +372,23 @@ def test_other_definition_with_identical_parameters_is_accepted() -> None:
     require_other_definitions_untouched(_TWO_DEFS, _TWO_DEFS.replace("return b", "return 0"), 0)
 
 
-_UNPARSEABLE = ["def f(a, *):\n    return a\n", "def f(a):\n    return a\x00\n"]
+def test_unparseable_rewritten_module_is_refused() -> None:
+    """rope's keyword-only emission (``def f(a, *)``) is the real-world shape."""
+    with pytest.raises(ToolInputError, match=r"produced source that does not parse.*\(parameter: line\)$"):
+        require_other_definitions_untouched(_TWO_DEFS, "def f(a, *):\n    return a\n", 0)
 
 
-@pytest.mark.parametrize("rewritten", _UNPARSEABLE, ids=["syntax-error", "null-byte"])
-def test_unparseable_rewritten_module_is_refused(rewritten: str) -> None:
+def test_too_deeply_nested_rewritten_module_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ast.parse`` raises RecursionError on source nested too deeply; only the rewritten text is made to."""
+    real_parse = ast.parse
+
+    def parse(source: str, *args: Any, **kwargs: Any) -> ast.Module:
+        if source == rewritten:
+            raise RecursionError("maximum recursion depth exceeded during compilation")
+        return real_parse(source, *args, **kwargs)
+
+    rewritten = _TWO_DEFS.replace("return a", "return 0")
+    monkeypatch.setattr(ast, "parse", parse)
     with pytest.raises(ToolInputError, match=r"produced source that does not parse.*\(parameter: line\)$"):
         require_other_definitions_untouched(_TWO_DEFS, rewritten, 0)
 

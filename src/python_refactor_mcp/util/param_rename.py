@@ -285,7 +285,9 @@ def require_other_definitions_untouched(original: str, rewritten: str, ordinal: 
     before = _function_nodes(_parse(original))
     try:
         after = _function_nodes(ast.parse(rewritten))
-    except (SyntaxError, ValueError, RecursionError) as exc:
+    # Python 3.14 raises SyntaxError for invalid text (a null byte included) and RecursionError for source
+    # nested too deeply; ValueError is not raised for ``str`` input.
+    except (SyntaxError, RecursionError) as exc:
         raise ToolInputError(
             f"change_signature cannot rewrite this definition: rope produced source that does not parse ({exc}) "
             "(parameter: line)"
