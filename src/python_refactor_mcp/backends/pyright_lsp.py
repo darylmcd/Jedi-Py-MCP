@@ -462,11 +462,16 @@ class PyrightLSPClient:
                     startup_errors.append(f"{' '.join(command)} -> {exc}")
                 else:
                     if self._closed:
-                        await self._client.shutdown()
+                        try:
+                            await self._client.shutdown()
+                        except Exception:
+                            # The close error below wins; ``shutdown`` retries stopping this client.
+                            _LOGGER.warning("Could not stop Pyright started during shutdown.", exc_info=True)
                         self._require_open()
                     self._startup_command = command
                     return
 
+            self._require_open()
             joined_errors = " | ".join(startup_errors)
             raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
 
