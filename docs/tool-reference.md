@@ -134,7 +134,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 
 | Tool | Purpose | Returns |
 |---|---|---|
-| `diff_preview` | Build unified diffs for pending text edits. | `list[DiffPreview]` |
+| `diff_preview` | Build unified diffs for pending text edits; every edit path must be absolute and inside one workspace. | `list[DiffPreview]` |
 | `refactor_transaction` | Apply an ordered `(tool, args)` list atomically under one change stack; commit on success, roll back all on any failure or overlap. | `TransactionResult` |
 | `get_keyword_help` | Return help for a Python keyword or operator. | `DocumentationResult` |
 | `get_sub_definitions` | Return names defined within a symbol via Jedi. | `list[NameEntry]` |

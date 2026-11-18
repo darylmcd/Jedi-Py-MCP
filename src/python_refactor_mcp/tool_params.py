@@ -77,7 +77,10 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
     "count": "Number of history operations to step through.",
     "package_name": "Dotted import name of the package to generate stubs for (for example requests).",
     "name": "Name to look up in the auto-import cache.",
-    "edits": "TextEdit objects to preview, typically taken from a refactoring tool's preview output.",
+    "edits": (
+        "TextEdit objects to preview, typically taken from a refactoring tool's preview output. "
+        "Every file_path must be absolute and inside one workspace."
+    ),
     "steps": 'Ordered refactoring steps, each {"tool": <name>, "args": {...}}.',
     "index": "0-based position of the parameter in the signature (self counts for methods).",
 }

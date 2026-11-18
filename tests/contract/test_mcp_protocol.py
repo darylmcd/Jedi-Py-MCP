@@ -246,7 +246,15 @@ async def test_path_params_are_validated() -> None:
     destination.
     """
     path_params = PATH_PARAMS
-    expected_members = {"file_path", "source_file", "destination_file", "root_path", "source_path", "destination_package"}
+    expected_members = {
+        "file_path",
+        "source_file",
+        "stub_file",
+        "destination_file",
+        "root_path",
+        "source_path",
+        "destination_package",
+    }
     assert expected_members == set(path_params)
     # Source/subject paths must precede destination paths.
     for src in ("file_path", "source_file", "source_path"):
