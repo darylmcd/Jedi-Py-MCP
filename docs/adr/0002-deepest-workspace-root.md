@@ -14,4 +14,4 @@ Select the closest registered root or project marker when walking from the suppl
 
 ## Migration
 
-A call that selects a nested workspace can no longer include files outside that workspace, even when the enclosing checkout is registered. Split scans and file lists into one call per workspace. Use another tool for a move across workspace boundaries or an atomic transaction spanning multiple workspaces.
+A call that selects a nested workspace can no longer include files outside that workspace, even when the enclosing checkout is registered. Split scans and file lists into one call per workspace. Use another tool for a move across workspace boundaries or an atomic transaction spanning multiple workspaces. The rule applies in every path order and to any nested project root (a Git worktree or a `pyproject.toml`, `setup.py` or `setup.cfg` project): a request whose explicit paths resolve to more than one workspace is rejected before any backend starts.

@@ -344,7 +344,7 @@ async def test_nested_workspace_call_rejects_paths_in_enclosing_workspace(tmp_pa
     nested_file = str(nested / "module.py")
     assert await diagnostic_tool(ctx, file_paths=[nested_file]) == nested
 
-    with pytest.raises(ToolError, match="outside the workspace root"):
+    with pytest.raises(ToolError, match="Paths span multiple workspaces"):
         await diagnostic_tool(ctx, file_paths=[nested_file, str(root / "module.py")])
 
 
@@ -793,3 +793,120 @@ async def test_wrapper_leaves_unanticipated_exceptions_untranslated(tmp_path: Pa
 
     with pytest.raises(ValueError, match="internal invariant"):
         await tool(ctx, file_path=str(root / "mod.py"))
+
+
+# ── mixed-workspace requests (nested-workspace-multi-path-boundary) ─────
+
+
+def _nested_layout(tmp_path: Path, nested_marker: str) -> tuple[Path, Path]:
+    """Create an outer checkout and a nested project root, each with two modules."""
+    outer = tmp_path / "outer"
+    nested = outer / "packages" / "inner"
+    nested.mkdir(parents=True)
+    (outer / ".git").mkdir()
+    if nested_marker == ".git":
+        (nested / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    else:
+        (nested / nested_marker).touch()
+    for root in (outer, nested):
+        (root / "a.py").touch()
+        (root / "b.py").touch()
+    return outer, nested
+
+
+def _real_registry_ctx() -> tuple[SimpleNamespace, AsyncMock]:
+    """Build a ctx over a real registry whose ``get_backends`` is a spy returning root-matched backends."""
+    registry = WorkspaceRegistry()
+
+    async def _get_backends(path: str) -> WorkspaceBackends:
+        return _backends(registry.resolve_workspace_root(Path(path)))
+
+    spy = AsyncMock(side_effect=_get_backends)
+    registry.get_backends = spy  # type: ignore[method-assign]
+    return _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None)), spy
+
+
+_MIXED_ROOT_MESSAGE = r"^\[INVALID_INPUT\] Paths span multiple workspaces"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested_marker", [".git", "pyproject.toml"])
+@pytest.mark.parametrize("outer_first", [True, False])
+@pytest.mark.parametrize("shape", ["file_paths", "move", "root_and_list", "steps"])
+async def test_wrapper_rejects_mixed_workspace_paths_before_execution(
+    tmp_path: Path,
+    nested_marker: str,
+    outer_first: bool,
+    shape: str,
+) -> None:
+    """Explicit paths in different workspaces fail in either order; no backend starts, no tool runs."""
+    outer, nested = _nested_layout(tmp_path, nested_marker)
+    first, second = (outer, nested) if outer_first else (nested, outer)
+    ctx, spy = _real_registry_ctx()
+    called = False
+
+    @tool_error_boundary
+    async def tool(ctx: object, **kwargs: object) -> str:
+        nonlocal called
+        called = True
+        return "ok"
+
+    kwargs: dict[str, object]
+    if shape == "file_paths":
+        kwargs = {"file_paths": [str(first / "a.py"), str(second / "a.py")]}
+    elif shape == "move":
+        kwargs = {"source_file": str(first / "a.py"), "destination_file": str(second / "b.py")}
+    elif shape == "root_and_list":
+        kwargs = {"root_path": str(first), "file_paths": [str(second / "a.py")]}
+    else:
+        kwargs = {"steps": [_rename_step(str(first / "a.py")), _rename_step(str(second / "a.py"))]}
+
+    with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
+        await tool(ctx, **kwargs)
+
+    assert called is False
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("which", ["outer", "nested"])
+@pytest.mark.parametrize("shape", ["file_paths", "move", "steps"])
+async def test_wrapper_dispatches_same_workspace_multi_path(tmp_path: Path, which: str, shape: str) -> None:
+    """Same-root file lists, moves and transactions still dispatch with that workspace's backends."""
+    outer, nested = _nested_layout(tmp_path, ".git")
+    root = outer if which == "outer" else nested
+    ctx, spy = _real_registry_ctx()
+    seen: list[Path] = []
+
+    @tool_error_boundary
+    async def tool(ctx: object, **kwargs: object) -> str:
+        seen.append(get_current_backends().config.workspace_root)
+        return "ok"
+
+    if shape == "file_paths":
+        kwargs: dict[str, object] = {"file_paths": [str(root / "a.py"), str(root / "b.py")]}
+    elif shape == "move":
+        kwargs = {"source_file": str(root / "a.py"), "destination_file": str(root / "b.py")}
+    else:
+        kwargs = {"steps": [_rename_step(str(root / "a.py")), _rename_step(str(root / "b.py"))]}
+
+    assert await tool(ctx, **kwargs) == "ok"
+    assert seen == [root.resolve()]
+    spy.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_wrapper_keeps_outside_workspace_error_for_unmarked_second_path(tmp_path: Path) -> None:
+    """A later path under no known root or marker keeps the typed containment error."""
+    outer, _nested = _nested_layout(tmp_path, ".git")
+    unmarked = tmp_path / "unmarked"
+    unmarked.mkdir()
+    (unmarked / "x.py").touch()
+    ctx, _spy = _real_registry_ctx()
+
+    @tool_error_boundary
+    async def tool(ctx: object, file_paths: list[str]) -> str:
+        return "ok"
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
+        await tool(ctx, file_paths=[str(outer / "a.py"), str(unmarked / "x.py")])
