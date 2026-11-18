@@ -16,7 +16,7 @@ from typing import Any
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp.errors import BackendError, ToolInputError
+from python_refactor_mcp.errors import BackendError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.models import TransactionStepArgs
 from python_refactor_mcp.util.shared import (
     resolve_workspace_dir,
@@ -31,7 +31,8 @@ _LOGGER = logging.getLogger("python_refactor_mcp.server")
 
 # Parameters that contain file paths requiring workspace boundary validation.
 # Order is deliberate: when a tool accepts multiple path params, the first
-# entry present in kwargs anchors workspace resolution. Source/subject paths
+# entry present in kwargs anchors workspace resolution, and every present
+# entry must resolve to that same workspace (a nested root is a distinct one). Source/subject paths
 # come before destination paths so move/copy tools resolve to the source
 # workspace rather than the destination. Every entry (and each list/transaction
 # path) must be absolute: these values choose the workspace, so no workspace
@@ -96,11 +97,6 @@ def _transaction_step_args(kwargs: dict[str, Any]) -> list[TransactionStepArgs]:
     return step_args
 
 
-def _transaction_step_paths(kwargs: dict[str, Any]) -> list[str]:
-    """Extract nested ``refactor_transaction`` file paths in request order."""
-    return [args.file_path for args in _transaction_step_args(kwargs)]
-
-
 @dataclass(slots=True)
 class MultiWorkspaceContext:
     """Lifespan context holding the workspace registry."""
@@ -138,6 +134,53 @@ def get_multi_context(ctx: Context) -> MultiWorkspaceContext:
     return lifespan_context
 
 
+def _workspace_path_args(kwargs: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return ``(parameter label, value)`` for every explicit workspace-selecting path.
+
+    Order is the anchor order: ``PATH_PARAMS`` entries, then ``file_paths``
+    elements, then ``refactor_transaction`` step paths. Non-string values are
+    skipped; ``_validate_params`` rejects them.
+    """
+    found: list[tuple[str, str]] = []
+    for param_name in PATH_PARAMS:
+        value = kwargs.get(param_name)
+        if isinstance(value, str):
+            found.append((param_name, value))
+    for param_name in _LIST_PATH_PARAMS:
+        values = kwargs.get(param_name)
+        if isinstance(values, list):
+            found.extend((param_name, value) for value in values if isinstance(value, str))
+    for index, args in enumerate(_transaction_step_args(kwargs)):
+        found.append((f"steps[{index}].args.file_path", args.file_path))
+    return found
+
+
+def _require_single_workspace(registry: WorkspaceRegistry, kwargs: dict[str, Any]) -> None:
+    """Reject a request whose explicit paths resolve to more than one workspace.
+
+    Containment in the selected root is not enough: a nested project root lies
+    inside its enclosing checkout yet is a different workspace with its own
+    backends and configuration. Resolving roots is a pure path walk, so a
+    rejected request neither starts a backend nor evicts a live workspace. The
+    anchor's own resolution error propagates; a later path with no enclosing
+    root is left to the containment check so it keeps its typed input error.
+    """
+    roots: dict[Path, str] = {}
+    for index, (label, value) in enumerate(_workspace_path_args(kwargs)):
+        try:
+            root = registry.resolve_workspace_root(Path(value))
+        except WorkspaceResolutionError:
+            if index == 0:
+                raise
+            continue
+        roots.setdefault(root, f"{label}={value}")
+    if len(roots) > 1:
+        located = "; ".join(f"{described} -> {root}" for root, described in roots.items())
+        raise ToolInputError(
+            f"Paths span multiple workspaces ({located}); split the call into one call per workspace"
+        )
+
+
 async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
     """Resolve the backends for a tool call from its context and arguments."""
     if ctx is None:
@@ -146,26 +189,10 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
     multi_ctx = get_multi_context(ctx)
     registry = multi_ctx.registry
 
-    primary_path: str | None = None
-    for param_name in PATH_PARAMS:
-        value = kwargs.get(param_name)
-        if isinstance(value, str):
-            primary_path = value
-            break
-    if primary_path is None:
-        for param_name in _LIST_PATH_PARAMS:
-            values = kwargs.get(param_name)
-            if isinstance(values, list) and values:
-                primary_path = next((value for value in values if isinstance(value, str)), None)
-                if primary_path is not None:
-                    break
-    if primary_path is None:
-        nested_paths = _transaction_step_paths(kwargs)
-        if nested_paths:
-            primary_path = nested_paths[0]
-
-    if primary_path is not None:
-        return await registry.get_backends(primary_path)
+    paths = [value for _label, value in _workspace_path_args(kwargs)]
+    if paths:
+        _require_single_workspace(registry, kwargs)
+        return await registry.get_backends(paths[0])
 
     backends = registry.get_most_recent()
     if backends is None and multi_ctx.cli_workspace_root is not None:
@@ -187,20 +214,8 @@ def _reject_relative_paths(kwargs: dict[str, Any]) -> None:
     as relative; on Windows a POSIX-rooted ``/x`` is not absolute. Non-string
     values are left to ``_validate_params``.
     """
-    for param_name in PATH_PARAMS:
-        value = kwargs.get(param_name)
-        if isinstance(value, str):
-            _require_absolute(value, param_name)
-
-    for param_name in _LIST_PATH_PARAMS:
-        values = kwargs.get(param_name)
-        if isinstance(values, list):
-            for value in values:
-                if isinstance(value, str):
-                    _require_absolute(value, param_name)
-
-    for index, args in enumerate(_transaction_step_args(kwargs)):
-        _require_absolute(args.file_path, f"steps[{index}].args.file_path")
+    for label, value in _workspace_path_args(kwargs):
+        _require_absolute(value, label)
 
 
 def _validate_params(kwargs: dict[str, Any], workspace_root: Path) -> None:
