@@ -28,7 +28,7 @@ from python_refactor_mcp.tool_runtime import IDENTIFIER_PARAMS, PATH_PARAMS
 def _profile_server(profile: ToolProfile) -> MCPServer:
     return MCPServer(
         f"Python Refactor contract ({profile})",
-        tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+        tools=build_tools(profile),
     )
 
 
@@ -49,7 +49,7 @@ async def test_tool_profile_count_within_budget(profile: ToolProfile) -> None:
 @pytest.mark.asyncio
 async def test_tool_profiles_cover_complete_catalog() -> None:
     """Every registered tool remains accessible through at least one profile."""
-    all_records = (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
+    all_records = TOOL_RECORDS
     catalog = {record.func.__name__ for record in all_records}
     advertised: set[str] = set()
     for profile in TOOL_PROFILES:
@@ -61,7 +61,7 @@ async def test_tool_profiles_cover_complete_catalog() -> None:
 def test_profile_policy_counts_are_explicit() -> None:
     """Profile composition changes require an intentional contract update."""
     counts = {
-        profile: len(tool_names_for_profile(profile, extra_records=server.EXPLICIT_TOOL_RECORDS))
+        profile: len(tool_names_for_profile(profile))
         for profile in TOOL_PROFILES
     }
     assert counts == {"analysis": 56, "refactoring": 75}
@@ -90,7 +90,7 @@ def _cited_hidden_tools(text: str, hidden: set[str]) -> set[str]:
 @pytest.mark.parametrize("profile", TOOL_PROFILES)
 async def test_profile_surface_cites_only_advertised_tools(profile: ToolProfile) -> None:
     """Descriptions and server instructions never name a tool the profile hides."""
-    catalog = {record.func.__name__ for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)}
+    catalog = {record.func.__name__ for record in TOOL_RECORDS}
     tools = await _profile_tools(profile)
     advertised = frozenset(tool.name for tool in tools)
     hidden = catalog - advertised
@@ -122,10 +122,7 @@ async def test_immediate_write_tools_state_no_preview() -> None:
 def test_profile_policy_rejects_unknown_profile() -> None:
     """Programmatic callers cannot bypass fail-closed config validation."""
     with pytest.raises(ValueError, match="Unknown tool profile"):
-        tool_names_for_profile(
-            cast("ToolProfile", "unknown"),
-            extra_records=server.EXPLICIT_TOOL_RECORDS,
-        )
+        tool_names_for_profile(cast("ToolProfile", "unknown"))
 
 
 @pytest.mark.asyncio
@@ -239,7 +236,7 @@ async def test_annotation_variants_exist() -> None:
 
 def _tools_using(mode: tool_runtime.WorkspaceUse) -> set[str]:
     """Names of the registered tools whose boundary resolves *mode*."""
-    return {record.func.__name__ for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS) if record.workspace is mode}
+    return {record.func.__name__ for record in TOOL_RECORDS if record.workspace is mode}
 
 
 def test_workspace_modes_are_explicit() -> None:

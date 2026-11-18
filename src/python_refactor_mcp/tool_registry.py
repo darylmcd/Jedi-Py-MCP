@@ -21,10 +21,9 @@ uniform enough to drive from data alone. The standard-library debug log the plan
 modelled as ``debug_fmt_fn`` is therefore kept inline in each delegate.
 
 The eleven wrappers with non-trivial bodies (conditionals, multi-branch backend
-selection, or aliased imports) remain explicit :class:`ToolRecord` entries in
-``server.py::EXPLICIT_TOOL_RECORDS``. The server passes them to
-:func:`build_tools` through ``extra_records`` so both wrapper families share
-one registration and error-boundary path.
+selection, aliased imports, or no backend) sit in their own section below the
+pure delegates; every wrapper is one :class:`ToolRecord` in :data:`TOOL_RECORDS`,
+the only registration and error-boundary path.
 
 ``eval_str=True`` means every annotation referenced by a delegate must resolve
 in this module's namespace; that is why the model types below are imported here
@@ -40,6 +39,7 @@ import re
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any, cast
 
 from mcp.server.mcpserver import Context
@@ -48,11 +48,15 @@ from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field
 
+from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
+from python_refactor_mcp.errors import BackendError, ToolInputError
 from python_refactor_mcp.models import (
+    BackendLiveness,
     CallHierarchyResult,
     CodeActionResult,
     CodeMetricsResult,
+    CompletionItem,
     ConstructorSearchResult,
     CouplingMetricsResult,
     DependencyGraph,
@@ -66,6 +70,7 @@ from python_refactor_mcp.models import (
     HistoryEntry,
     ImportSuggestion,
     InferredType,
+    InlayHint,
     InterfaceComparison,
     LayerViolationResult,
     Location,
@@ -79,16 +84,20 @@ from python_refactor_mcp.models import (
     RefactorResult,
     ReferenceResult,
     ScopeContext,
+    SecurityScanResult,
     SelectionRangeResult,
     SemanticToken,
+    ServerStatus,
     SignatureInfo,
     SignatureOperation,
     StaticError,
     StructuralSearchResult,
     SymbolAnchor,
     SymbolInfo,
+    SymbolOutlineResult,
     SymbolSearchResult,
     SyntaxErrorItem,
+    TestCoverageMap,
     TestImpactResult,
     TextEdit,
     TransactionResult,
@@ -99,6 +108,7 @@ from python_refactor_mcp.models import (
     TypeStubCreationResult,
     TypeStubFreshnessResult,
     TypeUsersResult,
+    UnusedImportScanResult,
 )
 from python_refactor_mcp.tool_params import (
     PARAM_DESCRIPTIONS,
@@ -132,9 +142,12 @@ from python_refactor_mcp.tool_params import (
     NewName,
     Offset,
     OptionalClassName,
+    OptionalEndLine,
     OptionalFilePath,
     OptionalMaxItems,
+    OptionalMaxNodes,
     PackageName,
+    ParameterIndex,
     Query,
     RootPath,
     RopePattern,
@@ -149,14 +162,24 @@ from python_refactor_mcp.tool_params import (
     TypeDirection,
     WorkspaceRootPath,
 )
-from python_refactor_mcp.tool_runtime import WorkspaceUse, get_current_backends, tool_error_boundary
+from python_refactor_mcp.tool_runtime import (
+    MultiWorkspaceContext,
+    WorkspaceUse,
+    get_current_backends,
+    get_multi_context,
+    tool_error_boundary,
+)
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
+from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
+from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
+from python_refactor_mcp.tools.refactoring.security_autofix import security_autofix as _security_autofix
+from python_refactor_mcp.tools.search.structural import structural_replace as _structural_replace
+from python_refactor_mcp.util.shared import apply_limit
 
 _LOGGER = logging.getLogger(__name__)
 
-# Tool annotation constants. Defined here (the registration owner) and imported
-# by ``server.py`` for its explicit wrappers. Values pass through per tool and
-# are never collapsed to a single default.
+# Tool annotation constants. Values pass through per tool and are never
+# collapsed to a single default.
 READ_ONLY_ANNOTATIONS = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 DESTRUCTIVE_ANNOTATIONS = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
@@ -1683,6 +1706,262 @@ async def multi_project_rename(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Delegates with non-trivial bodies
+#
+#  Conditionals, multi-branch backend selection, aliased imports, or no backend
+#  at all. Same registration path as the pure delegates above.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# Default payload bounds for workspace-wide get_symbol_outline scans.
+_WORKSPACE_OUTLINE_ROOT_LIMIT = 500
+_WORKSPACE_OUTLINE_MAX_NODES = 250
+
+
+async def get_completions(
+    ctx: Context,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    limit: Limit = None,
+    fuzzy: bool = False,
+) -> list[CompletionItem]:
+    """Get code completion candidates at a cursor position. Use when suggesting what a user might type next — returns available symbols, methods, and keywords at the given location. Sorted by label. Set fuzzy=True for fuzzy matching (e.g., 'ooa' matches 'foobar'). Related: get_signature_help (for call-site parameter info). Positions are 0-based (line and character offsets, LSP convention)."""
+    app = get_current_backends()
+    if fuzzy:
+        result = await app.jedi.get_completions(file_path, line, character, fuzzy=True)
+        result, _ = apply_limit(result, limit)
+    else:
+        result = await analysis.get_completions(app.pyright, file_path, line, character, limit)
+    _LOGGER.debug("get_completions count=%s fuzzy=%s", len(result), fuzzy)
+    return result
+
+
+async def get_inlay_hints(
+    ctx: Context,
+    file_path: FilePath,
+    start_line: StartLine = 0,
+    start_character: StartCharacter = 0,
+    end_line: OptionalEndLine = None,
+    end_character: EndCharacter = 0,
+) -> list[InlayHint]:
+    """Get inlay hints (inline type annotations, parameter names) for a file range. Use to visualize inferred types and parameter labels that aren't written in the source. Defaults to the full file when end_line is omitted. Related: get_type_info, get_semantic_tokens. Positions are 0-based (line and character offsets, LSP convention)."""
+    app = get_current_backends()
+    if end_line is None:
+        try:
+            line_count = len(Path(file_path).read_text(encoding="utf-8").splitlines())
+        except (OSError, UnicodeError) as exc:
+            raise BackendError(f"Cannot read file for line count: {exc}") from exc
+        end_line = max(line_count, 0)
+    result = await analysis.get_inlay_hints(
+        app.pyright,
+        file_path,
+        start_line,
+        start_character,
+        end_line,
+        end_character,
+    )
+    _LOGGER.debug("get_inlay_hints count=%s", len(result))
+    return result
+
+
+async def get_symbol_outline(
+    ctx: Context,
+    file_path: OptionalFilePath = None,
+    kind_filter: list[str] | None = None,
+    name_pattern: str | None = None,
+    limit: Limit = None,
+    root_path: RootPath = None,
+    file_paths: FilePaths = None,
+    offset: Offset = 0,
+    max_nodes: OptionalMaxNodes = None,
+) -> SymbolOutlineResult:
+    """Get a hierarchical outline of classes, functions, and variables in a file or across the workspace. Use to understand code structure at a glance, find symbols by name pattern, or filter by kind (class, function, variable). Returns {items, total_count, offset, truncated, total_nodes, returned_nodes}. Supports pagination via offset/limit (limit counts root items). max_nodes caps roots plus descendants; a root crossing the budget keeps a depth-first prefix of its children. Workspace-wide scans (no file_path/file_paths) default to limit=500 roots and max_nodes=250; single-file and batch outlines are unbounded unless set. Check truncated before assuming completeness. Related: search_symbols (name-based search), get_folding_ranges."""
+    app = get_current_backends()
+    # Workspace-wide scans default to bounded output: a full-repo outline is
+    # otherwise megabytes (500 roots once carried ~10k descendant nodes).
+    effective_limit = limit
+    effective_max_nodes = max_nodes
+    if file_path is None and file_paths is None:
+        if effective_limit is None:
+            effective_limit = _WORKSPACE_OUTLINE_ROOT_LIMIT
+        if effective_max_nodes is None:
+            effective_max_nodes = _WORKSPACE_OUTLINE_MAX_NODES
+    result = await navigation.get_symbol_outline(
+        app.pyright,
+        app.config,
+        file_path,
+        kind_filter,
+        name_pattern,
+        effective_limit,
+        root_path,
+        file_paths,
+        offset,
+        effective_max_nodes,
+    )
+    _LOGGER.debug(
+        "get_symbol_outline roots=%s nodes=%s/%s truncated=%s",
+        len(result.items),
+        result.returned_nodes,
+        result.total_nodes,
+        result.truncated,
+    )
+    return result
+
+
+async def argument_normalizer(
+    ctx: Context,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    apply: Apply = False,
+) -> RefactorResult:
+    """Normalize call-site arguments to match the function definition's parameter order. Use to clean up keyword arguments that are passed in a different order than the signature defines. Convenience wrapper over change_signature with op='normalize'. Defaults to preview mode. Related: change_signature, argument_default_inliner. Positions are 0-based (line and character offsets, LSP convention)."""
+    app = get_current_backends()
+    ops = [SignatureOperation(op="normalize")]
+    result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
+    _LOGGER.debug("argument_normalizer edits=%s applied=%s", len(result.edits), result.applied)
+    return result
+
+
+async def argument_default_inliner(
+    ctx: Context,
+    file_path: FilePath,
+    line: Line,
+    character: Character,
+    index: ParameterIndex,
+    apply: Apply = False,
+) -> RefactorResult:
+    """Inline a parameter's default value into all call sites that omit it, then remove the default from the signature. Use to push defaults to callers before removing the parameter. The index is the 0-based parameter position (``self`` counts for methods); it must name a parameter that has a default, and no earlier parameter may keep a default. Convenience wrapper over change_signature with op='inline_default'. Defaults to preview mode. Related: change_signature, argument_normalizer. Positions are 0-based (line and character offsets, LSP convention)."""
+    app = get_current_backends()
+    ops = [SignatureOperation(op="inline_default", index=index)]
+    result = await refactoring.change_signature(app.pyright, app.rope, file_path, line, character, ops, apply)
+    _LOGGER.debug("argument_default_inliner edits=%s applied=%s", len(result.edits), result.applied)
+    return result
+
+
+async def find_unused_imports(
+    ctx: Context,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
+) -> UnusedImportScanResult:
+    """Find unused imports using Pyright diagnostics merged with an AST fallback. Items and partial file/backend scan_failures are returned separately. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
+    app = get_current_backends()
+    if file_path is None and not file_paths:
+        raise ToolInputError("file_path or file_paths must be provided.")
+    effective_path = file_path if file_path is not None else file_paths[0]  # type: ignore[index]
+    result = await metrics.find_unused_imports(app.pyright, effective_path, file_paths)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log("find_unused_imports count=%s scan_failures=%s", len(result.items), len(result.scan_failures))
+    return result
+
+
+async def get_test_coverage_map(
+    ctx: Context,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
+) -> TestCoverageMap:
+    """Map source symbols to test references. Shows which functions/classes have test coverage without treating failed reference lookups as uncovered; partial failures are returned in scan_failures. Related: find_references, dead_code_detection."""
+    app = get_current_backends()
+    result = await _get_test_coverage_map(app.pyright, file_path, file_paths)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "get_test_coverage_map total=%s covered=%s scan_failures=%s",
+        result.total_symbols,
+        result.covered_count,
+        len(result.scan_failures),
+    )
+    return result
+
+
+async def security_scan(
+    ctx: Context,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
+) -> SecurityScanResult:
+    """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Unreadable or unparseable files are returned in scan_failures rather than treated as clean. Related: get_diagnostics, dead_code_detection."""
+    _ = get_current_backends()
+    result = await _security_scan(file_path, file_paths)
+    log = _LOGGER.warning if result.scan_failures else _LOGGER.debug
+    log(
+        "security_scan files=%s findings=%s scan_failures=%s",
+        result.files_scanned,
+        result.total_findings,
+        len(result.scan_failures),
+    )
+    return result
+
+
+async def security_autofix(
+    ctx: Context,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
+) -> RefactorResult:
+    """Rewrite unsafe yaml.load() calls (SEC022) to yaml.safe_load(). Targets the literal yaml.load attribute call; calls that already pass an explicit Loader= are skipped (reported in the description). Defaults to preview mode (apply=False). Behavior-changing: safe_load rejects arbitrary tags/object construction that load permits. Related: security_scan."""
+    app = get_current_backends()
+    result = await _security_autofix(app.pyright, file_path, file_paths, apply)
+    _LOGGER.debug("security_autofix edits=%s applied=%s", len(result.edits), result.applied)
+    return result
+
+
+async def structural_replace(
+    ctx: Context,
+    pattern: MatcherPattern,
+    replacement: str,
+    file_path: OptionalFilePath = None,
+    file_paths: FilePaths = None,
+    apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
+) -> RefactorResult:
+    """Find structural matches with a LibCST matcher pattern and rewrite them. The pattern uses the same matcher DSL as structural_search (e.g. m.Call(func=m.Attribute(value=m.Name('logger'), attr=m.Name('warn')), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])); capture sub-nodes with m.SaveMatchedNode(matcher, 'name') and reference them in the replacement template as $name (e.g. 'logger.warning($a)'). Expression-position matches only. Requires file_path or file_paths; defaults to preview mode (apply=False). Related: structural_search, restructure."""
+    app = get_current_backends()
+    result = await _structural_replace(app.pyright, pattern, replacement, file_path, file_paths, apply)
+    _LOGGER.debug("structural_replace edits=%s applied=%s", len(result.edits), result.applied)
+    return result
+
+
+def _build_server_status(multi_ctx: MultiWorkspaceContext) -> ServerStatus:
+    """Assemble a :class:`ServerStatus` from the lifespan registry state.
+
+    Pure and synchronous (no analysis round-trips) so it is directly testable
+    without the MCP context/boundary harness. ``degraded`` is True when no
+    loaded workspace has a live Pyright subprocess.
+    """
+    registry = multi_ctx.registry
+    workspaces = [
+        BackendLiveness(
+            workspace_root=str(wb.config.workspace_root),
+            initialized=wb.is_initialized,
+            pyright_running=wb.pyright.is_running,
+            jedi_ready=wb.jedi.is_ready,
+            rope_ready=wb.rope.is_ready,
+            python_executable=str(wb.config.python_executable),
+            pyright_executable=wb.config.pyright_executable,
+        )
+        for wb in registry.active_backends()
+    ]
+    return ServerStatus(
+        version=__version__,
+        cli_workspace_root=str(multi_ctx.cli_workspace_root) if multi_ctx.cli_workspace_root else None,
+        known_roots=[str(root) for root in registry.get_known_roots()],
+        active_workspaces=workspaces,
+        degraded=not any(w.pyright_running for w in workspaces),
+    )
+
+
+async def server_status(ctx: Context) -> ServerStatus:
+    """Report read-only server health: version, known workspace roots, and per-workspace backend liveness (Pyright subprocess up, Jedi/rope ready). Use to tell whether results came from a healthy Pyright or a degraded Jedi fallback. Works even when no workspace is loaded. Probes are cheap and non-blocking. Related: list_environments, restart_server."""
+    status = _build_server_status(get_multi_context(ctx))
+    _LOGGER.debug("server_status workspaces=%s degraded=%s", len(status.active_workspaces), status.degraded)
+    return status
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  Registration table
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1837,6 +2116,17 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(commit_change_stack, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(rollback_change_stack, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(multi_project_rename, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(get_completions, READ_ONLY_ANNOTATIONS),
+    ToolRecord(get_inlay_hints, READ_ONLY_ANNOTATIONS),
+    ToolRecord(get_symbol_outline, READ_ONLY_ANNOTATIONS),
+    ToolRecord(argument_normalizer, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(argument_default_inliner, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(find_unused_imports, READ_ONLY_ANNOTATIONS),
+    ToolRecord(get_test_coverage_map, READ_ONLY_ANNOTATIONS),
+    ToolRecord(security_scan, READ_ONLY_ANNOTATIONS),
+    ToolRecord(security_autofix, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(structural_replace, DESTRUCTIVE_ANNOTATIONS),
+    ToolRecord(server_status, READ_ONLY_ANNOTATIONS, WorkspaceUse.NONE),
 )
 
 
@@ -1847,20 +2137,15 @@ def _profile_includes(record: ToolRecord, profile: ToolProfile) -> bool:
     return record.annotations.read_only_hint is not True or record.func.__name__ in _REFACTORING_SUPPORT_TOOLS
 
 
-def tool_names_for_profile(
-    profile: ToolProfile,
-    *,
-    extra_records: tuple[ToolRecord, ...] = (),
-) -> frozenset[str]:
+def tool_names_for_profile(profile: ToolProfile) -> frozenset[str]:
     """Return the complete advertised name set for *profile*."""
     if profile not in TOOL_PROFILES:
         raise ValueError(f"Unknown tool profile: {profile!r}")
-    records = (*TOOL_RECORDS, *extra_records)
-    name_counts = Counter(record.func.__name__ for record in records)
+    name_counts = Counter(record.func.__name__ for record in TOOL_RECORDS)
     duplicates = sorted(name for name, count in name_counts.items() if count > 1)
     if duplicates:
         raise ValueError(f"Duplicate tool registrations: {', '.join(duplicates)}")
-    return frozenset(record.func.__name__ for record in records if _profile_includes(record, profile))
+    return frozenset(record.func.__name__ for record in TOOL_RECORDS if _profile_includes(record, profile))
 
 
 _RELATED_MARKER = "Related:"
@@ -1952,25 +2237,19 @@ def _forbid_unknown_arguments(tool: Tool) -> Tool:
     return tool
 
 
-def build_tools(
-    profile: ToolProfile,
-    *,
-    extra_records: tuple[ToolRecord, ...] = (),
-) -> list[Tool]:
+def build_tools(profile: ToolProfile) -> list[Tool]:
     """Build the advertised tools of *profile* for ``MCPServer(tools=...)``.
 
     Applies ``tool_error_boundary`` (which preserves the delegate's name and
     signature via ``@wraps``), attaches the per-tool annotation constant, and
-    makes every tool reject unknown argument keys. ``extra_records`` carries the
-    non-delegating wrappers owned by ``server.py`` so one policy controls the
-    complete advertised surface.
+    makes every tool reject unknown argument keys.
 
     Backend lookup and error handling come from ``tool_runtime`` so registry
     import order cannot depend on the server shell. Each advertised description
     passes through :func:`profile_description` so ``Related:`` hints never cite a
     tool the selected profile hides.
     """
-    selected_names = tool_names_for_profile(profile, extra_records=extra_records)
+    selected_names = tool_names_for_profile(profile)
     if len(selected_names) >= MAX_TOOLS_PER_PROFILE:
         raise ValueError(
             f"Tool profile {profile!r} advertises {len(selected_names)} tools; "
@@ -1985,6 +2264,6 @@ def build_tools(
                 annotations=record.annotations,
             )
         )
-        for record in (*TOOL_RECORDS, *extra_records)
+        for record in TOOL_RECORDS
         if record.func.__name__ in selected_names
     ]

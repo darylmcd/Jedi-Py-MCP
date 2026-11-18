@@ -23,7 +23,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from python_refactor_mcp import server, tool_runtime
+from python_refactor_mcp import tool_runtime
 from python_refactor_mcp.config import TOOL_PROFILES
 from python_refactor_mcp.errors import (
     AmbiguousWorkspaceError,
@@ -337,7 +337,7 @@ async def test_every_directory_typed_tool_param_is_validated() -> None:
     for profile in TOOL_PROFILES:
         mcp = MCPServer(
             f"dir-param drift guard ({profile})",
-            tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+            tools=build_tools(profile),
         )
         for tool in await mcp.list_tools():
             properties = tool.input_schema.get("properties", {})
@@ -1346,7 +1346,7 @@ async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> Non
     for profile in TOOL_PROFILES:
         mcp = MCPServer(
             f"path-param drift guard ({profile})",
-            tools=build_tools(profile, extra_records=server.EXPLICIT_TOOL_RECORDS),
+            tools=build_tools(profile),
         )
         for tool in await mcp.list_tools():
             defs = tool.input_schema.get("$defs", {})

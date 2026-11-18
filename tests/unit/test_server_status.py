@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from python_refactor_mcp import server
-from python_refactor_mcp.server import MultiWorkspaceContext, _build_server_status
+from python_refactor_mcp import __version__, server
+from python_refactor_mcp.tool_registry import _build_server_status
+from python_refactor_mcp.tool_runtime import MultiWorkspaceContext
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 
@@ -42,7 +43,7 @@ def test_status_empty_registry_is_degraded() -> None:
     assert status.active_workspaces == []
     assert status.known_roots == []
     assert status.cli_workspace_root is None
-    assert status.version == server.__version__
+    assert status.version == __version__
 
 
 def test_status_reports_per_backend_liveness(tmp_path: Path) -> None:

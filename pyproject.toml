@@ -46,9 +46,7 @@ indent-style = "space"
 select = ["E", "F", "I", "UP", "B", "SIM", "G004"]
 
 [tool.ruff.lint.per-file-ignores]
-# Tool docstrings in server.py are intentionally long (LLM-facing descriptions).
-"src/python_refactor_mcp/server.py" = ["E501"]
-# tool_registry.py carries the same LLM-facing tool docstrings moved out of server.py.
+# tool_registry.py carries every LLM-facing tool docstring, which is intentionally long.
 "src/python_refactor_mcp/tool_registry.py" = ["E501"]
 # Pre-existing long lines in contract tests and navigation helpers.
 "tests/contract/test_mcp_protocol.py" = ["E501"]

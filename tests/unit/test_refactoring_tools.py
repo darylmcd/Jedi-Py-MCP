@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from python_refactor_mcp import server
+from python_refactor_mcp import tool_registry
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import (
@@ -199,10 +199,10 @@ async def test_rename_preflight_rejects_invalid_position(
 @pytest.mark.asyncio
 async def test_find_unused_imports_requires_a_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """The server tool rejects a call naming neither file_path nor file_paths."""
-    monkeypatch.setattr(server, "get_current_backends", lambda: object())
+    monkeypatch.setattr(tool_registry, "get_current_backends", lambda: object())
 
     with pytest.raises(ToolInputError, match="^file_path or file_paths"):
-        await server.find_unused_imports(object())  # type: ignore[arg-type]
+        await tool_registry.find_unused_imports(object())  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
