@@ -27,8 +27,8 @@ class DiagnosticsNotifier(Protocol):
         """Notify backend that file contents changed on disk."""
         ...
 
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return diagnostics for one file or the full workspace."""
+    async def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Return the diagnostics of one file."""
         ...
 
 

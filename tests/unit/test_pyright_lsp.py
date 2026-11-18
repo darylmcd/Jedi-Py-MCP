@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -1441,14 +1442,28 @@ class DiagnosticsHarness(PyrightClientHarness):
     def set_timeout(self, seconds: float) -> None:
         self._request_timeout_seconds = seconds
 
-    async def publish(self, params: JSONDict) -> None:
-        await self._handle_publish_diagnostics(params)
-
     def has_stamp(self, path: str) -> bool:
         return path in self._file_stamps
 
     def is_tracked(self, path: str) -> bool:
         return path in self._open_files or path in self._file_contents or path in self._file_stamps
+
+    def scan_state(self) -> tuple[dict[str, int], set[str]]:
+        return dict(self._scan_refs), set(self._scan_owned)
+
+    async def close_for_test(self, path: str) -> None:
+        """The real ``_close_document`` (tests replace the instance attribute)."""
+        await PyrightLSPClient._close_document(self, path)
+
+    async def hold_lock_then_release_scan(self, path: str) -> None:
+        """Release a claimed scan while the document lock is held, then cancel the waiting release."""
+        await self._claim_for_scan({path})
+        async with self._document_lock:
+            release = asyncio.create_task(self._release_from_scan({path}))
+            await asyncio.sleep(0)  # let the release block on the lock
+            release.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await release
 
     async def sync_peers(self, transport: LSPClient) -> None:
         await self._sync_peer_documents(transport)
@@ -1543,21 +1558,16 @@ async def test_post_edit_diagnostics_use_current_contents(tmp_path: Path) -> Non
     path = str(sample)
     uri = path_to_uri(path)
     await backend.ensure_file_open(path)
-    await backend.publish({"uri": uri, "version": 1, "diagnostics": [_diagnostic_item("before edit")]})
     assert [item.message for item in await backend.get_diagnostics(path)] == ["before edit"]
 
     sample.write_text("x: int = 1\n", encoding="utf-8")
     await backend.notify_file_changed(path)
-    await backend.publish({"uri": uri, "version": 1, "diagnostics": [_diagnostic_item("late old result")]})
 
-    assert await backend.get_diagnostics(None) == []
     assert await backend.get_diagnostics(path) == []
     assert client.notifications[-1] == (
         "textDocument/didChange",
         {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": "x: int = 1\n"}]},
     )
-    await backend.publish({"uri": uri, "version": 2, "diagnostics": [_diagnostic_item("current result")]})
-    assert [item.message for item in await backend.get_diagnostics(None)] == ["current result"]
 
 
 @pytest.mark.asyncio
@@ -1695,16 +1705,6 @@ async def test_restart_reports_teardown_failure_as_backend_error(
         await backend.restart_server()
 
     assert isinstance(error.value.__cause__, OSError)
-
-
-@pytest.mark.asyncio
-async def test_invalid_push_uri_does_not_interrupt_diagnostic_reads(tmp_path: Path) -> None:
-    client = FakeLSPClient({"textDocument/diagnostic": {"result": {"kind": "full", "items": []}}})
-    backend, sample = _diagnostics_harness(tmp_path, client)
-
-    await backend.publish({"uri": "invalid://sample.py", "diagnostics": []})
-
-    assert await backend.get_diagnostics(str(sample)) == []
 
 
 @pytest.mark.asyncio
@@ -2443,3 +2443,216 @@ async def test_a_failing_shutdown_of_the_fresh_client_does_not_mask_the_close_er
         await starting
     with pytest.raises(OSError, match="cannot terminate"):
         await shutting_down  # the backend's own shutdown still reports the stuck process
+
+
+# ── Scan-opened documents are closed again ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_closes_only_the_documents_it_opened(tmp_path: Path) -> None:
+    backend, client, _importer, dependency = await _open_dependency(tmp_path)
+    fresh = tmp_path / "fresh.py"
+    fresh.write_text("y = 1\n", encoding="utf-8")
+
+    results = await backend.get_diagnostics_many([str(dependency), str(fresh)], close_opened=True)
+
+    assert results == [[], []]
+    assert client.methods_for(fresh) == ["textDocument/didOpen", "textDocument/didClose"]
+    assert not backend.is_tracked(str(fresh))
+    assert client.methods_for(dependency) == []  # already open before the call: left open
+    assert backend.is_tracked(str(dependency))
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_keeps_documents_open_by_default(tmp_path: Path) -> None:
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+
+    await backend.get_diagnostics_many([str(importer)])
+
+    assert backend.is_tracked(str(importer))
+    assert client.methods_for(importer) == ["textDocument/didOpen"]
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_closes_opened_documents_even_when_a_pull_fails(tmp_path: Path) -> None:
+    client = OrderedClient()
+    client._responses["textDocument/diagnostic"] = {"error": {"code": -32603, "message": "boom"}}
+    backend, importer = _diagnostics_harness(tmp_path, client)
+
+    results = await backend.get_diagnostics_many([str(importer)], close_opened=True)
+
+    assert isinstance(results[0], PyrightError)
+    assert not backend.is_tracked(str(importer))
+    assert client.methods_for(importer)[-1] == "textDocument/didClose"
+
+
+@pytest.mark.asyncio
+async def test_closed_scan_document_is_reopened_by_the_next_request(tmp_path: Path) -> None:
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    await backend.get_diagnostics_many([str(importer)], close_opened=True)
+    client.events.clear()
+
+    await backend.get_diagnostics(str(importer))
+
+    assert client.methods_for(importer) == ["textDocument/didOpen"]
+    opened = [payload for name, payload in client.notifications if name == "textDocument/didOpen"][-1]
+    assert opened["textDocument"]["version"] == 2  # type: ignore[index]  # versions stay monotonic across a close
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_closes_opened_documents_when_cancelled(tmp_path: Path) -> None:
+    class CancellingClient(OrderedClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            raise asyncio.CancelledError
+
+    client = CancellingClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(importer)], concurrency=2, close_opened=True)
+
+    assert not backend.is_tracked(str(importer))
+
+
+# ── Scan-opened documents have owners ─────────────────────────────────
+
+
+class GatedClient(OrderedClient):
+    """Blocks the n-th diagnostic request on its own gate, so overlap is scripted, not timed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gates: list[asyncio.Event] = []
+        self.entered: list[asyncio.Event] = []
+        self._calls = 0
+
+    def expect(self, count: int) -> None:
+        self.gates = [asyncio.Event() for _ in range(count)]
+        self.entered = [asyncio.Event() for _ in range(count)]
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        index = self._calls
+        self._calls += 1
+        if index < len(self.gates):
+            self.entered[index].set()
+            await self.gates[index].wait()
+        return await super().send_request(method, params)
+
+
+@pytest.mark.asyncio
+async def test_overlapping_scans_close_a_shared_document_only_when_the_last_scan_ends(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    client.expect(2)
+
+    first = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[0].wait()
+    second = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[1].wait()
+
+    client.gates[0].set()
+    await first
+    assert backend.is_tracked(str(shared))  # the second scan is still pulling it
+    assert client.methods_for(shared) == ["textDocument/didOpen"]
+
+    client.gates[1].set()
+    await second
+    assert not backend.is_tracked(str(shared))
+    assert client.methods_for(shared) == ["textDocument/didOpen", "textDocument/didClose"]
+    assert backend.scan_state() == ({}, set())
+
+
+@pytest.mark.asyncio
+async def test_scan_does_not_close_a_document_a_concurrent_request_adopted(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    client.expect(1)
+
+    scan = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[0].wait()  # the scan opened the document and is mid-pull
+    await backend.get_diagnostics(str(shared))  # an ordinary request now uses it
+    client.gates[0].set()
+    await scan
+
+    assert backend.is_tracked(str(shared))  # the request's document is not the scan's to close
+    assert "textDocument/didClose" not in client.methods_for(shared)
+    assert backend.scan_state() == ({}, set())
+
+
+@pytest.mark.asyncio
+async def test_scan_of_an_already_open_document_never_claims_it(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    await backend.get_diagnostics(str(shared))
+    client.events.clear()
+
+    await backend.get_diagnostics_many([str(shared)], close_opened=True)
+
+    assert backend.is_tracked(str(shared))
+    assert client.methods_for(shared) == []
+    assert backend.scan_state() == ({}, set())
+
+
+async def _two_scanned_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_close_raises: BaseException
+) -> tuple[DiagnosticsHarness, OrderedClient, Path, Path, list[str]]:
+    client = OrderedClient()
+    backend, first = _diagnostics_harness(tmp_path, client)
+    second = tmp_path / "z_second.py"
+    second.write_text("y = 1\n", encoding="utf-8")
+    real_close = backend.close_for_test
+    attempted: list[str] = []
+
+    async def failing_first(path: str) -> None:
+        attempted.append(path)
+        if len(attempted) == 1:
+            raise first_close_raises
+        await real_close(path)
+
+    monkeypatch.setattr(backend, "_close_document", failing_first)
+    return backend, client, first, second, attempted
+
+
+@pytest.mark.asyncio
+async def test_a_failing_close_does_not_strand_the_other_paths_bookkeeping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, client, first, second, attempted = await _two_scanned_paths(
+        tmp_path, monkeypatch, OSError("pipe closed")
+    )
+
+    results = await backend.get_diagnostics_many([str(first), str(second)], close_opened=True)
+
+    assert results == [[], []]  # the scan's own result is not replaced by the close failure
+    assert backend.scan_state() == ({}, set())
+    assert len(attempted) == 2  # the second path was still closed after the first failed
+    assert not backend.is_tracked(str(second))
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_a_close_settles_every_path_before_propagating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, client, first, second, attempted = await _two_scanned_paths(
+        tmp_path, monkeypatch, asyncio.CancelledError()
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(first), str(second)], close_opened=True)
+
+    assert backend.scan_state() == ({}, set())
+    assert len(attempted) == 2
+    assert not backend.is_tracked(str(second))
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_waiting_for_the_document_lock_still_settles_bookkeeping(
+    tmp_path: Path,
+) -> None:
+    client = OrderedClient()
+    backend, sample = _diagnostics_harness(tmp_path, client)
+    await backend.hold_lock_then_release_scan(str(sample))
+
+    assert backend.scan_state() == ({}, set())

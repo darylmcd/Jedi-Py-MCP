@@ -34,7 +34,7 @@ letter. See [ADR 0011](adr/0011-reject-unc-and-device-paths.md).
 | `get_document_highlights` | Return in-file read/write highlights for a symbol. | `list[DocumentHighlight]` |
 | `get_inlay_hints` | Return inlay hints (type/parameter hints) for a file range. | `list[InlayHint]` |
 | `get_semantic_tokens` | Return semantic token classifications for a file. | `list[SemanticToken]` |
-| `get_diagnostics` | Return Pyright diagnostics for a file. | `list[Diagnostic]` |
+| `get_diagnostics` | Return Pyright diagnostics for a file, a `file_paths` batch, or (neither given) every Python file of the workspace; the workspace form raises if any file cannot be read. | `list[Diagnostic]` |
 | `get_workspace_diagnostics` | Summarize diagnostics per file across the workspace. | `PaginatedDiagnosticSummary` |
 | `deep_type_inference` | Run deep type inference on an expression or block. | `list[InferredType]` |
 | `get_type_hint_string` | Return type hint candidates for a symbol position. | `list[TypeHintResult]` |

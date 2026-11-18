@@ -318,7 +318,7 @@ async def get_diagnostics(
     file_paths: FilePaths = None,
     root_path: WorkspaceRootPath = None,
 ) -> list[Diagnostic]:
-    """Get type-checking diagnostics (errors, warnings, hints) for one file, a batch of files, or the full project. Use after refactoring to verify no errors were introduced, or to audit code quality. Filter by severity_filter and suppress_codes to reduce noise. Related: get_workspace_diagnostics (aggregated counts)."""
+    """Get type-checking diagnostics (errors, warnings, hints) for one file (file_path), a batch of files (file_paths), or, with neither, every Python file of the workspace (scanned under the workspace root; pass root_path to choose the workspace). Use after refactoring to verify no errors were introduced, or to audit code quality. Filter by severity_filter and suppress_codes to reduce noise. The workspace scan fails with an error if any file's diagnostics cannot be read, rather than returning a partial list; use get_workspace_diagnostics (aggregated counts, unreadable files reported in scan_failures) for a scan that tolerates them."""
     app = get_current_backends()
     result = await analysis.get_diagnostics(
         app.pyright,
@@ -327,6 +327,7 @@ async def get_diagnostics(
         limit,
         suppress_codes,
         file_paths,
+        config=app.config,
     )
     _LOGGER.debug("get_diagnostics count=%s severity_filter=%s", len(result), severity_filter)
     return result

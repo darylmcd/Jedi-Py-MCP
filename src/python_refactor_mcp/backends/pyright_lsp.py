@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
@@ -195,7 +196,12 @@ class PyrightLSPClient:
         # ``(mtime_ns, size)`` taken BEFORE the text it describes was read, so a write
         # landing between the read and the stat shows up as a stale stamp, never a lost edit.
         self._file_stamps: dict[str, tuple[int, int]] = {}
-        self._diagnostics: dict[str, list[Diagnostic]] = {}
+        # Ownership of documents opened by ``get_diagnostics_many(close_opened=True)`` scans,
+        # both guarded by ``_document_lock``: ``_scan_refs`` counts the running scans that
+        # include a path; ``_scan_owned`` holds paths no ordinary request has touched since a
+        # scan claimed them. The last scan to leave a still-owned path closes it.
+        self._scan_refs: dict[str, int] = {}
+        self._scan_owned: set[str] = set()
         self._document_lock = asyncio.Lock()
         self._restart_lock = asyncio.Lock()
         self._session_invalid = False
@@ -303,13 +309,12 @@ class PyrightLSPClient:
             _LOGGER.info("Pyright process restarted successfully")
 
     def _make_client(self) -> LSPClient:
-        """Create and configure a fresh LSP transport client."""
-        client = LSPClient()
-        client.register_notification_handler(
-            "textDocument/publishDiagnostics",
-            self._handle_publish_diagnostics,
-        )
-        return client
+        """Create a fresh LSP transport client.
+
+        Diagnostics are pulled with ``textDocument/diagnostic``; the server's
+        ``publishDiagnostics`` pushes are ignored.
+        """
+        return LSPClient()
 
     def _candidate_commands(self) -> list[list[str]]:
         """Build candidate commands to launch pyright-langserver robustly."""
@@ -499,7 +504,6 @@ class PyrightLSPClient:
         self._file_versions.clear()
         self._file_contents.clear()
         self._file_stamps.clear()
-        self._diagnostics.clear()
 
     def _read_document(self, absolute_path: str) -> tuple[str, tuple[int, int]]:
         """Return the file's text and the stat stamp taken before it was read."""
@@ -507,10 +511,8 @@ class PyrightLSPClient:
             stamp = stamp_of(absolute_path)
             return Path(absolute_path).read_text(encoding="utf-8"), stamp
         except FileNotFoundError as exc:
-            self._diagnostics.pop(absolute_path, None)
             raise ToolInputError(f"file_path does not exist: {absolute_path}") from exc
         except (UnicodeDecodeError, OSError) as exc:
-            self._diagnostics.pop(absolute_path, None)
             raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
 
     async def ensure_file_open(self, file_path: str) -> None:
@@ -518,14 +520,21 @@ class PyrightLSPClient:
         absolute_path = normalize_path(file_path)
         await self._ensure_healthy()
         async with self._document_lock:
+            self._scan_owned.discard(absolute_path)
             if absolute_path not in self._file_contents:
                 text, stamp = self._read_document(absolute_path)
                 await self._sync_document(absolute_path, text, stamp)
 
-    async def _refresh_document(self, absolute_path: str, transport: LSPClient) -> None:
-        """Synchronize current disk contents with Pyright before analysis."""
+    async def _refresh_document(self, absolute_path: str, transport: LSPClient, *, adopt: bool = True) -> None:
+        """Synchronize current disk contents with Pyright before analysis.
+
+        An ordinary request ``adopt``s the document: a running scan no longer owns it, so the
+        scan will not close it. Only a scan's own pulls pass ``adopt=False``.
+        """
         async with self._document_lock:
             self._require_current_session(transport)
+            if adopt:
+                self._scan_owned.discard(absolute_path)
             text, stamp = self._read_document(absolute_path)
             if self._file_contents.get(absolute_path) != text:
                 await self._sync_document(absolute_path, text, stamp)
@@ -573,13 +582,12 @@ class PyrightLSPClient:
     async def _close_document(self, absolute_path: str) -> None:
         """Forget a document and tell the server to close it. Lock held.
 
-        Versions stay monotonic across a close/open cycle, so a late publish for the
-        old text can never match a reopened document.
+        Versions stay monotonic across a close/open cycle, so a reopened document never
+        reuses an old version number.
         """
         self._open_files.discard(absolute_path)
         self._file_contents.pop(absolute_path, None)
         self._file_stamps.pop(absolute_path, None)
-        self._diagnostics.pop(absolute_path, None)
         try:
             await self._client.send_notification(
                 "textDocument/didClose", {"textDocument": {"uri": path_to_uri(absolute_path)}}
@@ -597,7 +605,6 @@ class PyrightLSPClient:
         previous_version = self._file_versions.get(absolute_path)
         version = 1 if previous_version is None else previous_version + 1
         self._file_versions[absolute_path] = version
-        self._diagnostics.pop(absolute_path, None)
         self._file_contents.pop(absolute_path, None)
         self._file_stamps.pop(absolute_path, None)
 
@@ -650,14 +657,12 @@ class PyrightLSPClient:
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return analyzed file diagnostics or the current workspace push snapshot.
+    async def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Return the analyzed diagnostics of one file.
 
-        An explicit file is analyzed after every open document that changed on disk
-        has been resynchronized, so an edited dependency is seen by its importer.
+        The file is analyzed after every open document that changed on disk has been
+        resynchronized, so an edited dependency is seen by its importer.
         """
-        if file_path is None:
-            return _sorted_diagnostics([item for items in self._diagnostics.values() for item in items])
         return await self._pull_diagnostics(normalize_path(file_path), sync_peers=True)
 
     async def get_diagnostics_many(
@@ -666,6 +671,7 @@ class PyrightLSPClient:
         *,
         concurrency: int = 1,
         stop_on_error: bool = False,
+        close_opened: bool = False,
     ) -> list[list[Diagnostic] | Exception]:
         """Return per-file diagnostics for a batch after ONE resync of the open documents.
 
@@ -674,10 +680,108 @@ class PyrightLSPClient:
         result at the first failure; it cannot be combined with ``concurrency > 1``.
         A failure of the shared resync itself (timeout, dead session) raises.
 
+        ``close_opened`` makes the batch close, once it ends (also on failure or
+        cancellation), the documents it opened, so a whole-workspace scan does not grow
+        the open set. Ownership is tracked per document under the document lock: a
+        document that was already open is never closed; one that an ordinary request
+        (or a scan without ``close_opened``) uses meanwhile is adopted by that request
+        and stays open; overlapping ``close_opened`` batches share a document, and the
+        last of them to end closes it.
+
         Limitation: a document is detected as changed by its ``(mtime_ns, size)``
         stamp, so an edit that keeps both the size and the modification time is not
         noticed until the file changes again or the session restarts.
         """
+        if not close_opened:
+            return await self._pull_many(
+                file_paths, concurrency=concurrency, stop_on_error=stop_on_error, scan_owned=False
+            )
+        scanned: set[str] = set()
+        for path in file_paths:
+            with contextlib.suppress(Exception):  # a bad path is reported by its own pull
+                scanned.add(normalize_path(path))
+        await self._claim_for_scan(scanned)
+        try:
+            return await self._pull_many(
+                file_paths, concurrency=concurrency, stop_on_error=stop_on_error, scan_owned=True
+            )
+        finally:
+            await self._release_from_scan(scanned)
+
+    async def _claim_for_scan(self, paths: set[str]) -> None:
+        """Register a scan over ``paths``; those not open yet become scan-owned."""
+        async with self._document_lock:
+            for path in paths:
+                self._scan_refs[path] = self._scan_refs.get(path, 0) + 1
+                if path not in self._open_files:
+                    self._scan_owned.add(path)
+
+    def _settle_scan(self, paths: set[str]) -> list[str]:
+        """Drop one scan's claim on ``paths`` and return those it must close. No awaits.
+
+        All bookkeeping is finished here, before any close is attempted, so a failing or
+        cancelled close can never leave a reference count or an ownership mark behind.
+        """
+        to_close: list[str] = []
+        for path in sorted(paths):
+            remaining = self._scan_refs[path] - 1
+            if remaining > 0:
+                self._scan_refs[path] = remaining
+                continue
+            del self._scan_refs[path]
+            if path in self._scan_owned:
+                self._scan_owned.discard(path)
+                if path in self._open_files:
+                    to_close.append(path)
+        return to_close
+
+    async def _release_from_scan(self, paths: set[str]) -> None:
+        """Leave a scan; close each still-owned, still-open path no other scan includes.
+
+        The bookkeeping is settled with no await first (see :meth:`_settle_scan`); then each
+        path is closed in its own try: a failure invalidates the session (the next request
+        restarts it) and is logged, never raised over the scan's own outcome, and a
+        cancellation is re-raised only after the remaining paths were attempted. If the
+        cancellation arrives while waiting for the document lock, the bookkeeping is still
+        settled and the paths are left open (bounded: they are no longer scan-owned).
+
+        After a session restart (``_clear_documents`` keeps ``_scan_owned`` on purpose) a path
+        that was already open when the scan claimed it and was reopened by the scan afterwards
+        is not owned, so it stays open once the scan ends: a bounded, benign effect (one
+        document per such path, closed by the next restart); clearing ``_scan_owned`` on
+        restart would instead leave documents the scan reopened open forever.
+        """
+        try:
+            await self._document_lock.acquire()
+        except BaseException:
+            self._settle_scan(paths)
+            raise
+        interrupted: BaseException | None = None
+        try:
+            for path in self._settle_scan(paths):
+                try:
+                    await self._close_document(path)
+                except Exception:
+                    _LOGGER.warning(
+                        "Could not close scanned document %s; the next request restarts the session.",
+                        path,
+                        exc_info=True,
+                    )
+                except BaseException as exc:
+                    interrupted = interrupted or exc
+        finally:
+            self._document_lock.release()
+        if interrupted is not None:
+            raise interrupted
+
+    async def _pull_many(
+        self,
+        file_paths: Sequence[str],
+        *,
+        concurrency: int,
+        stop_on_error: bool,
+        scan_owned: bool,
+    ) -> list[list[Diagnostic] | Exception]:
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
         if stop_on_error and concurrency != 1:
@@ -698,7 +802,7 @@ class PyrightLSPClient:
 
         async def one(path: str) -> list[Diagnostic] | Exception:
             try:
-                return await self._pull_diagnostics(normalize_path(path), sync_peers=False)
+                return await self._pull_diagnostics(normalize_path(path), sync_peers=False, scan_owned=scan_owned)
             except Exception as exc:
                 return exc
 
@@ -726,13 +830,15 @@ class PyrightLSPClient:
             await asyncio.gather(*pulls, return_exceptions=True)
             raise
 
-    async def _pull_diagnostics(self, normalized: str, *, sync_peers: bool) -> list[Diagnostic]:
+    async def _pull_diagnostics(
+        self, normalized: str, *, sync_peers: bool, scan_owned: bool = False
+    ) -> list[Diagnostic]:
         """Pull one file's diagnostics, optionally resynchronizing the other open documents first."""
 
         async def prepare(transport: LSPClient) -> None:
             if sync_peers:
                 await self._sync_peer_documents(transport, skip=normalized)
-            await self._refresh_document(normalized, transport)
+            await self._refresh_document(normalized, transport, adopt=not scan_owned)
 
         response = await self._request(
             "textDocument/diagnostic",
@@ -753,29 +859,6 @@ class PyrightLSPClient:
             return _sorted_diagnostics(convert_diagnostics(normalized, items))
         except ValueError as exc:
             raise PyrightError("Invalid diagnostic in the textDocument/diagnostic report.") from exc
-
-    async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
-        """Update the workspace snapshot for the published document version."""
-        uri = params.get("uri")
-        items = params.get("diagnostics")
-        if not isinstance(uri, str) or not isinstance(items, list):
-            return
-        try:
-            file_path = uri_to_path(uri)
-        except ValueError:
-            _LOGGER.warning("Invalid URI in publishDiagnostics notification", exc_info=True)
-            return
-        if not file_path:
-            return
-        version = params.get("version")
-        current_version = self._file_versions.get(file_path)
-        if current_version is not None and (type(version) is not int or version != current_version):
-            return
-        try:
-            self._diagnostics[file_path] = convert_diagnostics(file_path, items)
-        except ValueError:
-            self._diagnostics.pop(file_path, None)
-            _LOGGER.warning("Invalid publishDiagnostics notification for %s", file_path, exc_info=True)
 
     # ── Analysis features ─────────────────────────────────────────────
 
