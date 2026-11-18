@@ -1,6 +1,6 @@
 # output-dir-anchorless-boundary — Tie anchorless output_dir to its call's workspace
 
-**row:** `output-dir-anchorless-boundary` · **pri:** `Low` · **size:** `M` · **verified:** `de4d87d21cacd62dbbabf881188c339d330b98b7`
+**row:** `output-dir-anchorless-boundary` · **pri:** `Low` · **size:** `M`
 
 ## Anchors
 
@@ -17,7 +17,8 @@
 
 ## Evidence
 
-- `DIR_PARAMS` values with no anchoring path argument resolve against the most-recent workspace (`registry.get_most_recent()`), not a workspace tied to the call.
+- Premise changed by PR #208: the most-recent / CLI-root fallback was deleted. An anchorless call's `output_dir` now resolves against the sole selected workspace (`registry.implicit_workspace()`), or the call fails with `AMBIGUOUS_WORKSPACE` when none or several are live. The remaining question is only the operator decision above: must an absolute `output_dir` lie inside that workspace?
+- Re-derive the anchors against `tool_runtime.py` after #208 before implementing; `tool_runtime.py:216-230` and `:267-270` moved.
 
 ## Context
 
