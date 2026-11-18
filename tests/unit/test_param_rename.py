@@ -286,7 +286,10 @@ def test_added_parameter_reusing_the_old_name_is_refused() -> None:
 
 
 def test_unparseable_rope_output_is_refused() -> None:
-    """rope drops keyword-only parameters: ``def f(a, b, *, c)`` comes back as ``def f(a, n, *)``."""
+    """Unparseable rope output (a synthetic ``def f(a, n, *)``) and a byte-order mark are refused.
+
+    ``change_signature`` refuses keyword-only targets before rope runs; this guard covers any other unparseable result.
+    """
     with pytest.raises(ToolInputError, match="does not parse"):
         rename_parameter_bindings("def f(a, n, *):\n    return n\n", 0, {"b": "n"}, original=_TWO)
     with pytest.raises(ToolInputError, match="does not parse"):
