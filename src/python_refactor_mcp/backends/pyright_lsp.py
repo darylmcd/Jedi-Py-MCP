@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
@@ -56,36 +55,6 @@ from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_p
 from python_refactor_mcp.util.timing import timed
 
 _LOGGER = logging.getLogger(__name__)
-
-_TYPE_IGNORE_PATTERN = re.compile(r"#\s*(type:\s*ignore|pyright:\s*ignore)")
-
-
-def _filter_type_ignore(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
-    """Remove diagnostics on lines with ``# type: ignore`` or ``# pyright: ignore``."""
-    if not diagnostics:
-        return diagnostics
-
-    # Group by file to read each file at most once.
-    by_file: dict[str, list[Diagnostic]] = {}
-    for diag in diagnostics:
-        by_file.setdefault(diag.file_path, []).append(diag)
-
-    kept: list[Diagnostic] = []
-    for fp, file_diags in by_file.items():
-        try:
-            lines = Path(fp).read_text(encoding="utf-8").splitlines()
-        except OSError:
-            kept.extend(file_diags)
-            continue
-
-        for diag in file_diags:
-            line_no = diag.range.start.line
-            if 0 <= line_no < len(lines) and _TYPE_IGNORE_PATTERN.search(lines[line_no]):
-                continue
-            kept.append(diag)
-
-    return kept
-
 
 def _utf16_units(character: str) -> int:
     """Return how many UTF-16 code units encode ``character`` (2 for astral code points)."""
@@ -577,7 +546,7 @@ class PyrightLSPClient:
             diagnostics = [item for items in self._diagnostics.values() for item in items]
 
         return sorted(
-            _filter_type_ignore(diagnostics),
+            diagnostics,
             key=lambda item: (
                 item.file_path,
                 item.range.start.line,

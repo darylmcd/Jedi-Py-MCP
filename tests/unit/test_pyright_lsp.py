@@ -1730,6 +1730,32 @@ async def test_interrupted_did_open_replaces_transport_before_next_diagnostic(
     assert [name for name, _ in replacement.notifications].count("textDocument/didOpen") == 1
 
 
+# ── Ignore comments are Pyright's to apply, not the client's ──
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('x: int = "x"; s = "# type: ignore"\n', id="ignore-text-in-string"),
+        pytest.param('x: int = "x"  # pyright: ignore[reportFoo]\n', id="selective-ignore-other-rule"),
+        pytest.param('x: int = "x"  # type: ignore\n', id="type-ignore-when-server-still-reports"),
+        pytest.param("x = 1  # type: ignore\n", id="unnecessary-ignore-reported-on-comment-line"),
+    ],
+)
+async def test_get_diagnostics_returns_what_pyright_reports_regardless_of_ignore_text(
+    source: str, tmp_path: Path
+) -> None:
+    """Whatever the server reports is returned; suppression is Pyright's, honoring its config."""
+    client = FakeLSPClient({
+        "textDocument/diagnostic": {"result": {"kind": "full", "items": [_diagnostic_item("reported")]}},
+    })
+    backend, sample = _diagnostics_harness(tmp_path, client)
+    sample.write_text(source, encoding="utf-8")
+
+    assert [item.message for item in await backend.get_diagnostics(str(sample))] == ["reported"]
+
+
 # ── File-bound requests reopen the document on a replacement session ──
 
 
