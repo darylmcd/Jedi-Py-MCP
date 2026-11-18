@@ -761,11 +761,11 @@ class RopeBackend:
 
     def _apply_edits(self, edits: list[TextEdit]) -> list[str]:
         """Apply pre-computed text edits to disk with rollback on failure."""
-        # Capture originals for rollback.
-        originals: dict[str, str] = {}
+        # Capture the exact original bytes: rollback must restore line endings too.
+        originals: dict[str, bytes] = {}
         for edit in edits:
             if edit.file_path not in originals:
-                originals[edit.file_path] = Path(edit.file_path).read_text(encoding="utf-8")
+                originals[edit.file_path] = Path(edit.file_path).read_bytes()
 
         changed_files: list[str] = []
         try:
@@ -774,10 +774,15 @@ class RopeBackend:
                 write_atomic(edit.file_path, new_content)
                 changed_files.append(edit.file_path)
         except Exception:
-            # Rollback already-written files on any failure.
-            for path in changed_files:
-                if path in originals:
-                    write_atomic(path, originals[path])
+            # Roll back every already-written file; one failed restore must not skip the rest.
+            unrestored: list[str] = []
+            for path in dict.fromkeys(changed_files):
+                try:
+                    write_bytes_atomic(path, originals[path])
+                except Exception:
+                    unrestored.append(path)
+            if unrestored:
+                _LOGGER.error("Rollback failed for: %s", ", ".join(unrestored))
             raise
         return changed_files
 
