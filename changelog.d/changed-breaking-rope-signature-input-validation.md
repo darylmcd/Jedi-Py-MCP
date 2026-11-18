@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** `change_signature` now rejects with `ToolInputError` an `inline_default` that would leave a required parameter after a defaulted one when it follows any other operation (previously only checked as the first operation, so the result could be an invalid signature).

@@ -1,0 +1,1 @@
+- **Fixed:** When the workspace limit is reached, auto-discovered workspaces are now evicted before explicitly registered roots (least recently used first within each group); previously every known root was treated as explicit.

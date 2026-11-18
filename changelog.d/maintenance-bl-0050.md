@@ -1,0 +1,1 @@
+- **Maintenance:** Removed the unused `RopeBackend._offset_to_position` helper and corrected the `_build_step_changes` docstring to name the errors it raises (bl-0050).

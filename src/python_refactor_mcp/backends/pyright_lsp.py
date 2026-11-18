@@ -440,9 +440,14 @@ class PyrightLSPClient:
                 await self._initialize_session()
                 self._startup_command = command
                 return
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError) as exc:
+                try:
+                    await self._client.shutdown()
+                except Exception:
+                    _LOGGER.warning("Could not clean up failed Pyright startup attempt.", exc_info=True)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
                 startup_errors.append(f"{' '.join(command)} -> {exc}")
-                await self._client.shutdown()
 
         joined_errors = " | ".join(startup_errors)
         raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
