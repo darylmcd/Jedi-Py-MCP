@@ -879,11 +879,17 @@ def _nested_layout(tmp_path: Path, nested_marker: str) -> tuple[Path, Path]:
 
 
 def _real_registry_ctx() -> tuple[SimpleNamespace, AsyncMock]:
-    """Build a ctx over a real registry whose ``get_backends`` is a spy returning root-matched backends."""
+    """Build a ctx over a real registry whose ``get_backends`` is a spy returning root-matched backends.
+
+    Like the real ``get_backends``, the spy hands out the backends with one lease acquired;
+    the boundary releases it through the registry.
+    """
     registry = WorkspaceRegistry()
 
     async def _get_backends(path: str) -> WorkspaceBackends:
-        return _backends(registry.resolve_workspace_root(Path(path)))
+        backends = _backends(registry.resolve_workspace_root(Path(path)))
+        backends.acquire()
+        return backends
 
     spy = AsyncMock(side_effect=_get_backends)
     registry.get_backends = spy  # type: ignore[method-assign]

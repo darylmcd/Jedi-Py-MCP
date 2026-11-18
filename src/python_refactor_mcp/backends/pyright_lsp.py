@@ -179,6 +179,8 @@ class PyrightLSPClient:
         self._document_lock = asyncio.Lock()
         self._restart_lock = asyncio.Lock()
         self._session_invalid = False
+        # Terminal: set by ``shutdown``. A closed backend never starts another process.
+        self._closed = False
         self._startup_command: list[str] | None = None
         self._server_capabilities: JSONDict | None = None
 
@@ -193,7 +195,7 @@ class PyrightLSPClient:
 
         Cheap and non-blocking: checks the process and transport reader state.
         """
-        return not self._session_invalid and self._client.is_alive()
+        return not self._closed and not self._session_invalid and self._client.is_alive()
 
     # ── LSP transport ─────────────────────────────────────────────────
 
@@ -241,13 +243,20 @@ class PyrightLSPClient:
     async def _ensure_healthy(self, *, disconnected: LSPClient | None = None) -> LSPClient:
         """Return the initialized transport, restarting if it has crashed."""
         async with self._restart_lock:
+            self._require_open()
             if self._client is disconnected or not self.is_running:
                 _LOGGER.warning("Pyright process detected as dead, attempting restart")
                 await self._restart()
             return self._client
 
     async def _restart(self) -> None:
-        """Restart the Pyright process using the stored startup command."""
+        """Restart the Pyright process using the stored startup command.
+
+        Refuses on a closed backend, and re-checks after the new process started: a
+        ``shutdown`` that began meanwhile waits for the restart lock, so this method
+        never leaves a live process behind a closed backend.
+        """
+        self._require_open()
         if self._startup_command is None:
             raise PyrightError("Cannot restart Pyright: no startup command recorded")
         async with self._document_lock:
@@ -261,6 +270,7 @@ class PyrightLSPClient:
             try:
                 await self._client.start(self._startup_command)
                 await self._initialize_session()
+                self._require_open()
             except (Exception, asyncio.CancelledError) as exc:
                 try:
                     await self._client.shutdown()
@@ -426,9 +436,22 @@ class PyrightLSPClient:
         joined_errors = " | ".join(startup_errors)
         raise PyrightError(f"Unable to start pyright language server. Attempts: {joined_errors}")
 
+    def _require_open(self) -> None:
+        """Raise ``PyrightError`` once :meth:`shutdown` has closed this backend."""
+        if self._closed:
+            raise PyrightError("Pyright backend is shut down.")
+
     async def shutdown(self) -> None:
-        """Shutdown backend resources."""
-        await self._client.shutdown()
+        """Close the backend for good and stop its language server.
+
+        ``_closed`` is set before waiting for the restart lock, so no new restart
+        starts and one already running either finishes first (and is stopped here)
+        or notices the flag and stops its own process. No request can respawn the
+        server afterwards.
+        """
+        self._closed = True
+        async with self._restart_lock:
+            await self._client.shutdown()
 
     # ── File tracking ─────────────────────────────────────────────────
 

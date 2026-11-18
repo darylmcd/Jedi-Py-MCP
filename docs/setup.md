@@ -115,7 +115,7 @@ Other runtime discovery:
 - `pyrightconfig.json` is detected from the workspace root.
 - `PYRIGHT_LANGSERVER` can override the default `pyright-langserver` executable.
 - `PYTHON_REFACTOR_MCP_TOOL_PROFILE` selects `refactoring` (default) or the read-only `analysis` surface. Unknown values fail startup.
-- `MAX_WORKSPACES` sets the positive-integer workspace cache limit (default `3`). Invalid values fail startup with a configuration error.
+- `MAX_WORKSPACES` sets the positive-integer workspace cache limit (default `3`). Invalid values fail startup with a configuration error. An evicted workspace that still serves a request keeps running until that request ends, so loaded workspaces may briefly exceed the limit.
 - Rope preferences are initialized from server defaults in `config.py`.
 
 For an analysis-only PowerShell session:

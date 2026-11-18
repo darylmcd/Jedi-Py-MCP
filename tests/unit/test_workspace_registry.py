@@ -807,6 +807,9 @@ async def test_get_backends_evicts_auto_discovered_workspace_before_explicit(tmp
          patch("python_refactor_mcp.workspace_registry.RopeBackend"):
         explicit_backends = await registry.get_backends(str(explicit / "main.py"))
         first_auto = await registry.get_backends(str(auto_one / "main.py"))
+        # Finished requests: a workspace a request still holds is shut down on release instead.
+        registry.release(explicit_backends)
+        registry.release(first_auto)
         explicit_backends.last_accessed = 1.0
         first_auto.last_accessed = 2.0
         await registry.get_backends(str(auto_two / "main.py"))

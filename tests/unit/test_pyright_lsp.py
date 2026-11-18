@@ -1864,3 +1864,115 @@ async def test_non_positional_request_resyncs_edited_document(tmp_path: Path) ->
     changes = [payload for name, payload in client.notifications if name == "textDocument/didChange"]
     assert len(changes) == 1
     assert changes[0]["contentChanges"] == [{"text": "y: int = 2\n"}]
+
+
+class ClosableClientHarness(PyrightClientHarness):
+    """Expose the request path for shutdown tests."""
+
+    async def request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        return await self._request(method, params)
+
+
+class LifecycleLSPClient(FakeLSPClient):
+    """Fake transport that records whether its process is up, optionally gating ``start``."""
+
+    def __init__(self) -> None:
+        super().__init__({"initialize": {"result": {"capabilities": {}}}})
+        self.alive = False
+        self.start_calls = 0
+        self.entered_start = asyncio.Event()
+        self.start_gate: asyncio.Event | None = None
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    async def start(self, command: list[str]) -> None:
+        _ = command
+        self.start_calls += 1
+        self.entered_start.set()
+        if self.start_gate is not None:
+            await self.start_gate.wait()
+        self.alive = True
+
+    async def shutdown(self) -> None:
+        self.alive = False
+
+
+def _closable_harness(tmp_path: Path, client: FakeLSPClient) -> ClosableClientHarness:
+    config = ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=Path("python"),
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+    backend = ClosableClientHarness(config)
+    backend.set_client(cast(LSPClient, client))
+    return backend
+
+
+@pytest.mark.asyncio
+async def test_request_after_shutdown_does_not_respawn_pyright(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request that outlives ``shutdown`` fails instead of starting an unowned process."""
+    old = LifecycleLSPClient()
+    old.alive = True
+    backend = _closable_harness(tmp_path, old)
+    spawned = LifecycleLSPClient()
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: spawned)
+
+    await backend.shutdown()
+
+    with pytest.raises(PyrightError, match="shut down"):
+        await backend.request("textDocument/hover", {})
+    assert spawned.start_calls == 0
+    assert backend.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_a_restart_leaves_no_live_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restart begun before ``shutdown`` is stopped, whichever side finishes first."""
+    old = LifecycleLSPClient()
+    old.alive = True
+    replacement = LifecycleLSPClient()
+    start_gate = asyncio.Event()
+    replacement.start_gate = start_gate
+    backend = _closable_harness(tmp_path, old)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+
+    restart = asyncio.create_task(backend.restart_server())
+    await replacement.entered_start.wait()
+    shutdown = asyncio.create_task(backend.shutdown())
+    await asyncio.sleep(0)
+    assert not shutdown.done()  # queued behind the restart lock
+    start_gate.set()
+
+    with pytest.raises(PyrightError):
+        await restart
+    await shutdown
+    assert replacement.alive is False
+    assert backend.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_restart_server_still_restarts_an_open_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = LifecycleLSPClient()
+    old.alive = True
+    replacement = LifecycleLSPClient()
+    backend = _closable_harness(tmp_path, old)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+
+    assert await backend.restart_server() == "Pyright server restarted successfully"
+
+    assert replacement.start_calls == 1
+    assert replacement.alive is True
+    assert backend.is_running is True
