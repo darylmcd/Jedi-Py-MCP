@@ -6,6 +6,7 @@ Every writer must put the file's endings back; assertions are on the bytes on di
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -85,6 +86,55 @@ def test_encode_pairs_changed_lines_by_position_when_the_diff_would_be_too_large
 ) -> None:
     monkeypatch.setattr(diff_module, "_MAX_DIFF_CELLS", 0)
     assert encode_with_line_endings(*_REORDERED) == b"a\r\nZ\nc\r\nb\r\nd\n"
+
+
+def test_encode_never_lets_a_cr_ending_fuse_with_the_next_blank_lines_lf() -> None:
+    # "c\r" + "" + "\n" would read back as one "\r\n": three breaks in, one out.
+    assert encode_with_line_endings(b"c\rd\r\n\n", "c\n\n") == b"c\n\n"
+    # The change cascades to the line before when that one is "\r" too.
+    assert encode_with_line_endings(b"a\r\rq\n", "a\n\n\n") == b"a\n\n\n"
+
+
+def _universal(data: bytes) -> str:
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _random_mixed_original(rng: random.Random) -> bytes:
+    bodies = [rng.choice(["", "", "a", "b", "c"]) for _ in range(rng.randint(0, 8))]
+    parts = [body + rng.choice(["\r\n", "\n", "\r"]) for body in bodies]
+    if rng.random() < 0.4:
+        parts.append(rng.choice(["", "a", "b"]))
+    return "".join(parts).encode()
+
+
+def _random_edit(rng: random.Random, text: str) -> str:
+    lines = text.split("\n")
+    for _ in range(rng.randint(0, 4)):
+        position = rng.randint(0, len(lines))
+        action = rng.choice(["insert", "delete", "replace"])
+        if action == "insert" or not lines:
+            lines.insert(position, rng.choice(["", "", "a", "b", "d"]))
+        elif action == "delete" and len(lines) > 1:
+            del lines[min(position, len(lines) - 1)]
+        else:
+            lines[min(position, len(lines) - 1)] = rng.choice(["", "a", "b", "d"])
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("max_diff_cells", [160_000, 0], ids=["line-diff", "positional"])
+def test_encode_preserves_every_line_break_of_the_edited_text(
+    monkeypatch: pytest.MonkeyPatch, max_diff_cells: int
+) -> None:
+    """Seeded property: read back with universal newlines, the bytes equal the planned text."""
+    monkeypatch.setattr(diff_module, "_MAX_DIFF_CELLS", max_diff_cells)
+    rng = random.Random(20261118)
+    for _ in range(1500):
+        original = _random_mixed_original(rng)
+        planned = _random_edit(rng, _universal(original))
+        encoded = encode_with_line_endings(original, planned)
+        assert _universal(encoded) == planned, (original, planned, encoded)
+        # An edit that changes nothing writes the original bytes back.
+        assert encode_with_line_endings(original, _universal(original)) == original
 
 
 # --- text writers --------------------------------------------------------------
@@ -298,38 +348,67 @@ async def test_split_module_apply_keeps_line_endings(tmp_path: Path, style: str)
 # --- other writer families -----------------------------------------------------
 
 
-async def _run_on_lf_and_eol(tmp_path: Path, source: str, style: str, run: Any) -> tuple[bytes, bytes]:
-    """Run *run(path)* on an LF copy and on a *style* copy; return both resulting byte strings."""
+_VARIANTS = pytest.mark.parametrize("variant", ["plain", "bom", "no-final-newline"])
+
+
+def _shaped(source: str, variant: str) -> str:
+    """Return *source* as a plain, BOM-prefixed or unterminated file."""
+    if variant == "bom":
+        return "\ufeff" + source
+    if variant == "no-final-newline":
+        return source.rstrip("\n")
+    return source
+
+
+async def _assert_keeps_endings(
+    tmp_path: Path, source: str, variant: str, style: str, run: Any, expected_plain: bytes | None
+) -> bytes:
+    """Run *run(path)* on an LF and on a *style* copy; the second result must be the first re-ended.
+
+    Returns the LF result. ``expected_plain`` is asserted for the plain variant; every variant
+    must change the file, so the comparison is never vacuous.
+    """
+    shaped = _shaped(source, variant)
     results: list[bytes] = []
     for name, newline in (("lf", "\n"), ("eol", style)):
         path = tmp_path / name / "m.py"
         path.parent.mkdir()
-        path.write_bytes(source.replace("\n", newline).encode())
+        path.write_bytes(shaped.replace("\n", newline).encode())
         await run(path)
         results.append(path.read_bytes())
-    return results[0], results[1]
+    lf, eol = results
+    assert lf != shaped.encode()
+    if variant == "plain" and expected_plain is not None:
+        assert lf == expected_plain
+    assert eol == lf.replace(b"\n", style.encode())
+    return lf
 
 
 @pytest.mark.asyncio
+@_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_format_code_apply_keeps_line_endings(tmp_path: Path, style: str) -> None:
+async def test_format_code_apply_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
     async def run(path: Path) -> None:
         await format_mod.format_code(AsyncMock(), str(path), apply=True)
 
-    lf, eol = await _run_on_lf_and_eol(tmp_path, "x=1\nif x:\n  y   = 2\n", style, run)
-    assert lf == b"x = 1\nif x:\n    y = 2\n"
-    assert eol == lf.replace(b"\n", style.encode())
+    await _assert_keeps_endings(tmp_path, "x=1\nif x:\n  y   = 2\n", variant, style, run, b"x = 1\nif x:\n    y = 2\n")
 
 
 @pytest.mark.asyncio
+@_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_apply_lint_fixes_keeps_line_endings(tmp_path: Path, style: str) -> None:
+async def test_apply_lint_fixes_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
     async def run(path: Path) -> None:
         await refactoring.apply_lint_fixes(AsyncMock(), str(path), apply=True)
 
-    lf, eol = await _run_on_lf_and_eol(tmp_path, "import os\nimport sys\n\nprint(sys.argv)\n", style, run)
-    assert lf == b"import sys\n\nprint(sys.argv)\n"
-    assert eol == lf.replace(b"\n", style.encode())
+    await _assert_keeps_endings(
+        tmp_path,
+        "import os\nimport sys\n\nprint(sys.argv)\n",
+        variant,
+        style,
+        run,
+        b"import sys\n\nprint(sys.argv)\n",
+    )
 
 
 _DOCSTRING_SOURCE = (
@@ -344,17 +423,17 @@ _DOCSTRING_SOURCE = (
 
 
 @pytest.mark.asyncio
+@_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_docstring_sync_apply_keeps_line_endings(tmp_path: Path, style: str) -> None:
+async def test_docstring_sync_apply_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
     async def run(path: Path) -> None:
         pyright = AsyncMock()
         pyright.get_diagnostics.return_value = []
         result = await refactoring.docstring_sync(pyright, str(path), 0, 4, apply=True)
         assert result.applied is True
 
-    lf, eol = await _run_on_lf_and_eol(tmp_path, _DOCSTRING_SOURCE, style, run)
+    lf = await _assert_keeps_endings(tmp_path, _DOCSTRING_SOURCE, variant, style, run, None)
     assert b":param retries:" in lf
-    assert eol == lf.replace(b"\n", style.encode())
 
 
 class _Rename(cst.CSTTransformer):
@@ -363,14 +442,20 @@ class _Rename(cst.CSTTransformer):
 
 
 @pytest.mark.asyncio
+@_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_apply_cst_transformer_keeps_line_endings(tmp_path: Path, style: str) -> None:
+async def test_apply_cst_transformer_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
     async def run(path: Path) -> None:
         apply_cst_transformer(str(path), _Rename(), apply=True)
 
-    lf, eol = await _run_on_lf_and_eol(tmp_path, "old = 1\n\n\ndef f():\n    return old\n", style, run)
-    assert lf == b"renamed = 1\n\n\ndef f():\n    return renamed\n"
-    assert eol == lf.replace(b"\n", style.encode())
+    await _assert_keeps_endings(
+        tmp_path,
+        "old = 1\n\n\ndef f():\n    return old\n",
+        variant,
+        style,
+        run,
+        b"renamed = 1\n\n\ndef f():\n    return renamed\n",
+    )
 
 
 @pytest.mark.parametrize("style", ["\r\n", "\r"])

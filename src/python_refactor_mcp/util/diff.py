@@ -15,8 +15,8 @@ from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import Position, TextEdit
 
 _TERMINATOR_SPLIT = re.compile(r"(\r\n|\r|\n)")
-# Largest changed-middle size (old lines x new lines) diffed line by line; about 0.5 s.
-_MAX_DIFF_CELLS = 40_000_000
+# Largest changed-middle size (old lines x new lines) diffed line by line; see the docstring.
+_MAX_DIFF_CELLS = 160_000
 
 
 def _normalize_newlines(text: str) -> str:
@@ -39,15 +39,23 @@ def encode_with_line_endings(original: bytes, new_text: str) -> bytes:
       replaces (paired by position inside the changed block); an inserted or
       unpaired line takes the dominant ending (most frequent; a tie goes to the
       ending seen first);
+    * a ``\\r`` ending that would sit before an empty line ending in ``\\n`` is
+      written as ``\\n`` (the two would read back as one ``\\r\\n``), so the line
+      breaks of *new_text* always survive: the result, read with universal
+      newlines, equals *new_text*;
     * whether the last line ends in a terminator follows *new_text*.
 
-    A BOM is ordinary text here and round-trips. The mixed case runs
-    ``difflib.SequenceMatcher`` only over the lines left after trimming the
-    common leading and trailing lines. It is quadratic (measured: 10k mixed
-    lines with every 10th changed 1.1 s, 40k lines 25 s), so when the changed
-    middle of both sides exceeds ``_MAX_DIFF_CELLS`` line pairs the changed
-    lines are paired by position instead (inserts and deletes inside that
-    middle then shift the pairing; only huge mixed-ending files are affected).
+    A BOM is ordinary text here and round-trips. The mixed case trims the
+    common leading and trailing lines (linear), then pairs the rest with
+    ``difflib.SequenceMatcher`` only while ``len(old) * len(new)`` of the
+    remaining lines is at most ``_MAX_DIFF_CELLS``; beyond that the changed
+    lines are paired by position (inserts and deletes inside that middle shift
+    the pairing). The cap bounds the real cost, which grows far faster than the
+    pair count for duplicate-heavy input: measured on this host, blank-heavy
+    500 x 500 lines 0.36 s, 1000 x 1000 3.0 s, 2000 x 2000 22.8 s, while
+    identical lines are cheaper (2000 x 2000 0.36 s); at the cap the worst of
+    all shapes tried (square and 20..8000-line skewed; blank-heavy, identical,
+    distinct) was 0.18 s.
     """
     new = _normalize_newlines(new_text)
     old_parts = _TERMINATOR_SPLIT.split(original.decode("utf-8"))
@@ -84,12 +92,19 @@ def encode_with_line_endings(original: bytes, new_text: str) -> bytes:
         for offset in range(min(len(old_mid), len(new_mid))):
             source[head + offset] = head + offset
 
+    ends = [
+        terminators[origin] if origin is not None and origin < len(terminators) else dominant for origin in source[:-1]
+    ]
+    # A "\r" ending before an empty line that ends in "\n" would read back as one "\r\n",
+    # losing a line break. Right to left, so a change here is seen by the line before it.
+    for index in range(len(ends) - 2, -1, -1):
+        if ends[index] == "\r" and new_bodies[index + 1] == "" and ends[index + 1] == "\n":
+            ends[index] = "\n"
     out: list[str] = []
     for index, body in enumerate(new_bodies):
         out.append(body)
-        if index < len(new_bodies) - 1:
-            origin = source[index]
-            out.append(terminators[origin] if origin is not None and origin < len(terminators) else dominant)
+        if index < len(ends):
+            out.append(ends[index])
     return "".join(out).encode("utf-8")
 
 
