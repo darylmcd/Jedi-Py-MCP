@@ -44,7 +44,7 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
     "offset": "Number of results to skip before the returned page (pagination).",
     "root_path": (
         "Absolute directory to scan when no explicit file scope is given; defaults to the workspace root. "
-        "Must lie inside the workspace."
+        "Must lie inside the workspace. Also selects the workspace when no file path does."
     ),
     "source_file": "Absolute path to the source Python module the tool reads from; it must lie inside the workspace.",
     "source_path": (
@@ -89,6 +89,11 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
 }
 
 _NEW_METHOD_NAME = "Name for the newly extracted method."
+_WORKSPACE_ROOT_PATH = (
+    "Absolute path of the workspace root, or any path inside it, that selects which workspace answers "
+    "when the call names no file. Required when several workspaces are live or only the workspace "
+    "pre-warmed at startup exists; redundant when it lies in the same workspace as the call's other paths."
+)
 _OPTIONAL_FILE_PATH = (
     "Absolute path to a single Python file that scopes the call (it must lie inside the workspace); "
     "omit it to use the tool's default scope described in the tool description."
@@ -124,6 +129,7 @@ EndCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_ch
 Limit = Annotated[int | None, Field(ge=1, description=PARAM_DESCRIPTIONS["limit"])]
 Offset = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["offset"])]
 RootPath = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["root_path"])]
+WorkspaceRootPath = Annotated[str | None, Field(description=_WORKSPACE_ROOT_PATH)]
 SourceFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_file"])]
 SourcePath = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_path"])]
 DestinationFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["destination_file"])]

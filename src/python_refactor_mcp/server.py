@@ -41,6 +41,7 @@ from python_refactor_mcp.tool_params import (
     RootPath,
     StartCharacter,
     StartLine,
+    WorkspaceRootPath,
 )
 from python_refactor_mcp.tool_registry import (
     DESTRUCTIVE_ANNOTATIONS,
@@ -49,7 +50,12 @@ from python_refactor_mcp.tool_registry import (
     build_tools,
     tool_names_for_profile,
 )
-from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, get_current_backends, get_multi_context
+from python_refactor_mcp.tool_runtime import (
+    MultiWorkspaceContext,
+    WorkspaceUse,
+    get_current_backends,
+    get_multi_context,
+)
 from python_refactor_mcp.tools import analysis, metrics, navigation, refactoring
 from python_refactor_mcp.tools.metrics.security import security_scan as _security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map as _get_test_coverage_map
@@ -79,8 +85,9 @@ async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContex
     # Pre-warm CLI workspace if provided.
     if _workspace_root is not None:
         await registry.set_roots([_workspace_root])
-        # Eagerly initialize backends for the CLI workspace.
-        await registry.get_backends(str(_workspace_root))
+        # Eagerly start the CLI workspace's backends without selecting it: a path-less
+        # call must still name its workspace (root_path) or follow a path-bearing call.
+        await registry.prewarm(_workspace_root)
 
     try:
         yield MultiWorkspaceContext(
@@ -315,6 +322,7 @@ async def find_unused_imports(
     ctx: Context,
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> UnusedImportScanResult:
     """Find unused imports using Pyright diagnostics merged with an AST fallback. Items and partial file/backend scan_failures are returned separately. Use to clean up import sections before committing. Provide file_path for a single file, or file_paths for batch mode. Related: organize_imports, expand_star_imports."""
     app = get_current_backends()
@@ -336,6 +344,7 @@ async def get_test_coverage_map(
     ctx: Context,
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> TestCoverageMap:
     """Map source symbols to test references. Shows which functions/classes have test coverage without treating failed reference lookups as uncovered; partial failures are returned in scan_failures. Related: find_references, dead_code_detection."""
     app = get_current_backends()
@@ -354,6 +363,7 @@ async def security_scan(
     ctx: Context,
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> SecurityScanResult:
     """AST-based security scan for common Python vulnerabilities (eval, exec, shell injection, pickle, etc.). Unreadable or unparseable files are returned in scan_failures rather than treated as clean. Related: get_diagnostics, dead_code_detection."""
     _ = get_current_backends()
@@ -373,6 +383,7 @@ async def security_autofix(
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
     apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
 ) -> RefactorResult:
     """Rewrite unsafe yaml.load() calls (SEC022) to yaml.safe_load(). Targets the literal yaml.load attribute call; calls that already pass an explicit Loader= are skipped (reported in the description). Defaults to preview mode (apply=False). Behavior-changing: safe_load rejects arbitrary tags/object construction that load permits. Related: security_scan."""
     app = get_current_backends()
@@ -388,6 +399,7 @@ async def structural_replace(
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
     apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
 ) -> RefactorResult:
     """Find structural matches with a LibCST matcher pattern and rewrite them. The pattern uses the same matcher DSL as structural_search (e.g. m.Call(func=m.Attribute(value=m.Name('logger'), attr=m.Name('warn')), args=[m.SaveMatchedNode(m.ZeroOrMore(m.Arg()), 'a')])); capture sub-nodes with m.SaveMatchedNode(matcher, 'name') and reference them in the replacement template as $name (e.g. 'logger.warning($a)'). Expression-position matches only. Requires file_path or file_paths; defaults to preview mode (apply=False). Related: structural_search, restructure."""
     app = get_current_backends()
@@ -448,7 +460,7 @@ EXPLICIT_TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(security_scan, READ_ONLY_ANNOTATIONS),
     ToolRecord(security_autofix, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(structural_replace, DESTRUCTIVE_ANNOTATIONS),
-    ToolRecord(server_status, READ_ONLY_ANNOTATIONS),
+    ToolRecord(server_status, READ_ONLY_ANNOTATIONS, WorkspaceUse.NONE),
 )
 
 mcp = MCPServer(
@@ -471,10 +483,11 @@ mcp = MCPServer(
 def run_server(workspace_root: str | None = None) -> None:
     """Start the MCP server using stdio transport.
 
-    If *workspace_root* is provided, backends for that workspace are
-    eagerly initialized at startup.  If omitted, the server starts cold
-    and discovers workspaces dynamically from path parameters on the first
-    path-bearing tool call.
+    If *workspace_root* is provided (single-project registrations only), backends
+    for that workspace are eagerly initialized at startup but the workspace is not
+    selected: a path-less call fails until a path-bearing call or ``root_path``
+    selects it.  If omitted, the server starts cold and discovers workspaces
+    dynamically from path parameters on path-bearing tool calls.
     """
     global _workspace_root  # noqa: PLW0603
     _workspace_root = Path(workspace_root).resolve() if workspace_root else None

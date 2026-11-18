@@ -14,7 +14,7 @@ from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig, discover_config
-from python_refactor_mcp.errors import WorkspaceResolutionError
+from python_refactor_mcp.errors import AmbiguousWorkspaceError, WorkspaceResolutionError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +53,9 @@ class WorkspaceBackends:
     jedi: JediBackend
     rope: RopeBackend
     last_accessed: float = field(default_factory=time.monotonic)
+    # True once a path-bearing request chose this workspace. The startup pre-warm
+    # leaves it False, so a path-less call cannot silently adopt it.
+    selected: bool = False
     _initialized: bool = field(default=False, repr=False)
 
     async def initialize(self) -> None:
@@ -149,14 +152,28 @@ class WorkspaceRegistry:
     # ── Backend access (hot path) ────────────────────────────────────────
 
     async def get_backends(self, file_path: str) -> WorkspaceBackends:
-        """Resolve workspace for *file_path*, lazily initialize, and return backends.
+        """Resolve the workspace enclosing *file_path*, lazily initialize it, select it, and return backends.
 
-        This is the hot path — called on every tool invocation that has a
-        file_path parameter.
+        This is the hot path — the boundary calls it with the first workspace-selecting
+        path of every request that has one (``file_path``, ``root_path``, the other
+        ``PATH_PARAMS``, list and nested paths). The workspace is marked selected, so
+        later path-less calls may resolve to it (see :meth:`implicit_workspace`).
         """
-        resolved_file = Path(file_path).resolve()
-        root = self.resolve_workspace_root(resolved_file)
+        root = self.resolve_workspace_root(Path(file_path).resolve())
+        backends = await self._get_or_create(root)
+        backends.selected = True
+        return backends
 
+    async def prewarm(self, root: Path) -> WorkspaceBackends:
+        """Start the workspace enclosing *root* without selecting it.
+
+        Used for the startup pre-warm: the backends are ready, but a path-less call
+        still has to name its workspace (see :meth:`implicit_workspace`).
+        """
+        return await self._get_or_create(self.resolve_workspace_root(root.resolve()))
+
+    async def _get_or_create(self, root: Path) -> WorkspaceBackends:
+        """Return the live backends of *root*, evicting and initializing as needed."""
         async with self._lock:
             existing = self._workspaces.get(root)
             if existing is not None:
@@ -164,17 +181,33 @@ class WorkspaceRegistry:
                 return existing
 
             await self._evict_lru()
-            backends = await self._initialize_workspace(root)
-            return backends
+            return await self._initialize_workspace(root)
 
-    def get_most_recent(self) -> WorkspaceBackends | None:
-        """Return the most recently accessed workspace, or None if empty.
+    def implicit_workspace(self) -> WorkspaceBackends:
+        """Return the workspace a call that names no path means, or raise when that is not unambiguous.
 
-        Used as fallback for tools without a file_path parameter.
+        Only a sole live workspace that a path-bearing request already selected qualifies;
+        it is touched so the LRU sees the use. Several live workspaces, a pre-warmed root no
+        request has selected, and an empty registry raise :class:`AmbiguousWorkspaceError`
+        naming the live roots and the ``root_path`` parameter.
         """
-        if not self._workspaces:
-            return None
-        return max(self._workspaces.values(), key=lambda b: b.last_accessed)
+        live = self.active_backends()
+        if len(live) == 1 and live[0].selected:
+            live[0].touch()
+            return live[0]
+
+        if not live:
+            detail = "no workspace is live"
+        else:
+            roots = ", ".join(
+                f"{backends.config.workspace_root}{'' if backends.selected else ' (pre-warmed, not selected)'}"
+                for backends in live
+            )
+            detail = f"{len(live)} workspace{'s are' if len(live) > 1 else ' is'} live: {roots}"
+        raise AmbiguousWorkspaceError(
+            f"This call names no file or root_path and {detail}. "
+            "Pass an absolute root_path naming the target workspace."
+        )
 
     def active_backends(self) -> list[WorkspaceBackends]:
         """Return the currently-initialized workspace backends.

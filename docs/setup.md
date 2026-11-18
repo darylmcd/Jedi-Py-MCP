@@ -86,9 +86,20 @@ Direct commands:
 
 ## Configuration
 
-The workspace-root argument is optional. When supplied, that workspace is
-pre-warmed during server startup. When omitted, the server starts cold and
-discovers a project root from the first path-bearing tool request.
+The workspace-root argument is optional and meant for single-project
+registrations only. When supplied, that workspace is pre-warmed (its backends
+start) during server startup, but it is not selected: a tool call that names no
+file fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call, or an
+absolute `root_path` argument, selects that root. A user-scope registration
+shared by several repositories should omit the argument; the server then starts
+cold and discovers a project root from each path-bearing tool request.
+
+Tools that can be called without a file path (for example `search_symbols`,
+`fix_module_names`, `undo_refactoring`) accept an absolute `root_path` that
+selects the workspace. With no `root_path`, such a call resolves only to the
+sole workspace a path-bearing call already selected; with several live
+workspaces, or only the pre-warmed one, it is rejected and the error lists the
+live roots. See [ADR 0007](adr/0007-explicit-workspace-selection.md).
 
 Python interpreter discovery order:
 
