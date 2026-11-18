@@ -196,6 +196,12 @@ class PyrightLSPClient:
         # ``(mtime_ns, size)`` taken BEFORE the text it describes was read, so a write
         # landing between the read and the stat shows up as a stale stamp, never a lost edit.
         self._file_stamps: dict[str, tuple[int, int]] = {}
+        # Ownership of documents opened by ``get_diagnostics_many(close_opened=True)`` scans,
+        # both guarded by ``_document_lock``: ``_scan_refs`` counts the running scans that
+        # include a path; ``_scan_owned`` holds paths no ordinary request has touched since a
+        # scan claimed them. The last scan to leave a still-owned path closes it.
+        self._scan_refs: dict[str, int] = {}
+        self._scan_owned: set[str] = set()
         self._document_lock = asyncio.Lock()
         self._restart_lock = asyncio.Lock()
         self._session_invalid = False
@@ -514,14 +520,21 @@ class PyrightLSPClient:
         absolute_path = normalize_path(file_path)
         await self._ensure_healthy()
         async with self._document_lock:
+            self._scan_owned.discard(absolute_path)
             if absolute_path not in self._file_contents:
                 text, stamp = self._read_document(absolute_path)
                 await self._sync_document(absolute_path, text, stamp)
 
-    async def _refresh_document(self, absolute_path: str, transport: LSPClient) -> None:
-        """Synchronize current disk contents with Pyright before analysis."""
+    async def _refresh_document(self, absolute_path: str, transport: LSPClient, *, adopt: bool = True) -> None:
+        """Synchronize current disk contents with Pyright before analysis.
+
+        An ordinary request ``adopt``s the document: a running scan no longer owns it, so the
+        scan will not close it. Only a scan's own pulls pass ``adopt=False``.
+        """
         async with self._document_lock:
             self._require_current_session(transport)
+            if adopt:
+                self._scan_owned.discard(absolute_path)
             text, stamp = self._read_document(absolute_path)
             if self._file_contents.get(absolute_path) != text:
                 await self._sync_document(absolute_path, text, stamp)
@@ -667,34 +680,60 @@ class PyrightLSPClient:
         result at the first failure; it cannot be combined with ``concurrency > 1``.
         A failure of the shared resync itself (timeout, dead session) raises.
 
-        ``close_opened`` closes, once the batch ends (also on failure or cancellation),
-        the documents this call opened, so a whole-workspace scan does not grow the
-        open set; documents that were already open stay open. A document another
-        request opens meanwhile may be closed too; its next request reopens it.
+        ``close_opened`` makes the batch close, once it ends (also on failure or
+        cancellation), the documents it opened, so a whole-workspace scan does not grow
+        the open set. Ownership is tracked per document under the document lock: a
+        document that was already open is never closed; one that an ordinary request
+        (or a scan without ``close_opened``) uses meanwhile is adopted by that request
+        and stays open; overlapping ``close_opened`` batches share a document, and the
+        last of them to end closes it.
 
         Limitation: a document is detected as changed by its ``(mtime_ns, size)``
         stamp, so an edit that keeps both the size and the modification time is not
         noticed until the file changes again or the session restarts.
         """
         if not close_opened:
-            return await self._pull_many(file_paths, concurrency=concurrency, stop_on_error=stop_on_error)
-        already_open = set(self._open_files)
+            return await self._pull_many(
+                file_paths, concurrency=concurrency, stop_on_error=stop_on_error, scan_owned=False
+            )
         scanned: set[str] = set()
         for path in file_paths:
             with contextlib.suppress(Exception):  # a bad path is reported by its own pull
                 scanned.add(normalize_path(path))
+        await self._claim_for_scan(scanned)
         try:
-            return await self._pull_many(file_paths, concurrency=concurrency, stop_on_error=stop_on_error)
+            return await self._pull_many(
+                file_paths, concurrency=concurrency, stop_on_error=stop_on_error, scan_owned=True
+            )
         finally:
-            await self._close_documents(scanned - already_open)
+            await self._release_from_scan(scanned)
 
-    async def _close_documents(self, paths: set[str]) -> None:
-        """Close the still-open documents among ``paths``; a failure invalidates the session, never the caller."""
+    async def _claim_for_scan(self, paths: set[str]) -> None:
+        """Register a scan over ``paths``; those not open yet become scan-owned."""
+        async with self._document_lock:
+            for path in paths:
+                self._scan_refs[path] = self._scan_refs.get(path, 0) + 1
+                if path not in self._open_files:
+                    self._scan_owned.add(path)
+
+    async def _release_from_scan(self, paths: set[str]) -> None:
+        """Leave a scan; close each still-owned, still-open path no other scan includes.
+
+        Best effort: a failure invalidates the session (the next request restarts it) and is
+        logged, never raised over the scan's own outcome.
+        """
         try:
             async with self._document_lock:
                 for path in sorted(paths):
-                    if path in self._open_files:
-                        await self._close_document(path)
+                    remaining = self._scan_refs[path] - 1
+                    if remaining > 0:
+                        self._scan_refs[path] = remaining
+                        continue
+                    del self._scan_refs[path]
+                    if path in self._scan_owned:
+                        self._scan_owned.discard(path)
+                        if path in self._open_files:
+                            await self._close_document(path)
         except Exception:
             _LOGGER.warning("Could not close scanned documents; the next request restarts the session.", exc_info=True)
 
@@ -704,6 +743,7 @@ class PyrightLSPClient:
         *,
         concurrency: int,
         stop_on_error: bool,
+        scan_owned: bool,
     ) -> list[list[Diagnostic] | Exception]:
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
@@ -725,7 +765,7 @@ class PyrightLSPClient:
 
         async def one(path: str) -> list[Diagnostic] | Exception:
             try:
-                return await self._pull_diagnostics(normalize_path(path), sync_peers=False)
+                return await self._pull_diagnostics(normalize_path(path), sync_peers=False, scan_owned=scan_owned)
             except Exception as exc:
                 return exc
 
@@ -753,13 +793,15 @@ class PyrightLSPClient:
             await asyncio.gather(*pulls, return_exceptions=True)
             raise
 
-    async def _pull_diagnostics(self, normalized: str, *, sync_peers: bool) -> list[Diagnostic]:
+    async def _pull_diagnostics(
+        self, normalized: str, *, sync_peers: bool, scan_owned: bool = False
+    ) -> list[Diagnostic]:
         """Pull one file's diagnostics, optionally resynchronizing the other open documents first."""
 
         async def prepare(transport: LSPClient) -> None:
             if sync_peers:
                 await self._sync_peer_documents(transport, skip=normalized)
-            await self._refresh_document(normalized, transport)
+            await self._refresh_document(normalized, transport, adopt=not scan_owned)
 
         response = await self._request(
             "textDocument/diagnostic",

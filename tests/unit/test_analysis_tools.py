@@ -878,3 +878,41 @@ async def test_workspace_diagnostics_still_reports_failures_instead_of_raising(t
     pyright.get_diagnostics_many.assert_awaited_once_with(
         [str((tmp_path / "a.py").resolve())], concurrency=10, close_opened=False
     )
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_file_path_filters_and_sorts() -> None:
+    """The single-file form keeps its case-sensitive filter, dedupe and sort (restored from the pre-ADR-0014 test)."""
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = [
+        Diagnostic(
+            file_path="/repo/b.py",
+            range=Range(start=Position(line=9, character=0), end=Position(line=9, character=1)),
+            severity="warning",
+            message="warn",
+            code=None,
+        ),
+        Diagnostic(
+            file_path="/repo/a.py",
+            range=Range(start=Position(line=1, character=1), end=Position(line=1, character=3)),
+            severity="warning",
+            message="warn2",
+            code=None,
+        ),
+        Diagnostic(
+            file_path="/repo/a.py",
+            range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+            severity="error",
+            message="err",
+            code=None,
+        ),
+    ]
+
+    filtered = await analysis.get_diagnostics(pyright, file_path="/repo/a.py", severity_filter="warning")
+
+    assert [(item.file_path, item.range.start.line) for item in filtered] == [
+        ("/repo/a.py", 1),
+        ("/repo/b.py", 9),
+    ]
+    pyright.get_diagnostics.assert_awaited_once_with("/repo/a.py")
+    pyright.get_diagnostics_many.assert_not_awaited()

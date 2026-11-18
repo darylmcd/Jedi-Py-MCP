@@ -1447,6 +1447,9 @@ class DiagnosticsHarness(PyrightClientHarness):
     def is_tracked(self, path: str) -> bool:
         return path in self._open_files or path in self._file_contents or path in self._file_stamps
 
+    def scan_state(self) -> tuple[dict[str, int], set[str]]:
+        return dict(self._scan_refs), set(self._scan_owned)
+
     async def sync_peers(self, transport: LSPClient) -> None:
         await self._sync_peer_documents(transport)
 
@@ -2496,3 +2499,82 @@ async def test_get_diagnostics_many_closes_opened_documents_when_cancelled(tmp_p
         await backend.get_diagnostics_many([str(importer)], concurrency=2, close_opened=True)
 
     assert not backend.is_tracked(str(importer))
+
+
+# ── Scan-opened documents have owners ─────────────────────────────────
+
+
+class GatedClient(OrderedClient):
+    """Blocks the n-th diagnostic request on its own gate, so overlap is scripted, not timed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gates: list[asyncio.Event] = []
+        self.entered: list[asyncio.Event] = []
+        self._calls = 0
+
+    def expect(self, count: int) -> None:
+        self.gates = [asyncio.Event() for _ in range(count)]
+        self.entered = [asyncio.Event() for _ in range(count)]
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        index = self._calls
+        self._calls += 1
+        if index < len(self.gates):
+            self.entered[index].set()
+            await self.gates[index].wait()
+        return await super().send_request(method, params)
+
+
+@pytest.mark.asyncio
+async def test_overlapping_scans_close_a_shared_document_only_when_the_last_scan_ends(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    client.expect(2)
+
+    first = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[0].wait()
+    second = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[1].wait()
+
+    client.gates[0].set()
+    await first
+    assert backend.is_tracked(str(shared))  # the second scan is still pulling it
+    assert client.methods_for(shared) == ["textDocument/didOpen"]
+
+    client.gates[1].set()
+    await second
+    assert not backend.is_tracked(str(shared))
+    assert client.methods_for(shared) == ["textDocument/didOpen", "textDocument/didClose"]
+    assert backend.scan_state() == ({}, set())
+
+
+@pytest.mark.asyncio
+async def test_scan_does_not_close_a_document_a_concurrent_request_adopted(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    client.expect(1)
+
+    scan = asyncio.create_task(backend.get_diagnostics_many([str(shared)], close_opened=True))
+    await client.entered[0].wait()  # the scan opened the document and is mid-pull
+    await backend.get_diagnostics(str(shared))  # an ordinary request now uses it
+    client.gates[0].set()
+    await scan
+
+    assert backend.is_tracked(str(shared))  # the request's document is not the scan's to close
+    assert "textDocument/didClose" not in client.methods_for(shared)
+    assert backend.scan_state() == ({}, set())
+
+
+@pytest.mark.asyncio
+async def test_scan_of_an_already_open_document_never_claims_it(tmp_path: Path) -> None:
+    client = GatedClient()
+    backend, shared = _diagnostics_harness(tmp_path, client)
+    await backend.get_diagnostics(str(shared))
+    client.events.clear()
+
+    await backend.get_diagnostics_many([str(shared)], close_opened=True)
+
+    assert backend.is_tracked(str(shared))
+    assert client.methods_for(shared) == []
+    assert backend.scan_state() == ({}, set())
