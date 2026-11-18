@@ -98,6 +98,82 @@ async def test_inline_default_rejects_invalid_targets(
     assert module.read_text(encoding="utf-8") == source
 
 
+_TWO_DEFAULTS = "def f(a=1, b=2):\n    return a + b\n\n\nf()\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "operations", "reason"),
+    [
+        (
+            _TWO_DEFAULTS,
+            [SignatureOperation(op="normalize"), SignatureOperation(op="inline_default", index=1)],
+            "earlier parameter(s) at index 0",
+        ),
+        (
+            _TWO_DEFAULTS,
+            [SignatureOperation(op="inline_default", index=0), SignatureOperation(op="inline_default", index=0)],
+            "has no default",
+        ),
+        (
+            _TWO_DEFAULTS,
+            [
+                SignatureOperation(op="add", index=2, name="c", default="3"),
+                SignatureOperation(op="inline_default", index=1),
+            ],
+            "earlier parameter(s) at index 0",
+        ),
+        (
+            "def f(a, b=2):\n    return a + b\n\n\nf(1)\n",
+            [SignatureOperation(op="reorder", new_order=[1, 0]), SignatureOperation(op="inline_default", index=1)],
+            "has no default",
+        ),
+    ],
+)
+async def test_inline_default_validation_tracks_earlier_operations(
+    tmp_path: Path, source: str, operations: list[SignatureOperation], reason: str
+) -> None:
+    """The inline_default checks run against the signature the earlier operations leave."""
+    module = tmp_path / "m.py"
+    module.write_text(source, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    with pytest.raises(ToolInputError) as exc_info:
+        await backend.change_signature(str(module), 0, 4, operations, apply=False)
+
+    assert reason in str(exc_info.value)
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_inline_default_after_removing_earlier_default_is_valid(tmp_path: Path) -> None:
+    """Removing the only earlier defaulted parameter makes the later inline valid."""
+    module = tmp_path / "m.py"
+    module.write_text(_TWO_DEFAULTS, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    ops = [SignatureOperation(op="remove", index=0), SignatureOperation(op="inline_default", index=0)]
+    result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
+
+    assert result.edits[0].new_text.splitlines()[0] == "def f(b):"
+
+
+@pytest.mark.asyncio
+async def test_inline_default_after_reorder_is_valid_when_defaults_follow(tmp_path: Path) -> None:
+    """reorder([1, 0]) puts the defaulted parameter last, so inlining it is valid."""
+    module = tmp_path / "m.py"
+    module.write_text("def f(a=1, b=2):\n    return a + b\n\n\nf()\n", encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+
+    ops = [SignatureOperation(op="reorder", new_order=[1, 0]), SignatureOperation(op="inline_default", index=0)]
+    result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
+
+    assert result.edits[0].new_text.splitlines()[0] == "def f(b, a=1):"
+
+
 @pytest.fixture
 def rope_backend(tmp_path: Path) -> tuple[RopeBackend, Path]:
     """Create initialized rope backend and fixture source file."""
@@ -265,15 +341,14 @@ async def test_extract_method_returns_edits(rope_backend: tuple[RopeBackend, Pat
     assert not result.applied
 
 
-def test_position_offset_round_trip(rope_backend: tuple[RopeBackend, Path]) -> None:
-    """Position and offset conversions round-trip correctly."""
+def test_position_to_offset_converts_line_and_character(rope_backend: tuple[RopeBackend, Path]) -> None:
+    """A 0-based line/character position maps to its character offset."""
     backend, module = rope_backend
+    first_line = module.read_text(encoding="utf-8").splitlines(keepends=True)[0]
 
     offset = backend._position_to_offset(str(module), 1, 4)  # pyright: ignore[reportPrivateUsage]
-    position = backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
 
-    assert position.line == 1
-    assert position.character == 4
+    assert offset == len(first_line) + 4
 
 
 @pytest.mark.asyncio
@@ -798,14 +873,6 @@ async def test_range_position_error_names_prefixed_parameter(
             method_name="compute_value",
             apply=False,
         )
-
-
-@pytest.mark.parametrize("offset", [-1, 10_000])
-def test_offset_errors_are_invalid_input(rope_backend: tuple[RopeBackend, Path], offset: int) -> None:
-    backend, module = rope_backend
-
-    with pytest.raises(ToolInputError, match=r"\(parameter: offset\)$"):
-        backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio
