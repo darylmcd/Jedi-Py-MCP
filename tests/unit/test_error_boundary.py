@@ -1368,6 +1368,7 @@ def test_validate_params_rejects_non_nfkc_identifiers(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="not NFKC-normalized"):
         _validate_params({"steps": [_rename_step(str(tmp_path / "a.py"), new_name="ﬁle")]}, tmp_path)
 
+
 # ── root_path selection (bl-0056) ────────────────────────────────────────
 
 
