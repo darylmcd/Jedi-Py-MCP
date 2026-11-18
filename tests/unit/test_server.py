@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from pathlib import Path
 
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from python_refactor_mcp import server
-from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE
+from python_refactor_mcp import server, tool_registry
+from python_refactor_mcp.config import DEFAULT_TOOL_PROFILE, ToolProfile
 from python_refactor_mcp.errors import BackendError
 from python_refactor_mcp.tool_registry import (
     MAX_TOOLS_PER_PROFILE,
@@ -31,10 +32,10 @@ async def test_get_inlay_hints_read_failure_is_backend_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Line-count filesystem details remain internal to the MCP boundary."""
-    monkeypatch.setattr(server, "get_current_backends", lambda: object())
+    monkeypatch.setattr(tool_registry, "get_current_backends", lambda: object())
 
     with pytest.raises(BackendError, match="Cannot read file for line count"):
-        await server.get_inlay_hints(
+        await tool_registry.get_inlay_hints(
             object(),  # type: ignore[arg-type]
             str(tmp_path / "private" / "missing.py"),
             0,
@@ -220,7 +221,7 @@ def test_profile_description_without_related_clause_is_unchanged() -> None:
 
 def test_build_server_instructions_analysis_notes_refactoring_profile() -> None:
     """The analysis profile names no refactoring tool and points at the refactoring profile."""
-    advertised = tool_names_for_profile("analysis", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    advertised = tool_names_for_profile("analysis")
 
     text = server.build_server_instructions("analysis", advertised)
 
@@ -250,7 +251,7 @@ async def test_whole_file_rewriters_advertise_destructive_hint() -> None:
     """Rewriters of existing content advertise destructiveHint without changing profile membership."""
     mcp = MCPServer(
         "whole-file rewriter annotations",
-        tools=build_tools("refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS),
+        tools=build_tools("refactoring"),
     )
     advertised = {tool.name: tool for tool in await mcp.list_tools()}
 
@@ -261,8 +262,39 @@ async def test_whole_file_rewriters_advertise_destructive_hint() -> None:
         assert annotations.destructive_hint is True, name
         assert annotations.read_only_hint is False, name
 
-    analysis = tool_names_for_profile("analysis", extra_records=server.EXPLICIT_TOOL_RECORDS)
-    refactoring = tool_names_for_profile("refactoring", extra_records=server.EXPLICIT_TOOL_RECORDS)
+    analysis = tool_names_for_profile("analysis")
+    refactoring = tool_names_for_profile("refactoring")
     assert refactoring >= _WHOLE_FILE_REWRITERS
     assert not _WHOLE_FILE_REWRITERS & analysis
     assert (len(analysis), len(refactoring)) == (56, 75)
+
+
+# The eleven tools whose delegates once lived in server.py behind a second record table.
+_FORMER_SERVER_TOOLS = frozenset(
+    {
+        "get_completions",
+        "get_inlay_hints",
+        "get_symbol_outline",
+        "argument_normalizer",
+        "argument_default_inliner",
+        "find_unused_imports",
+        "get_test_coverage_map",
+        "security_scan",
+        "security_autofix",
+        "structural_replace",
+        "server_status",
+    }
+)
+
+
+@pytest.mark.parametrize("profile", ["analysis", "refactoring"])
+def test_tool_records_are_the_single_registration_table(profile: ToolProfile) -> None:
+    """One table registers every tool: the registry alone yields the full surface, with no second table."""
+    table_names = {record.func.__name__ for record in tool_registry.TOOL_RECORDS}
+    assert table_names >= _FORMER_SERVER_TOOLS
+    assert not hasattr(server, "EXPLICIT_TOOL_RECORDS")
+    for builder in (tool_registry.build_tools, tool_registry.tool_names_for_profile):
+        assert list(inspect.signature(builder).parameters) == ["profile"]
+
+    advertised = {tool.name for tool in tool_registry.build_tools(profile)}
+    assert advertised == tool_names_for_profile(profile)

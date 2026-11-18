@@ -30,8 +30,8 @@ Each profile must remain below the reliability budget of 80. Their union is
 contract-tested against the complete catalog, so profile partitioning cannot
 make an existing tool unreachable.
 
-The canonical catalog is assembled from `tool_registry.py::TOOL_RECORDS` and
-`server.py::EXPLICIT_TOOL_RECORDS`. Tools are organized into these categories:
+The canonical catalog is the single `tool_registry.py::TOOL_RECORDS` table.
+Tools are organized into these categories:
 
 ### Analysis (19 tools)
 `find_references`, `find_type_users`, `get_type_info`, `get_completions`, `get_documentation`, `get_signature_help`, `get_document_highlights`, `get_inlay_hints`, `get_semantic_tokens`, `get_diagnostics`, `get_workspace_diagnostics`, `deep_type_inference`, `get_type_hint_string`, `get_syntax_errors`, `get_context`, `get_all_names`, `create_type_stubs`, `check_type_stub_freshness`, `test_impact_select`

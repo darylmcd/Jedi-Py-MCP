@@ -31,8 +31,8 @@ Read order is defined by `../AGENTS.md`.
 
 ## Project Map
 
-- `../src/python_refactor_mcp/server.py`: MCP app lifecycle and explicit tool assembly
-- `../src/python_refactor_mcp/tool_registry.py`: declarative tool catalog and profile policy
+- `../src/python_refactor_mcp/server.py`: MCP server lifecycle (`build_server`, `workspace_lifespan`), instructions, entrypoint
+- `../src/python_refactor_mcp/tool_registry.py`: the single `TOOL_RECORDS` catalog (every tool delegate) and profile policy
 - `../src/python_refactor_mcp/tool_runtime.py`: request-scoped backend resolution and error boundary
 - `../src/python_refactor_mcp/config.py`: runtime config discovery
 - `../src/python_refactor_mcp/models.py`: shared response models

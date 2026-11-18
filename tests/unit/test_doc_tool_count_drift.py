@@ -98,10 +98,9 @@ def test_server_wide_counts_agree_with_complete_catalog() -> None:
     Profiles advertise bounded subsets, so the declarative registration catalog
     is the source of truth for docs that state the complete total.
     """
-    from python_refactor_mcp import server  # noqa: PLC0415
     from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
 
-    catalog_count = len(TOOL_RECORDS) + len(server.EXPLICIT_TOOL_RECORDS)
+    catalog_count = len(TOOL_RECORDS)
 
     offenders: list[tuple[str, int, int, str]] = []
     for path in _policed_doc_files():
@@ -121,10 +120,9 @@ def test_server_wide_counts_agree_with_complete_catalog() -> None:
 
 
 def _catalog_tool_count() -> int:
-    from python_refactor_mcp import server  # noqa: PLC0415
     from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
 
-    return len(TOOL_RECORDS) + len(server.EXPLICIT_TOOL_RECORDS)
+    return len(TOOL_RECORDS)
 
 
 def _assert_categories_consistent(
@@ -219,12 +217,11 @@ def _render_return_annotation(annotation: object) -> str:
 
 def test_docs_tool_reference_returns_match_live_annotations() -> None:
     """Every documented return contract matches its registered callable."""
-    from python_refactor_mcp import server  # noqa: PLC0415
     from python_refactor_mcp.tool_registry import TOOL_RECORDS  # noqa: PLC0415
 
     live = {
         record.func.__name__: _render_return_annotation(get_type_hints(record.func)["return"])
-        for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
+        for record in TOOL_RECORDS
     }
     row_pattern = re.compile(r"^\| `([^`]+)` \|.*\| `([^`]+)` \|$")
     documented: dict[str, str] = {}
