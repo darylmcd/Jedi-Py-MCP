@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -18,6 +20,24 @@ _LOGGER = logging.getLogger(__name__)
 
 # Project markers used to discover workspace roots by walking parent directories.
 _PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg")
+
+
+async def _run_to_completion(coro: Coroutine[Any, Any, None]) -> None:
+    """Run *coro* to completion even if the awaiting task is cancelled (once or repeatedly).
+
+    The cancellation is re-raised after the work finishes. The task is held in a local
+    so a second cancellation cannot drop the only reference to it.
+    """
+    task = asyncio.ensure_future(coro)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.wait({task})
+            except asyncio.CancelledError:
+                continue
+        raise
 
 
 @dataclass
@@ -36,12 +56,20 @@ class WorkspaceBackends:
     _initialized: bool = field(default=False, repr=False)
 
     async def initialize(self) -> None:
-        """Start all three backends for this workspace."""
+        """Start all three backends for this workspace.
+
+        A failure (or cancellation) after any backend started releases everything
+        already started before re-raising, so no subprocess outlives a failed start.
+        """
         if self._initialized:
             return
-        await self.pyright.start()
-        self.jedi.initialize()
-        self.rope.initialize()
+        try:
+            await self.pyright.start()
+            self.jedi.initialize()
+            self.rope.initialize()
+        except BaseException:
+            await _run_to_completion(self._release_resources())
+            raise
         self._initialized = True
 
     async def shutdown(self) -> None:
@@ -49,14 +77,19 @@ class WorkspaceBackends:
         if not self._initialized:
             return
         self._initialized = False
+        await _run_to_completion(self._release_resources())
+
+    async def _release_resources(self) -> None:
+        """Stop Pyright and close Rope. Safe on partially started backends; swallows Exception only."""
         try:
             await self.pyright.shutdown()
         except Exception:
             _LOGGER.warning("Pyright shutdown failed for %s", self.config.workspace_root, exc_info=True)
-        try:
-            self.rope.close()
-        except Exception:
-            _LOGGER.warning("Rope close failed for %s", self.config.workspace_root, exc_info=True)
+        finally:
+            try:
+                self.rope.close()
+            except Exception:
+                _LOGGER.warning("Rope close failed for %s", self.config.workspace_root, exc_info=True)
 
     def touch(self) -> None:
         """Update last-accessed timestamp for LRU tracking."""
@@ -74,17 +107,15 @@ class WorkspaceRegistry:
     Thread safety: all mutations are guarded by an asyncio.Lock.
     """
 
-    def __init__(
-        self,
-        max_workspaces: int = 3,
-        idle_timeout_seconds: float = 600.0,
-    ) -> None:
+    def __init__(self, max_workspaces: int = 3) -> None:
         if max_workspaces < 1:
             raise ValueError("max_workspaces must be >= 1")
         self._max_workspaces = max_workspaces
-        self._idle_timeout = idle_timeout_seconds
         self._workspaces: dict[Path, WorkspaceBackends] = {}
         self._known_roots: list[Path] = []
+        # Invariant: a subset of _known_roots. Roots found by marker discovery rather
+        # than registered through set_roots; they are evicted ahead of explicit roots.
+        self._auto_roots: set[Path] = set()
         self._lock = asyncio.Lock()
 
     # ── Root management ──────────────────────────────────────────────────
@@ -102,6 +133,8 @@ class WorkspaceRegistry:
             removed = old_set - new_set
 
             self._known_roots = resolved
+            # Every root passed here is explicit, including one previously auto-discovered.
+            self._auto_roots.clear()
 
             for root in removed:
                 backends = self._workspaces.pop(root, None)
@@ -166,6 +199,7 @@ class WorkspaceRegistry:
             for marker in _PROJECT_MARKERS:
                 if (parent / marker).exists():
                     self._known_roots.append(parent)
+                    self._auto_roots.add(parent)
                     _LOGGER.info("Auto-discovered workspace root: %s (marker: %s)", parent, marker)
                     return parent
 
@@ -191,17 +225,19 @@ class WorkspaceRegistry:
         self._workspaces[root] = backends
         return backends
 
+    def _eviction_key(self, root: Path, backends: WorkspaceBackends) -> tuple[bool, float]:
+        """Sort key for eviction; the smallest key is evicted first.
+
+        Auto-discovered roots go before explicit ones; least recently used first within each class.
+        """
+        return (root not in self._auto_roots, backends.last_accessed)
+
     async def _evict_lru(self) -> None:
         """Evict the least-recently-used workspace if at capacity. Caller must hold _lock."""
         if len(self._workspaces) < self._max_workspaces:
             return
 
-        # Prefer evicting auto-discovered roots over explicit roots.
-        explicit_roots = set(self._known_roots)
-        candidates = sorted(
-            self._workspaces.items(),
-            key=lambda kv: (kv[0] in explicit_roots, kv[1].last_accessed),
-        )
+        candidates = sorted(self._workspaces.items(), key=lambda kv: self._eviction_key(*kv))
         evict_root, evict_backends = candidates[0]
         _LOGGER.info("Evicting LRU workspace: %s (last_accessed=%.1f)", evict_root, evict_backends.last_accessed)
         del self._workspaces[evict_root]
@@ -215,3 +251,4 @@ class WorkspaceRegistry:
                 await backends.shutdown()
             self._workspaces.clear()
             self._known_roots.clear()
+            self._auto_roots.clear()
