@@ -69,9 +69,10 @@ from python_refactor_mcp.util.diff import (
     write_bytes_atomic,
 )
 from python_refactor_mcp.util.file_filter import python_files
-from python_refactor_mcp.util.param_rename import function_ordinal, rename_parameter_bindings, validate_identifier
+from python_refactor_mcp.util.param_rename import function_ordinal, rename_parameter_bindings
 from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
+from python_refactor_mcp.util.shared import validate_identifier
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
@@ -270,7 +271,7 @@ def _check_rename(names: Sequence[str], operation: SignatureOperation, position:
             f"index {operation.index} is out of range for rename: the target has {len(names)} "
             f"parameter(s) (parameter: operations[{position}].index)"
         )
-    validate_identifier(operation.new_name, parameter=f"operations[{position}].new_name")
+    validate_identifier(operation.new_name, f"operations[{position}].new_name")
     others = [name for i, name in enumerate(names) if i != operation.index]
     if operation.new_name in others:
         raise ToolInputError(
@@ -324,10 +325,11 @@ def _rename_parameter_bodies(changes: ChangeSet, pyfunction: Any, renames: dict[
             "rename is supported on functions defined in a workspace file with def "
             "(parameter: operations)"
         )
-    ordinal = function_ordinal(resource.read(), function_ast.lineno, function_ast.name)
+    source = resource.read()
+    ordinal = function_ordinal(source, function_ast.lineno, function_ast.name)
     for change in _basic_changes(changes):
         if isinstance(change, ChangeContents) and change.resource.path == resource.path:
-            change.new_contents = rename_parameter_bindings(change.new_contents, ordinal, renames)
+            change.new_contents = rename_parameter_bindings(change.new_contents, ordinal, renames, original=source)
             return
     raise RopeError("rope produced no edit for the function definition.")
 

@@ -33,3 +33,11 @@ Callers that chained `inline_default` after another operation must inline the ea
 ### Migration
 
 Newly rejected with `ToolInputError`: a rename index out of range, a new name that is not an NFKC-normal identifier or duplicates another parameter, an explicit rename default before a required parameter, rename cycles, renames the body pass cannot prove (nonlocal, rebinding by import/def/except/match, dynamic frame access, new name already used in the function, keyword-only functions), and any operation on an async function. Callers must rename such parameters by hand or in separate steps.
+
+### Limits of the rename check
+
+The refusals are not a complete guarantee. The compiled-code comparison proves the variable binding; it cannot see name-based access to it:
+
+- Refused: `locals`, `vars`, `eval`, `exec`, `dir`, `_getframe`, `currentframe`, `getargvalues`, `stack` (as names or attributes) and `f_locals`.
+- Not detected: an alias (`ev = eval`), `functools.partial(f, b=2)` and `**{'b': ...}` callers, `f.__code__.co_varnames`, `inspect.signature`, `__annotations__`, and subclass overrides (rope does not rename them, so keyword calls through the base break).
+- Same-name definitions: rope rewrites the header of every definition it resolves to the target (a redefinition, conditional `def`, `@overload` stub, property setter), but only the target's body is renamed; such a rename is refused. Same-named methods of different classes are not rewritten by rope (observed) and are not refused.

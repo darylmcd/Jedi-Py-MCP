@@ -4,19 +4,40 @@ from __future__ import annotations
 
 import ast
 import re
+import runpy
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from python_refactor_mcp.errors import ToolInputError
-from python_refactor_mcp.util import param_rename
 from python_refactor_mcp.util.param_rename import (
     BINDING_FIELDS,
-    LABEL_FIELDS,
+    NamePairing,
+    ParameterCollector,
     function_ordinal,
     rename_parameter_bindings,
-    validate_identifier,
 )
+from python_refactor_mcp.util.shared import validate_identifier
+
+# ``ast`` string fields that are labels or text, never variable references (exhaustiveness test below).
+LABEL_FIELDS: dict[type[ast.AST], tuple[str, ...]] = {
+    ast.Attribute: ("attr",),
+    ast.keyword: ("arg",),
+    ast.MatchClass: ("kwd_attrs",),
+    ast.ImportFrom: ("module",),
+    ast.Constant: ("value", "kind"),
+    ast.Interpolation: ("str",),
+    ast.TypeIgnore: ("tag",),
+    ast.Assign: ("type_comment",),
+    ast.AsyncFor: ("type_comment",),
+    ast.AsyncFunctionDef: ("type_comment",),
+    ast.AsyncWith: ("type_comment",),
+    ast.For: ("type_comment",),
+    ast.FunctionDef: ("type_comment",),
+    ast.With: ("type_comment",),
+    ast.arg: ("type_comment",),
+}
 
 
 def _as_rope_output(source: str, old: str, new: str) -> str:
@@ -28,7 +49,7 @@ def _as_rope_output(source: str, old: str, new: str) -> str:
 
 
 def _rename(source: str, old: str = "b", new: str = "n", *, ordinal: int = 0) -> str:
-    return rename_parameter_bindings(_as_rope_output(source, old, new), ordinal, {old: new})
+    return rename_parameter_bindings(_as_rope_output(source, old, new), ordinal, {old: new}, original=source)
 
 
 def _fn(body: str, header: str = "def f(a, b):") -> str:
@@ -147,6 +168,9 @@ CASES: list[tuple[str, str, str | None]] = [
     ("dynamic_vars_nested", _fn("def g():\n    return vars()\nreturn g"), None),
     ("dynamic_eval", _fn("return eval('b')"), None),
     ("dynamic_f_locals", _fn("import sys\nreturn sys._getframe().f_locals['b']"), None),
+    ("dynamic_builtins_locals", _fn("import builtins\nreturn builtins.locals()"), None),
+    ("dynamic_builtins_eval", _fn("import builtins\nreturn builtins.eval('b')"), None),
+    ("dynamic_getargvalues", _fn("import inspect\nreturn inspect.getargvalues(inspect.stack()[0].frame).locals"), None),
     ("dynamic_currentframe", _fn("import inspect\nreturn inspect.currentframe().f_locals"), None),
     (
         "non_ascii_text_before_name_on_the_line",
@@ -221,7 +245,7 @@ def test_method_and_decorated_function_are_renamed() -> None:
 
 def test_second_function_is_located_by_ordinal() -> None:
     source = "def other(a, b):\n    return b\n\n\ndef f(a, b):\n    return b\n"
-    out = rename_parameter_bindings(source.replace("def f(a, b)", "def f(a, n)"), 1, {"b": "n"})
+    out = rename_parameter_bindings(source.replace("def f(a, b)", "def f(a, n)"), 1, {"b": "n"}, original=source)
     assert out == "def other(a, b):\n    return b\n\n\ndef f(a, n):\n    return n\n"
     assert function_ordinal(source, 5, "f") == 1
 
@@ -229,13 +253,13 @@ def test_second_function_is_located_by_ordinal() -> None:
 def test_two_renames_in_one_call_map_each_pair() -> None:
     source = "def f(a, b):\n    def g():\n        return a, b\n    c = 1\n    return g, a + b, c\n"
     rope_output = source.replace("def f(a, b)", "def f(y, x)")
-    out = rename_parameter_bindings(rope_output, 0, {"a": "y", "b": "x"})
+    out = rename_parameter_bindings(rope_output, 0, {"a": "y", "b": "x"}, original=source)
     assert out == source.replace("a", "y").replace("b", "x").replace("def f(y, x)", "def f(y, x)")
 
 
 def test_pairing_looks_up_each_name_never_a_single_pair() -> None:
     """``a->y`` must not pass where the renames say ``a->x`` (B2)."""
-    pair = param_rename._Pair({"a": "x", "b": "y"})  # noqa: SLF001
+    pair = NamePairing({"a": "x", "b": "y"})
     none: frozenset[str] = frozenset()
     assert pair.name_ok("a", "x", in_target=True, free=none)
     assert pair.name_ok("b", "y", in_target=True, free=none)
@@ -247,50 +271,52 @@ def test_pairing_looks_up_each_name_never_a_single_pair() -> None:
     assert not pair.multiset_ok(["a", "b", "c"], ["c", "y", "y"], in_target=True, free=none)
 
 
+_TWO = "def f(a, b):\n    return a, b\n"
+
+
 def test_swap_and_cycle_are_refused() -> None:
     with pytest.raises(ToolInputError, match="swap or cycle"):
-        rename_parameter_bindings("def f(b, a):\n    return a, b\n", 0, {"a": "b", "b": "a"})
+        rename_parameter_bindings(_TWO, 0, {"a": "b", "b": "a"}, original=_TWO)
 
 
 def test_added_parameter_reusing_the_old_name_is_refused() -> None:
     with pytest.raises(ToolInputError, match="reuses the old name"):
-        rename_parameter_bindings("def f(a, n, b):\n    return n, b\n", 0, {"b": "n"})
+        rename_parameter_bindings("def f(a, n, b):\n    return n, b\n", 0, {"b": "n"}, original=_TWO)
 
 
 def test_unparseable_rope_output_is_refused() -> None:
     """rope drops keyword-only parameters: ``def f(a, b, *, c)`` comes back as ``def f(a, n, *)``."""
     with pytest.raises(ToolInputError, match="does not parse"):
-        rename_parameter_bindings("def f(a, n, *):\n    return n\n", 0, {"b": "n"})
+        rename_parameter_bindings("def f(a, n, *):\n    return n\n", 0, {"b": "n"}, original=_TWO)
     with pytest.raises(ToolInputError, match="does not parse"):
-        rename_parameter_bindings("\ufeffdef f(a, n):\n    return n\n", 0, {"b": "n"})
+        rename_parameter_bindings("\ufeffdef f(a, n):\n    return n\n", 0, {"b": "n"}, original=_TWO)
 
 
 def test_no_renames_returns_source_unchanged() -> None:
-    assert rename_parameter_bindings("def f(a):\n    return a\n", 0, {}) == "def f(a):\n    return a\n"
+    assert rename_parameter_bindings("def f(a):\n    return a\n", 0, {}, original="") == "def f(a):\n    return a\n"
 
 
 @pytest.mark.parametrize("name", ["class", "1x", "a-b", "", "ﬁle"])
 def test_new_name_must_be_a_normalized_identifier(name: str) -> None:
     with pytest.raises(ToolInputError):
-        validate_identifier(name, parameter="new_name")
+        validate_identifier(name, "new_name")
 
 
-def test_oracle_refuses_a_wrong_rewrite() -> None:
+def test_oracle_refuses_a_wrong_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
     """The oracle, not the generator, is the authority: a sabotaged proposal is refused."""
     source = "def f(a, b):\n    def g(b):\n        return b\n    return g(b)\n"
     rope_output = source.replace("def f(a, b)", "def f(a, n)")
-    assert rename_parameter_bindings(rope_output, 0, {"b": "n"}).endswith("return g(n)\n")
-    real = param_rename._Collector.visit  # noqa: SLF001
+    renames = {"b": "n"}
+    good = rename_parameter_bindings(rope_output, 0, renames, original=source)
+    assert good.endswith("return g(n)\n")
+    real_visit = ParameterCollector.visit
 
-    def sloppy(self: Any, node: ast.AST, active: bool) -> None:
-        real(self, node, True)  # ignore shadowing
+    def sloppy(self: ParameterCollector, node: ast.AST, active: bool) -> None:
+        real_visit(self, node, True)  # ignore shadowing
 
-    param_rename._Collector.visit = sloppy  # type: ignore[method-assign]  # noqa: SLF001
-    try:
-        with pytest.raises(ToolInputError, match="differs from the original"):
-            rename_parameter_bindings(rope_output, 0, {"b": "n"})
-    finally:
-        param_rename._Collector.visit = real  # type: ignore[method-assign]  # noqa: SLF001
+    monkeypatch.setattr(ParameterCollector, "visit", sloppy)
+    with pytest.raises(ToolInputError, match="differs from the original"):
+        rename_parameter_bindings(rope_output, 0, renames, original=source)
 
 
 def test_identifier_tables_cover_every_ast_string_field() -> None:
@@ -309,7 +335,7 @@ def test_identifier_tables_cover_every_ast_string_field() -> None:
 
 _BEHAVIOUR = [
     ("closure", _fn("def g():\n    return a + b\nreturn g()"), (1, 2)),
-    ("walrus", _fn("r = [(b := x) for x in a]\nreturn b"), ([1, 2, 3], 9)),
+    ("walrus", _fn("before = b\nr = [(b := x) for x in a]\nreturn before, b"), ([1, 2, 3], 9)),
     ("class_body", _fn("class C:\n    y = b\nreturn C.y"), (1, 5)),
     ("shadow", _fn("def g(b):\n    return b * 2\nreturn g(b) + b"), (1, 5)),
     ("loops", _fn("for b in a:\n    pass\nreturn b"), ([1, 2, 3], 0)),
@@ -324,9 +350,9 @@ _BEHAVIOUR = [
 
 
 @pytest.mark.parametrize(("source", "args"), [pytest.param(s, a, id=i) for i, s, a in _BEHAVIOUR])
-def test_renamed_function_behaves_like_the_original(source: str, args: tuple[Any, ...]) -> None:
-    before: dict[str, Any] = {}
-    after: dict[str, Any] = {}
-    exec(compile(source, "<before>", "exec"), before)  # noqa: S102 - fixed test sources
-    exec(compile(_rename(source), "<after>", "exec"), after)  # noqa: S102
-    assert before["f"](*args) == after["f"](*args)
+def test_renamed_function_behaves_like_the_original(tmp_path: Path, source: str, args: tuple[Any, ...]) -> None:
+    before = tmp_path / "before.py"
+    after = tmp_path / "after.py"
+    before.write_text(source, encoding="utf-8")
+    after.write_text(_rename(source), encoding="utf-8")
+    assert runpy.run_path(str(before))["f"](*args) == runpy.run_path(str(after))["f"](*args)

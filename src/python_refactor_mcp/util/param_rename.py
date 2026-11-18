@@ -20,22 +20,23 @@ from __future__ import annotations
 
 import ast
 import dis
-import keyword
 import types
-import unicodedata
 import warnings
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.util.shared import validate_identifier
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 _NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 # Names whose use reads local variables by name at run time; a rename cannot follow them.
-_DYNAMIC_NAMES = frozenset({"locals", "vars", "eval", "exec", "dir", "_getframe", "currentframe"})
-_DYNAMIC_ATTRS = frozenset({"f_locals", "_getframe", "currentframe"})
+_DYNAMIC_NAMES = frozenset(
+    {"locals", "vars", "eval", "exec", "dir", "_getframe", "currentframe", "getargvalues", "stack"}
+)
+_DYNAMIC_ATTRS = _DYNAMIC_NAMES | {"f_locals"}
 
 # ``ast`` fields that carry an identifier which binds or refers to a variable.
 BINDING_FIELDS: dict[type[ast.AST], tuple[str, ...]] = {
@@ -55,42 +56,9 @@ BINDING_FIELDS: dict[type[ast.AST], tuple[str, ...]] = {
     ast.Global: ("names",),
     ast.Nonlocal: ("names",),
 }
-# ``ast`` string fields that are labels or text, never variable references.
-LABEL_FIELDS: dict[type[ast.AST], tuple[str, ...]] = {
-    ast.Attribute: ("attr",),
-    ast.keyword: ("arg",),
-    ast.MatchClass: ("kwd_attrs",),
-    ast.ImportFrom: ("module",),
-    ast.Constant: ("value", "kind"),
-    ast.Interpolation: ("str",),
-    ast.TypeIgnore: ("tag",),
-    ast.Assign: ("type_comment",),
-    ast.AsyncFor: ("type_comment",),
-    ast.AsyncFunctionDef: ("type_comment",),
-    ast.AsyncWith: ("type_comment",),
-    ast.For: ("type_comment",),
-    ast.FunctionDef: ("type_comment",),
-    ast.With: ("type_comment",),
-    ast.arg: ("type_comment",),
-}
-
 
 def _refuse(reason: str) -> ToolInputError:
     return ToolInputError(f"cannot rename the parameter consistently: {reason} (parameter: operations)")
-
-
-def validate_identifier(name: str, *, parameter: str) -> None:
-    """Raise ``ToolInputError`` unless *name* is a usable, NFKC-normal identifier.
-
-    ``ast`` normalises identifiers to NFKC, so a non-normal spelling could
-    collide with a name the freshness check never saw.
-    """
-    if not name.isidentifier() or keyword.iskeyword(name):
-        raise ToolInputError(f"{name!r} is not a valid parameter name (parameter: {parameter})")
-    if unicodedata.normalize("NFKC", name) != name:
-        raise ToolInputError(
-            f"{name!r} is not NFKC-normalized; use {unicodedata.normalize('NFKC', name)!r} (parameter: {parameter})"
-        )
 
 
 def function_ordinal(source: str, lineno: int, name: str) -> int:
@@ -199,7 +167,7 @@ def _has_future_annotations(tree: ast.Module) -> bool:
     )
 
 
-class _Collector:
+class ParameterCollector:
     """Collect the ``Name`` nodes that refer to the parameter *old*; refuse unsupported forms."""
 
     def __init__(self, old: str, new_names: frozenset[str], *, stringified_annotations: bool) -> None:
@@ -298,6 +266,29 @@ class _Collector:
             self.visit(node.elt, inner)
 
 
+def _require_other_definitions_untouched(
+    original: str, rewritten: Sequence[ast.FunctionDef | ast.AsyncFunctionDef], ordinal: int
+) -> None:
+    """Refuse when rope also rewrote the signature of another definition with the target's name.
+
+    rope rewrites every definition occurrence it resolves to the target (a
+    redefinition, a conditional ``def``, an ``@overload`` stub, a property
+    setter). Those headers change identically in the probe and the result, so the
+    compiled-code comparison cannot see them: their bodies would be left using
+    the old name.
+    """
+    before = _function_nodes(_parse(original))
+    if len(before) != len(rewritten):
+        raise _refuse("rope changed the number of function definitions")
+    name = before[ordinal].name
+    for index, (old, new) in enumerate(zip(before, rewritten, strict=True)):
+        if index != ordinal and old.name == name and ast.dump(old.args) != ast.dump(new.args):
+            raise _refuse(
+                f"rope also rewrote the signature of another definition named {name!r} (line {old.lineno}); "
+                "its body would keep the old parameter name"
+            )
+
+
 def _line_starts(data: bytes) -> list[int]:
     starts = [0]
     for line in data.splitlines(keepends=True):
@@ -334,7 +325,7 @@ def _compile(source: str) -> types.CodeType:
             raise _refuse(f"the rewritten function does not compile ({exc})") from exc
 
 
-class _Pair:
+class NamePairing:
     """Pairing rules for variable names between the probe and the result."""
 
     def __init__(self, renames: Mapping[str, str]) -> None:
@@ -412,7 +403,7 @@ def _group(instructions: list[dis.Instruction]) -> list[list[dis.Instruction]]:
 
 
 def _compare_code(
-    probe: types.CodeType, result: types.CodeType, pair: _Pair, target: tuple[str, int], path: str
+    probe: types.CodeType, result: types.CodeType, pair: NamePairing, target: tuple[str, int], path: str
 ) -> None:
     in_target = (probe.co_name, probe.co_firstlineno) == target
     where = f"{path}/{probe.co_name}"
@@ -456,7 +447,7 @@ def _compare_code(
 def _compare_instructions(
     probe: types.CodeType,
     result: types.CodeType,
-    pair: _Pair,
+    pair: NamePairing,
     in_target: bool,
     free: frozenset[str],
     differs: Callable[[str], ToolInputError],
@@ -488,12 +479,13 @@ def _compare_instructions(
             raise differs(f"operand of {a.opname}")
 
 
-def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, str]) -> str:
+def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, str], *, original: str) -> str:
     """Rename the body bindings of renamed parameters in rope's *source*; refuse unless provably equivalent.
 
     *source* is rope's output, whose definition already spells the final
     parameter names. *ordinal* locates the function (see :func:`function_ordinal`)
-    and *renames* maps each original name to its final name. Returns the source
+    and *renames* maps each original name to its final name; *original* is the
+    module text before rope ran. Returns the source
     with every reference to those parameters renamed.
 
     Raises:
@@ -502,7 +494,7 @@ def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, s
     if not renames:
         return source
     for new in renames.values():
-        validate_identifier(new, parameter="operations")
+        validate_identifier(new, "operations")
     if set(renames) & set(renames.values()):
         raise _refuse("a new name is the old name of another renamed parameter (swap or cycle)")
     tree = _parse(source)
@@ -510,6 +502,7 @@ def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, s
     if not 0 <= ordinal < len(functions):
         raise _refuse("the function was not found in rope's output")
     func = functions[ordinal]
+    _require_other_definitions_untouched(original, functions, ordinal)
 
     arg_edits: list[tuple[ast.Name | ast.arg, str]] = []
     for old, new in renames.items():
@@ -531,7 +524,7 @@ def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, s
         kinds = _own_binding_kinds(probe_func.body, old)
         if kinds - {"name"}:
             raise _refuse(f"{old!r} is rebound by a {'/'.join(sorted(kinds - {'name'}))} statement in the function")
-        collector = _Collector(old, new_names, stringified_annotations=stringified)
+        collector = ParameterCollector(old, new_names, stringified_annotations=stringified)
         collector.visit_all(probe_func.body, True)
         targets.extend((node, new) for node in collector.targets)
     probe_params = {a.arg: a for a in _param_nodes(probe_func.args)}
@@ -539,7 +532,7 @@ def rename_parameter_bindings(source: str, ordinal: int, renames: Mapping[str, s
 
     result = _splice(probe, targets)
     first_line = min([probe_func.lineno, *(d.lineno for d in probe_func.decorator_list)])
-    _compare_code(_compile(probe), _compile(result), _Pair(renames), (probe_func.name, first_line), "")
+    _compare_code(_compile(probe), _compile(result), NamePairing(renames), (probe_func.name, first_line), "")
 
     # Only identifier spans may differ between the probe and the result.
     expected = ast.parse(probe)

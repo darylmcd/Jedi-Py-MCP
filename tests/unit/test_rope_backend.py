@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
+import runpy
 from pathlib import Path
-from typing import Any
 
 import pytest
 from rope.base.fscommands import FileSystemCommands  # type: ignore[import-untyped]
@@ -1193,7 +1193,9 @@ async def test_rename_of_a_file_with_a_byte_order_mark_is_never_partial(tmp_path
 
 _BEHAVIOUR_SOURCES = [
     pytest.param(
-        "def f(a, b):\n    r = [(b := x) for x in a]\n    return b\n", ([1, 2, 3], 0), id="walrus-in-comprehension"
+        "def f(a, b):\n    before = b\n    r = [(b := x) for x in a]\n    return before, b\n",
+        ([1, 2, 3], 0),
+        id="walrus-in-comprehension",
     ),
     pytest.param(
         "def f(a, b):\n    match a:\n        case dict(b=1):\n            return b\n    return b\n",
@@ -1210,9 +1212,79 @@ _BEHAVIOUR_SOURCES = [
 async def test_applied_rename_behaves_like_the_original(tmp_path: Path, source: str, args: tuple[object, ...]) -> None:
     module = tmp_path / "m.py"
     backend = _rename_backend(tmp_path, {"m.py": source})
-    before: dict[str, Any] = {}
-    exec(compile(source, "<before>", "exec"), before)  # noqa: S102 - fixed test sources
+    before = tmp_path / "before.py"
+    before.write_text(source, encoding="utf-8")
+    expected = runpy.run_path(str(before))["f"](*args)
     await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=True)
-    after: dict[str, Any] = {}
-    exec(compile(module.read_text(encoding="utf-8"), "<after>", "exec"), after)  # noqa: S102
-    assert before["f"](*args) == after["f"](*args)
+    assert runpy.run_path(str(module))["f"](*args) == expected
+
+
+_SAME_NAME_DEFINITIONS = [
+    pytest.param("def f(a, b):\n    return b\n\n\ndef f(a, b):\n    return b\n", 0, 4, id="redefinition"),
+    pytest.param(
+        "if True:\n    def f(a, b):\n        return b\nelse:\n    def f(a, b):\n        return -b\n",
+        1,
+        8,
+        id="conditional",
+    ),
+    pytest.param(
+        "from typing import overload\n\n\n@overload\ndef f(a, b): ...\n\n\n@overload\ndef f(a, b, c): ...\n\n\n"
+        "def f(a, b, c=0):\n    return b\n",
+        4,
+        4,
+        id="overload",
+    ),
+    pytest.param(
+        "class C:\n    @property\n    def x(self):\n        return 1\n\n    @x.setter\n    def x(self, b):\n"
+        "        self._x = b\n",
+        6,
+        8,
+        id="property-setter",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source", "line", "character"), _SAME_NAME_DEFINITIONS)
+async def test_rename_refuses_when_rope_also_rewrites_another_definition_with_the_name(
+    tmp_path: Path, source: str, line: int, character: int
+) -> None:
+    """rope rewrites every same-named ``def`` header; their bodies would keep the old name, so the rename is refused."""
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    with pytest.raises(ToolInputError, match="another definition named"):
+        await backend.change_signature(str(module), line, character, [_rename_op(1)], apply=True)
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_rename_leaves_a_same_named_method_of_another_class_alone(tmp_path: Path) -> None:
+    """Observed: rope rewrites only the method resolving to the target; ``B.m`` is untouched and not refused."""
+    source = (
+        "class A:\n    def m(self, a, b):\n        return b\n\n\n"
+        "class B:\n    def m(self, a, b):\n        return b\n\n\n"
+        "A().m(1, 2)\nB().m(1, 2)\n"
+    )
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    result = await backend.change_signature(str(module), 1, 8, [_rename_op(2)], apply=False)
+    assert _edit_text(result, module) == source.replace(
+        "    def m(self, a, b):\n        return b\n\n\nclass B",
+        "    def m(self, a, renamed):\n        return renamed\n\n\nclass B",
+        1,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    ["import builtins\n    return builtins.locals(), b", "import builtins\n    return builtins.eval('b')"],
+    ids=["builtins-locals", "builtins-eval"],
+)
+async def test_rename_refuses_attribute_spelled_dynamic_access(tmp_path: Path, body: str) -> None:
+    source = f"def f(a, b):\n    {body}\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    with pytest.raises(ToolInputError, match="reads local variables by name"):
+        await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=True)
+    assert module.read_text(encoding="utf-8") == source

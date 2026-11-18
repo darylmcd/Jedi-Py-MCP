@@ -9,6 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from python_refactor_mcp import server
+from python_refactor_mcp.backends.rope_backend import RopeBackend
+from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import (
     BackendError,
     LspFeatureUnsupportedError,
@@ -1544,8 +1546,6 @@ async def test_change_signature_rename_preview_and_apply_keep_binding_values_and
     tmp_path: Path, apply: bool
 ) -> None:
     """Tool level: rope's rename, the body pass and the annotation post-pass agree for preview and apply."""
-    from python_refactor_mcp.backends.rope_backend import RopeBackend  # noqa: PLC0415
-    from python_refactor_mcp.config import ServerConfig  # noqa: PLC0415
 
     source = "def f(a: int, b: str = 'x') -> str:\n    return b * a\n\n\nf(1)\nf(2, b='y')\n"
     module = tmp_path / "m.py"
