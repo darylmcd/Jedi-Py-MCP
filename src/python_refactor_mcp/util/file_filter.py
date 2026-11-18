@@ -44,3 +44,29 @@ def python_files(
                 if full_path.is_file():
                     results.append(full_path)
     return sorted(results)
+
+
+_TEST_DIRECTORY_NAMES: frozenset[str] = frozenset({"tests", "test"})
+
+
+def is_test_file(path: Path, root: Path | None = None) -> bool:
+    """Return whether *path* is a test module.
+
+    A module is a test file when its name is ``test_*``, ``*_test.py`` or
+    ``conftest.py``, or when any directory between *root* and the file is named
+    ``tests`` or ``test`` (compared with ``os.path.normcase``, so case-insensitive
+    on Windows only). Only components below *root* count: a workspace that itself
+    lives under a ``tests`` directory is not wholly a test tree. Only the filename
+    rule applies when *root* is ``None``, when *path* is outside *root* (including
+    a symlink that resolves outside it), or when it cannot be resolved.
+    """
+    name = path.name
+    if name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py":
+        return True
+    if root is None:
+        return False
+    try:
+        relative_parent = path.resolve().relative_to(root.resolve()).parent
+    except (ValueError, OSError):
+        return False
+    return any(os.path.normcase(part) in _TEST_DIRECTORY_NAMES for part in relative_parent.parts)
