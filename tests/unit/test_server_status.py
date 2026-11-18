@@ -83,6 +83,6 @@ def test_status_degraded_when_pyright_down(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_server_status_registered_and_readonly() -> None:
     """server_status is registered on the MCP instance as a read-only tool."""
-    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    tools = {tool.name: tool for tool in await server.build_server().list_tools()}
     assert "server_status" in tools
     assert "ctx" not in tools["server_status"].input_schema.get("properties", {})

@@ -1,0 +1,1 @@
+- **Fixed:** Server startup now runs the workspace root registration and the pre-warm inside the lifespan's teardown guard, so a failure or cancellation during startup still shuts the workspace registry down.

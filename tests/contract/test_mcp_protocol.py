@@ -131,7 +131,7 @@ def test_profile_policy_rejects_unknown_profile() -> None:
 @pytest.mark.asyncio
 async def test_all_tools_have_annotations() -> None:
     """Every tool must have explicit MCP read-only and destructive annotations."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     for tool in tools:
         assert tool.annotations is not None, f"Tool '{tool.name}' is missing annotations"
         assert tool.annotations.read_only_hint is not None, f"Tool '{tool.name}' missing read_only_hint"
@@ -142,7 +142,7 @@ async def test_all_tools_have_annotations() -> None:
 @pytest.mark.asyncio
 async def test_readonly_tools_are_idempotent() -> None:
     """Read-only tools should be marked idempotent."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     for tool in tools:
         if tool.annotations and tool.annotations.read_only_hint:
             assert tool.annotations.idempotent_hint is True, (
@@ -153,7 +153,7 @@ async def test_readonly_tools_are_idempotent() -> None:
 @pytest.mark.asyncio
 async def test_destructive_tools_have_apply_parameter() -> None:
     """Destructive and additive tools should have an 'apply' parameter defaulting to False."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     # Tools that are destructive or additive (readOnly=False)
     # Tools without apply: preview-only, queries, or history/stack operations that act immediately.
     skip_tools = {
@@ -198,7 +198,7 @@ async def test_workspace_scale_tools_advertise_default_bounds() -> None:
 @pytest.mark.asyncio
 async def test_no_ctx_in_schemas() -> None:
     """The internal ctx parameter must never appear in tool schemas."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     for tool in tools:
         props = tool.input_schema.get("properties", {})
         assert "ctx" not in props, f"Tool '{tool.name}' exposes internal 'ctx' parameter"
@@ -207,7 +207,7 @@ async def test_no_ctx_in_schemas() -> None:
 @pytest.mark.asyncio
 async def test_tool_descriptions_are_workflow_oriented() -> None:
     """Tool descriptions should be longer than 50 chars and mention related tools."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     short_description_tools = []
     for tool in tools:
         desc = tool.description or ""
@@ -221,14 +221,14 @@ async def test_tool_descriptions_are_workflow_oriented() -> None:
 @pytest.mark.asyncio
 async def test_server_has_version() -> None:
     """Server should expose its version matching the package version."""
-    assert server.mcp.name == "Python Refactor"
-    assert server.mcp.version == server.__version__
+    assert server.build_server().name == "Python Refactor"
+    assert server.build_server().version == server.__version__
 
 
 @pytest.mark.asyncio
 async def test_annotation_variants_exist() -> None:
     """Server should use all three annotation variants: READONLY, DESTRUCTIVE, ADDITIVE."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     annotations = [t.annotations for t in tools if t.annotations is not None]
     assert any(a.read_only_hint for a in annotations), "No tools use READONLY annotations"
     assert any(a.destructive_hint for a in annotations), "No tools use DESTRUCTIVE annotations"
@@ -566,7 +566,7 @@ async def test_every_input_object_schema_forbids_unknown_keys(profile: ToolProfi
 @pytest.mark.asyncio
 async def test_live_server_forbids_unknown_keys() -> None:
     """The module-level server is built through the same forbid path as the profile servers."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     assert tools
     assert all(tool.input_schema.get("additionalProperties") is False for tool in tools)
 

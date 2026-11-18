@@ -111,7 +111,7 @@ def test_server_and_tool_registry_are_not_an_import_cycle() -> None:
 @pytest.mark.asyncio
 async def test_server_registers_expected_tool_surface() -> None:
     """Ensure the current MCP tool surface is registered on the MCP instance."""
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
     names = {tool.name for tool in tools}
     assert DEFAULT_TOOL_PROFILE == "refactoring"
     assert len(tools) == 75
@@ -130,7 +130,7 @@ async def test_server_registers_expected_tool_surface() -> None:
         "server_status",
     } <= names
     assert "check_type_stub_freshness" not in names
-    assert "Active tool profile: refactoring" in (server.mcp.instructions or "")
+    assert "Active tool profile: refactoring" in (server.build_server().instructions or "")
     assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in tools)
 
 
@@ -144,7 +144,7 @@ async def test_position_based_tools_document_zero_based_convention() -> None:
     indirectly through the canonical ``Position``/``SymbolAnchor`` models.
     Any future position tool is auto-covered.
     """
-    tools = await server.mcp.list_tools()
+    tools = await server.build_server().list_tools()
 
     def _contains_position_ref(value: object) -> bool:
         if isinstance(value, dict):
