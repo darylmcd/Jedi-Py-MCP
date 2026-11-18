@@ -1,0 +1,1 @@
+- **Changed — BREAKING:** Direct Python callers of `WorkspaceRegistry` must stop passing `idle_timeout_seconds`; the parameter never had any effect and now raises `TypeError`. See ADR 0005.

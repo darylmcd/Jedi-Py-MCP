@@ -1166,6 +1166,61 @@ _UNSUPPORTED_FEATURES = [
 
 
 @pytest.mark.asyncio
+async def test_start_cancellation_shuts_down_the_attempted_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled start must not leave the attempted language-server process running."""
+    started = asyncio.Event()
+    clients: list[Any] = []
+
+    class HangingStart(FakeLSPClient):
+        shutdowns = 0
+
+        async def start(self, command: list[str]) -> None:
+            _ = command
+            started.set()
+            await asyncio.Event().wait()
+
+        async def shutdown(self) -> None:
+            self.shutdowns += 1
+
+    def make_client() -> LSPClient:
+        clients.append(HangingStart())
+        return cast(LSPClient, clients[-1])
+
+    backend, _ = _startable_harness(tmp_path, {})
+    monkeypatch.setattr(backend, "_make_client", make_client)
+    task = asyncio.create_task(backend.start())
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert clients[-1].shutdowns == 1
+
+
+@pytest.mark.asyncio
+async def test_start_cleanup_failure_does_not_mask_startup_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BrokenStart(FakeLSPClient):
+        async def start(self, command: list[str]) -> None:
+            raise FileNotFoundError("no pyright here")
+
+        async def shutdown(self) -> None:
+            raise OSError("cannot terminate")
+
+    backend, _ = _startable_harness(tmp_path, {})
+    monkeypatch.setattr(backend, "_make_client", lambda: cast(LSPClient, BrokenStart()))
+
+    with pytest.raises(PyrightError, match="Unable to start pyright") as error:
+        await backend.start()
+
+    assert "no pyright here" in str(error.value)
+
+
+@pytest.mark.asyncio
 async def test_start_and_restart_record_server_capabilities(tmp_path: Path) -> None:
     """Both handshakes store the advertised capabilities that gate feature calls."""
     backend, sample = _startable_harness(
