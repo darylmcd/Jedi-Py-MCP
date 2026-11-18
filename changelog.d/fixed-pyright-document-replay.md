@@ -1,0 +1,1 @@
+- **Fixed:** File-bound Pyright requests (document symbols, selection ranges, code actions, inlay hints, semantic tokens, folding ranges) now reopen the document on the replacement session after a language-server crash, and re-synchronize files edited on disk before analysis.

@@ -1728,3 +1728,84 @@ async def test_interrupted_did_open_replaces_transport_before_next_diagnostic(
     assert await backend.get_diagnostics(str(sample)) == []
     assert [name for name, _ in old.notifications] == ["textDocument/didOpen"]
     assert [name for name, _ in replacement.notifications].count("textDocument/didOpen") == 1
+
+
+# ── File-bound requests reopen the document on a replacement session ──
+
+
+class _DiesOnRequestClient(FakeLSPClient):
+    """Transport whose process dies on the first non-initialize request."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.alive = True
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        self.requests.append((method, params))
+        self.alive = False
+        raise BrokenPipeError("closed")
+
+
+class _RequiresDidOpenClient(FakeLSPClient):
+    """Replacement transport that rejects a document request sent before didOpen."""
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        self.requests.append((method, params))
+        if method == "initialize":
+            return {"result": {"capabilities": {}}}
+        document = params["textDocument"]
+        assert isinstance(document, dict)
+        opened: list[JSONValue] = []
+        for name, payload in self.notifications:
+            opened_document = payload.get("textDocument")
+            if name == "textDocument/didOpen" and isinstance(opened_document, dict):
+                opened.append(opened_document["uri"])
+        assert document["uri"] in opened, f"{method} replayed before didOpen on the replacement"
+        return {"result": None}
+
+
+_FILE_BOUND_CALLS: dict[str, Any] = {
+    "documentSymbol": lambda backend, path: backend.get_document_symbols(path),
+    "selectionRange": lambda backend, path: backend.get_selection_range(path, [Position(line=0, character=0)]),
+    "codeAction": lambda backend, path: backend.get_code_actions(
+        path, Range(start=Position(line=0, character=0), end=Position(line=0, character=1)), []
+    ),
+    "inlayHint": lambda backend, path: backend.get_inlay_hints(path, 0, 0, 0, 1),
+    "semanticTokens": lambda backend, path: backend.get_semantic_tokens(path),
+    "foldingRange": lambda backend, path: backend.get_folding_ranges(path),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("feature", sorted(_FILE_BOUND_CALLS))
+async def test_file_bound_request_reopens_document_on_replacement_session(
+    feature: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crash mid-request replays on the replacement only after the document is opened there."""
+    old = _DiesOnRequestClient()
+    replacement = _RequiresDidOpenClient()
+    backend, sample = _diagnostics_harness(tmp_path, old)
+    monkeypatch.setattr(backend, "_startup_command", ["fake-pyright"])
+    monkeypatch.setattr(backend, "_make_client", lambda: replacement)
+
+    await _FILE_BOUND_CALLS[feature](backend, str(sample))
+
+    assert [name for name, _ in replacement.notifications].count("textDocument/didOpen") == 1
+
+
+@pytest.mark.asyncio
+async def test_non_positional_request_resyncs_edited_document(tmp_path: Path) -> None:
+    """A warm document edited on disk is re-synchronized before a non-positional request."""
+    client = FakeLSPClient()
+    backend, sample = _diagnostics_harness(tmp_path, client)
+
+    await backend.get_document_symbols(str(sample))
+    sample.write_text("y: int = 2\n", encoding="utf-8")
+    await backend.get_document_symbols(str(sample))
+
+    changes = [payload for name, payload in client.notifications if name == "textDocument/didChange"]
+    assert len(changes) == 1
+    assert changes[0]["contentChanges"] == [{"text": "y: int = 2\n"}]
