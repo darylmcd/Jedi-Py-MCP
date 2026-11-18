@@ -1444,6 +1444,15 @@ class DiagnosticsHarness(PyrightClientHarness):
     async def publish(self, params: JSONDict) -> None:
         await self._handle_publish_diagnostics(params)
 
+    def has_stamp(self, path: str) -> bool:
+        return path in self._file_stamps
+
+    def is_tracked(self, path: str) -> bool:
+        return path in self._open_files or path in self._file_contents or path in self._file_stamps
+
+    async def sync_peers(self, transport: LSPClient) -> None:
+        await self._sync_peer_documents(transport)
+
     async def select_transport(self, *, disconnected: LSPClient | None = None) -> LSPClient:
         return await super()._ensure_healthy(disconnected=disconnected)
 
@@ -1976,3 +1985,300 @@ async def test_restart_server_still_restarts_an_open_backend(
     assert replacement.start_calls == 1
     assert replacement.alive is True
     assert backend.is_running is True
+
+
+# ── Open-document resync before diagnostics ───────────────────────────
+
+
+class OrderedClient(FakeLSPClient):
+    """Fake transport that records notifications and requests in one ordered log."""
+
+    def __init__(self) -> None:
+        super().__init__(responses={"textDocument/diagnostic": {"result": {"kind": "full", "items": []}}})
+        self.events: list[tuple[str, str, str]] = []
+
+    async def send_notification(self, method: str, params: dict[str, JSONValue]) -> None:
+        document = params["textDocument"]
+        assert isinstance(document, dict)
+        self.events.append(("notify", method, str(document["uri"])))
+        await super().send_notification(method, params)
+
+    async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+        document = params["textDocument"]
+        assert isinstance(document, dict)
+        self.events.append(("request", method, str(document["uri"])))
+        return await super().send_request(method, params)
+
+    def methods_for(self, path: Path, kind: str = "notify") -> list[str]:
+        uri = path_to_uri(str(path))
+        return [method for event, method, target in self.events if event == kind and target == uri]
+
+
+def _bump_mtime(path: Path) -> None:
+    """Move the file's mtime so the stat stamp differs without sleeping."""
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2_000_000_000))
+
+
+async def _open_dependency(tmp_path: Path) -> tuple[DiagnosticsHarness, OrderedClient, Path, Path]:
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    dependency = tmp_path / "dep.py"
+    dependency.write_text("VALUE = 1\n", encoding="utf-8")
+    await backend.get_diagnostics(str(dependency))
+    client.events.clear()
+    return backend, client, importer, dependency
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_resyncs_edited_open_dependency(tmp_path: Path) -> None:
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    dependency.write_text("VALUE = 'changed'\n", encoding="utf-8")
+
+    await backend.get_diagnostics(str(importer))
+
+    uri = path_to_uri(str(dependency))
+    change = next(payload for name, payload in client.notifications if name == "textDocument/didChange")
+    assert change == {
+        "textDocument": {"uri": uri, "version": 2},
+        "contentChanges": [{"text": "VALUE = 'changed'\n"}],
+    }
+    order = [(event, method) for event, method, _target in client.events]
+    assert order.index(("notify", "textDocument/didChange")) < order.index(("request", "textDocument/diagnostic"))
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_leaves_unchanged_open_dependency_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    reads: list[Path] = []
+    original = Path.read_text
+
+    def counting_read(self: Path, *args: Any, **kwargs: Any) -> str:
+        reads.append(self)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read)
+
+    await backend.get_diagnostics(str(importer))
+
+    assert client.methods_for(dependency) == []
+    assert dependency not in reads  # stat stamp equal: the dependency is not re-read
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_stamp_change_with_same_text_sends_no_change(tmp_path: Path) -> None:
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    _bump_mtime(dependency)
+
+    await backend.get_diagnostics(str(importer))
+
+    assert client.methods_for(dependency) == []
+    assert not any(name == "textDocument/didChange" for name, _ in client.notifications)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_closes_deleted_open_dependency(tmp_path: Path) -> None:
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    dependency.unlink()
+
+    assert await backend.get_diagnostics(str(importer)) == []
+
+    assert client.methods_for(dependency) == ["textDocument/didClose"]
+    assert not backend.is_tracked(str(dependency))
+    client.events.clear()
+    await backend.get_diagnostics(str(importer))
+    assert client.methods_for(dependency) == []  # closed once, not on every call
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_closes_unreadable_open_dependency(tmp_path: Path) -> None:
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    dependency.write_bytes(b"\xff\xfe\x00bad")
+
+    assert await backend.get_diagnostics(str(importer)) == []
+
+    assert client.methods_for(dependency) == ["textDocument/didClose"]
+    assert not backend.is_tracked(str(dependency))
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_requested_file_missing_still_raises_input_error(tmp_path: Path) -> None:
+    backend, client, _importer, dependency = await _open_dependency(tmp_path)
+    dependency.unlink()
+
+    with pytest.raises(ToolInputError, match="file_path does not exist"):
+        await backend.get_diagnostics(str(dependency))
+
+    assert client.methods_for(dependency) == []  # the requested file is rejected, not silently closed
+
+
+@pytest.mark.asyncio
+async def test_stamp_is_captured_before_the_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An edit landing between the read and the stat must still be resynchronized."""
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    dependency = tmp_path / "dep.py"
+    dependency.write_text("VALUE = 1\n", encoding="utf-8")
+    original = Path.read_text
+    raced = False
+
+    def racing_read(self: Path, *args: Any, **kwargs: Any) -> str:
+        nonlocal raced
+        text = original(self, *args, **kwargs)
+        if self == dependency and not raced:
+            raced = True
+            dependency.write_text("VALUE = 'raced'\n", encoding="utf-8")
+            _bump_mtime(dependency)
+        return text
+
+    monkeypatch.setattr(Path, "read_text", racing_read)
+    await backend.get_diagnostics(str(dependency))  # opens the OLD text; the file changes right after the read
+    client.events.clear()
+
+    await backend.get_diagnostics(str(importer))
+
+    assert client.methods_for(dependency) == ["textDocument/didChange"]
+
+
+@pytest.mark.asyncio
+async def test_failed_change_send_drops_the_stamp_so_the_next_call_retries(tmp_path: Path) -> None:
+    class FailingChange(OrderedClient):
+        fail = True
+
+        async def send_notification(self, method: str, params: dict[str, JSONValue]) -> None:
+            if method == "textDocument/didChange" and self.fail:
+                self.fail = False
+                raise RuntimeError("send interrupted")
+            await super().send_notification(method, params)
+
+    client = FailingChange()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    dependency = tmp_path / "dep.py"
+    dependency.write_text("VALUE = 1\n", encoding="utf-8")
+    await backend.get_diagnostics(str(dependency))
+    dependency.write_text("VALUE = 22\n", encoding="utf-8")  # size differs: no reliance on mtime resolution
+
+    with pytest.raises(RuntimeError, match="send interrupted"):
+        await backend.get_diagnostics(str(importer))
+    assert not backend.has_stamp(str(dependency))
+    client.events.clear()
+
+    await backend.get_diagnostics(str(importer))
+
+    assert client.methods_for(dependency) == ["textDocument/didChange"]
+    assert backend.has_stamp(str(dependency))
+
+
+@pytest.mark.asyncio
+async def test_peer_resync_refuses_a_replaced_transport(tmp_path: Path) -> None:
+    backend, _client, _importer, _dependency = await _open_dependency(tmp_path)
+    stale = cast(LSPClient, OrderedClient())
+
+    with pytest.raises(PyrightError, match="session changed"):
+        await backend.sync_peers(stale)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_resyncs_open_documents_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from python_refactor_mcp.backends import pyright_lsp
+
+    backend, client, importer, dependency = await _open_dependency(tmp_path)
+    second = tmp_path / "second.py"
+    second.write_text("y = 1\n", encoding="utf-8")
+    stats: list[str] = []
+    original = pyright_lsp.stamp_of
+
+    def counting_stamp(path: str) -> tuple[int, int]:
+        stats.append(path)
+        return original(path)
+
+    monkeypatch.setattr(pyright_lsp, "stamp_of", counting_stamp)
+
+    results = await backend.get_diagnostics_many([str(importer), str(second)])
+
+    assert [type(item) for item in results] == [list, list]
+    assert stats.count(str(dependency)) == 1  # one sweep for the batch, not one per file
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_returns_failures_per_path(tmp_path: Path) -> None:
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    missing = tmp_path / "missing.py"
+
+    results = await backend.get_diagnostics_many([str(missing), str(importer)], concurrency=2)
+
+    assert isinstance(results[0], ToolInputError)
+    assert results[1] == []
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_stops_at_the_first_failure_when_asked(tmp_path: Path) -> None:
+    client = OrderedClient()
+    backend, importer = _diagnostics_harness(tmp_path, client)
+    missing = tmp_path / "missing.py"
+
+    results = await backend.get_diagnostics_many([str(missing), str(importer)], stop_on_error=True)
+
+    assert len(results) == 1
+    assert isinstance(results[0], ToolInputError)
+    assert client.methods_for(importer) == []  # the later file was never opened
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_propagates_cancellation(tmp_path: Path) -> None:
+    class CancellingClient(OrderedClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            raise asyncio.CancelledError
+
+    backend, importer = _diagnostics_harness(tmp_path, CancellingClient())
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(importer)], concurrency=4)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_cancels_sibling_pulls_when_one_is_cancelled(tmp_path: Path) -> None:
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    class SplitClient(OrderedClient):
+        async def send_request(self, method: str, params: dict[str, JSONValue]) -> JSONDict:
+            document = params["textDocument"]
+            assert isinstance(document, dict)
+            if str(document["uri"]).endswith("a.py"):
+                await sibling_started.wait()
+                raise asyncio.CancelledError
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+            raise AssertionError("unreachable")
+
+    backend, _importer = _diagnostics_harness(tmp_path, SplitClient())
+    first = tmp_path / "a.py"
+    second = tmp_path / "b.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second.write_text("y = 1\n", encoding="utf-8")
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(first), str(second)], concurrency=2)
+
+    assert sibling_cancelled.is_set()  # the surviving pull was cancelled and awaited, not left running
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_many_validates_its_modes(tmp_path: Path) -> None:
+    backend, importer = _diagnostics_harness(tmp_path, OrderedClient())
+
+    with pytest.raises(ValueError, match="stop_on_error"):
+        await backend.get_diagnostics_many([str(importer)], concurrency=2, stop_on_error=True)
+    with pytest.raises(ValueError, match="concurrency"):
+        await backend.get_diagnostics_many([str(importer)], concurrency=0)
+    assert await backend.get_diagnostics_many([]) == []

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
@@ -19,6 +18,7 @@ from python_refactor_mcp.tools.analysis._protocols import (
 from python_refactor_mcp.util.file_filter import python_files
 from python_refactor_mcp.util.shared import apply_limit, diagnostic_key
 
+_SCAN_CONCURRENCY = 10
 _VALID_SEVERITIES = {"error", "warning", "information", "hint"}
 
 _apply_limit = apply_limit
@@ -57,9 +57,12 @@ async def get_diagnostics(
         )
 
     if file_paths is not None:
+        # Sequential and fail-fast by contract: the first failing file raises its error.
         all_diags: list[Diagnostic] = []
-        for fp in file_paths:
-            all_diags.extend(await pyright.get_diagnostics(fp))
+        for result in await pyright.get_diagnostics_many(file_paths, stop_on_error=True):
+            if isinstance(result, Exception):
+                raise result
+            all_diags.extend(result)
         diagnostics = all_diags
     else:
         diagnostics = await pyright.get_diagnostics(file_path)
@@ -106,22 +109,16 @@ async def get_workspace_diagnostics(
         else python_files(effective_root)
     )
 
-    # Parallelize with bounded concurrency.
-    sem = asyncio.Semaphore(10)
-
-    async def _fetch(path: Path) -> list[Diagnostic]:
-        async with sem:
-            file_diags = await pyright.get_diagnostics(str(path))
-            if suppress_set:
-                file_diags = [d for d in file_diags if d.code not in suppress_set]
-            return file_diags
-
-    all_results = await asyncio.gather(*[_fetch(p) for p in target_files], return_exceptions=True)
+    # One resync of the open documents, then bounded-concurrency pulls. A per-file failure
+    # is reported below; cancellation propagates.
+    all_results = await pyright.get_diagnostics_many(
+        [str(path) for path in target_files], concurrency=_SCAN_CONCURRENCY
+    )
     diagnostics: list[Diagnostic] = []
     scan_failures: list[ScanFailure] = []
     for path, result in zip(target_files, all_results, strict=True):
         if isinstance(result, list):
-            diagnostics.extend(result)
+            diagnostics.extend(d for d in result if suppress_set is None or d.code not in suppress_set)
         else:
             scan_failures.append(
                 ScanFailure(
