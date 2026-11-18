@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -123,10 +125,11 @@ def test_resolve_nested_worktree(
         registry._known_roots = [outer]
 
     target = worktree if resolve_directory else module
+    known_before = registry.get_known_roots()
     assert registry.resolve_workspace_root(target) == worktree
-    assert registry.get_known_roots().count(worktree) == 1
     assert registry.resolve_workspace_root(target) == worktree
-    assert registry.get_known_roots().count(worktree) == 1
+    assert registry.get_known_roots() == known_before
+    assert registry._auto_roots == set()
 
 
 def test_resolve_unregistered_project_directory(tmp_path: Path) -> None:
@@ -170,7 +173,8 @@ def test_resolve_walks_parents_for_markers(tmp_path: Path) -> None:
     result = registry.resolve_workspace_root(nested_file)
 
     assert result == project_root
-    assert project_root in registry._known_roots
+    assert registry.get_known_roots() == []
+    assert registry._auto_roots == set()
 
 
 def test_resolve_walks_parents_for_git(tmp_path: Path) -> None:
@@ -719,6 +723,23 @@ def _marker_project(parent: Path, name: str) -> Path:
     return project.resolve()
 
 
+@contextlib.contextmanager
+def _patched_backends(make_pyright: Callable[[object], AsyncMock] | None = None) -> Iterator[None]:
+    """Patch the backend constructors so a registry can initialize workspaces without real servers.
+
+    ``make_pyright`` builds the Pyright client per workspace; the default is a bare AsyncMock.
+    """
+    with patch(
+        "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
+    ), patch(
+        "python_refactor_mcp.workspace_registry.PyrightLSPClient",
+        side_effect=make_pyright or (lambda _c: AsyncMock()),
+    ), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+        yield
+
+
 def _initialized_workspaces(stamps: dict[Path, float]) -> dict[Path, WorkspaceBackends]:
     workspaces = {}
     for root, stamp in stamps.items():
@@ -800,11 +821,139 @@ async def test_set_roots_promotes_auto_discovered_root_to_explicit(tmp_path: Pat
     promoted = _marker_project(tmp_path, "promoted")
     other = _marker_project(tmp_path, "other")
     registry = WorkspaceRegistry(max_workspaces=2)
-    assert registry.resolve_workspace_root(promoted / "main.py") == promoted
+    with _patched_backends():
+        await registry.get_backends(str(promoted / "main.py"))
+    assert promoted in registry._auto_roots
     await registry.set_roots([promoted])
-    assert registry.resolve_workspace_root(other / "main.py") == other
+    assert registry._auto_roots == set()
+    with _patched_backends():
+        await registry.get_backends(str(other / "main.py"))
+    assert registry._auto_roots == {other}
     registry._workspaces = _initialized_workspaces({promoted: 1.0, other: 2.0})
 
     await registry._evict_lru()
 
     assert set(registry._workspaces) == {promoted}
+
+
+# ── Root discovery is registered on dispatch, after a successful start ───
+
+
+@pytest.mark.asyncio
+async def test_get_backends_registers_a_discovered_root_after_initialize(tmp_path: Path) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+    seen_during_start: list[list[Path]] = []
+
+    def make_pyright(_config: object) -> AsyncMock:
+        pyright = AsyncMock()
+
+        async def start() -> None:
+            seen_during_start.append(registry.get_known_roots())
+
+        pyright.start.side_effect = start
+        return pyright
+
+    with _patched_backends(make_pyright):
+        await registry.get_backends(str(project / "main.py"))
+
+    assert seen_during_start == [[]]
+    assert registry.get_known_roots() == [project]
+    assert registry._auto_roots == {project}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["pyright_start", "discover_config"])
+async def test_failed_initialize_leaves_no_root_registered(tmp_path: Path, failure: str) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+
+    def make_pyright(_config: object) -> AsyncMock:
+        pyright = AsyncMock()
+        if failure == "pyright_start":
+            pyright.start.side_effect = RuntimeError("pyright failed")
+        return pyright
+
+    def make_config(root: Path) -> MagicMock:
+        if failure == "discover_config":
+            raise RuntimeError("config failed")
+        return _mock_config(root)
+
+    with patch("python_refactor_mcp.workspace_registry.discover_config", side_effect=make_config), \
+         patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=make_pyright), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"), pytest.raises(RuntimeError, match="failed"):
+        await registry.get_backends(str(project / "main.py"))
+
+    assert registry.get_known_roots() == []
+    assert registry._auto_roots == set()
+    assert registry.active_backends() == []
+
+
+@pytest.mark.asyncio
+async def test_prewarm_registers_the_discovered_root_unselected(tmp_path: Path) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+
+    with _patched_backends():
+        warmed = await registry.prewarm(project)
+
+    assert warmed.selected is False
+    assert registry.get_known_roots() == [project]
+    assert registry._auto_roots == {project}
+
+
+@pytest.mark.asyncio
+async def test_resolving_during_a_slow_start_reads_without_mutating(tmp_path: Path) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+    entered = asyncio.Event()
+    gate = asyncio.Event()
+
+    def make_pyright(_config: object) -> AsyncMock:
+        pyright = AsyncMock()
+
+        async def start() -> None:
+            entered.set()
+            await gate.wait()
+
+        pyright.start.side_effect = start
+        return pyright
+
+    with _patched_backends(make_pyright):
+        task = asyncio.create_task(registry.get_backends(str(project / "main.py")))
+        await entered.wait()
+        assert registry.resolve_workspace_root(project / "main.py") == project
+        assert registry.get_known_roots() == []
+        gate.set()
+        await task
+
+    assert registry.get_known_roots() == [project]
+
+
+@pytest.mark.asyncio
+async def test_spanning_calls_register_each_root_once(tmp_path: Path) -> None:
+    first = _marker_project(tmp_path, "first")
+    second = _marker_project(tmp_path, "second")
+    registry = WorkspaceRegistry(max_workspaces=3)
+
+    with _patched_backends():
+        await registry.get_backends(str(first / "main.py"))
+        await registry.get_backends(str(second / "main.py"))
+        await registry.get_backends(str(first / "main.py"))
+
+    assert registry.get_known_roots() == [first, second]
+    assert registry._auto_roots == {first, second}
+
+
+@pytest.mark.asyncio
+async def test_explicit_root_is_never_reclassified_as_auto_on_dispatch(tmp_path: Path) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+    await registry.set_roots([project])
+
+    with _patched_backends():
+        await registry.get_backends(str(project / "main.py"))
+
+    assert registry.get_known_roots() == [project]
+    assert registry._auto_roots == set()

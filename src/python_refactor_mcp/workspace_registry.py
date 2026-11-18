@@ -232,7 +232,11 @@ class WorkspaceRegistry:
     # ── Workspace resolution ─────────────────────────────────────────────
 
     def resolve_workspace_root(self, file_path: Path) -> Path:
-        """Return the deepest known root or project marker enclosing a path."""
+        """Return the deepest known root or project marker enclosing a path.
+
+        Pure: it never registers a root. A root found by marker is recorded by
+        :meth:`_get_or_create` once its backends have started.
+        """
         resolved = file_path.resolve()
         if resolved in self._known_roots:
             return resolved
@@ -243,9 +247,6 @@ class WorkspaceRegistry:
                 return parent
             for marker in _PROJECT_MARKERS:
                 if (parent / marker).exists():
-                    self._known_roots.append(parent)
-                    self._auto_roots.add(parent)
-                    _LOGGER.info("Auto-discovered workspace root: %s (marker: %s)", parent, marker)
                     return parent
 
         raise WorkspaceResolutionError(
@@ -257,7 +258,11 @@ class WorkspaceRegistry:
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     async def _initialize_workspace(self, root: Path) -> WorkspaceBackends:
-        """Create and start backends for a workspace root. Caller must hold _lock."""
+        """Create and start backends for a workspace root. Caller must hold _lock.
+
+        A root that is not yet known is registered as auto-discovered only after
+        ``initialize()`` succeeds, so a failed start leaves no root without a backend.
+        """
         _LOGGER.info("Initializing workspace backends for: %s", root)
         config = discover_config(root)
         backends = WorkspaceBackends(
@@ -268,6 +273,10 @@ class WorkspaceRegistry:
         )
         await backends.initialize()
         self._workspaces[root] = backends
+        if root not in self._known_roots:
+            self._known_roots.append(root)
+            self._auto_roots.add(root)
+            _LOGGER.info("Auto-discovered workspace root: %s", root)
         return backends
 
     def _eviction_key(self, root: Path, backends: WorkspaceBackends) -> tuple[bool, float]:

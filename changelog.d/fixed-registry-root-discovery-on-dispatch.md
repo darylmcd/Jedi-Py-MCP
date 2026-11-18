@@ -1,0 +1,1 @@
+- **Fixed:** Workspace root resolution no longer registers project-marker roots as a side effect; a discovered root is recorded under the registry lock only after its backends start, so a failed Pyright start or config error leaves no root without a backend.

@@ -1127,11 +1127,14 @@ async def test_diff_preview_rejects_edit_paths_leaving_the_workspace(
         bad = workspace / "jlink" / "secret.txt"
     seen = _forbid_disk_diff(monkeypatch)
     ctx, _spy = _real_registry_ctx()
+    registry = get_multi_context(ctx).registry
 
     with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] File path is outside the workspace root"):
         await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py")), _edit(str(bad))])
 
     assert seen == []
+    assert registry.get_known_roots() == []
+    assert registry._auto_roots == set()
 
 
 @pytest.mark.asyncio
@@ -1163,12 +1166,15 @@ async def test_diff_preview_rejects_edits_spanning_nested_workspaces(
     first, second = (outer, nested) if outer_first else (nested, outer)
     seen = _forbid_disk_diff(monkeypatch)
     ctx, spy = _real_registry_ctx()
+    registry = get_multi_context(ctx).registry
 
     with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
         await _diff_preview_tool()(ctx, edits=[_edit(str(first / "a.py")), _edit(str(second / "a.py"))])
 
     assert seen == []
     spy.assert_not_awaited()
+    assert registry.get_known_roots() == []
+    assert registry._auto_roots == set()
 
 
 @pytest.mark.asyncio
