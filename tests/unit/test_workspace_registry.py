@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from python_refactor_mcp.errors import WorkspaceResolutionError
+from python_refactor_mcp.errors import AmbiguousWorkspaceError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 
@@ -295,23 +295,101 @@ async def test_shutdown_all() -> None:
     backends_b.pyright.shutdown.assert_awaited_once()
 
 
-# ── WorkspaceRegistry get_most_recent ────────────────────────────────────
+# ── WorkspaceRegistry implicit workspace selection ───────────────────────
 
 
-def test_get_most_recent_returns_none_when_empty() -> None:
+def _live(registry: WorkspaceRegistry, root: Path, *, selected: bool) -> WorkspaceBackends:
+    """Register a live mocked workspace with the given selection state."""
+    backends = _mock_backends(root)
+    backends.selected = selected
+    backends.last_accessed = 1.0
+    registry._workspaces[root] = backends
+    return backends
+
+
+def test_implicit_workspace_rejects_an_empty_registry() -> None:
+    with pytest.raises(AmbiguousWorkspaceError, match=r"no workspace is live.*root_path"):
+        WorkspaceRegistry().implicit_workspace()
+
+
+def test_implicit_workspace_returns_and_touches_the_sole_selected_workspace(tmp_path: Path) -> None:
     registry = WorkspaceRegistry()
-    assert registry.get_most_recent() is None
+    only = _live(registry, tmp_path / "only", selected=True)
+
+    assert registry.implicit_workspace() is only
+    assert only.last_accessed > 1.0
 
 
-def test_get_most_recent_returns_latest() -> None:
+def test_implicit_workspace_rejects_a_sole_unselected_prewarmed_workspace(tmp_path: Path) -> None:
     registry = WorkspaceRegistry()
-    old = _mock_backends(Path("/old"))
-    old.last_accessed = 1.0
-    new = _mock_backends(Path("/new"))
-    new.last_accessed = 2.0
-    registry._workspaces = {Path("/old"): old, Path("/new"): new}
+    warmed = _live(registry, tmp_path / "warmed", selected=False)
 
-    assert registry.get_most_recent() is new
+    with pytest.raises(AmbiguousWorkspaceError, match=r"pre-warmed, not selected.*root_path") as excinfo:
+        registry.implicit_workspace()
+
+    assert str(warmed.config.workspace_root) in str(excinfo.value)
+    assert warmed.last_accessed == 1.0
+
+
+def test_implicit_workspace_rejects_several_workspaces_naming_every_root(tmp_path: Path) -> None:
+    registry = WorkspaceRegistry()
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    _live(registry, first, selected=True)
+    _live(registry, second, selected=True)
+
+    with pytest.raises(AmbiguousWorkspaceError, match=r"2 workspaces are live.*root_path") as excinfo:
+        registry.implicit_workspace()
+
+    assert str(first) in str(excinfo.value)
+    assert str(second) in str(excinfo.value)
+    assert excinfo.value.code == "AMBIGUOUS_WORKSPACE"
+
+
+def test_ambiguous_workspace_is_a_caller_input_error() -> None:
+    assert issubclass(AmbiguousWorkspaceError, ToolInputError)
+
+
+@pytest.mark.asyncio
+async def test_prewarm_leaves_the_workspace_unselected_until_a_path_selects_it(tmp_path: Path) -> None:
+    project = _marker_project(tmp_path, "project")
+    registry = WorkspaceRegistry()
+
+    with patch(
+        "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
+    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock()), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+        await registry.set_roots([project])
+        warmed = await registry.prewarm(project)
+        assert warmed.selected is False
+        with pytest.raises(AmbiguousWorkspaceError, match="pre-warmed, not selected"):
+            registry.implicit_workspace()
+
+        selected = await registry.get_backends(str(project / "main.py"))
+
+    assert selected is warmed
+    assert selected.selected is True
+    assert registry.implicit_workspace() is warmed
+
+
+@pytest.mark.asyncio
+async def test_evicted_selected_workspace_is_no_longer_implicit(tmp_path: Path) -> None:
+    first = _marker_project(tmp_path, "first")
+    second = _marker_project(tmp_path, "second")
+    registry = WorkspaceRegistry(max_workspaces=1)
+
+    with patch(
+        "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
+    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock()), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+        await registry.get_backends(str(first / "main.py"))
+        await registry.prewarm(second)
+
+    assert set(registry._workspaces) == {second}
+    with pytest.raises(AmbiguousWorkspaceError, match="pre-warmed, not selected"):
+        registry.implicit_workspace()
 
 
 # ── Constructor validation ───────────────────────────────────────────────

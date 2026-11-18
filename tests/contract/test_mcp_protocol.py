@@ -237,14 +237,93 @@ async def test_annotation_variants_exist() -> None:
     ), "No tools use ADDITIVE annotations"
 
 
-def test_diff_preview_is_the_only_root_only_tool() -> None:
-    """The boundary resolves backends by default; only diff_preview, which never uses them, resolves a root."""
-    root_only = {
-        record.func.__name__
-        for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS)
-        if record.workspace is tool_runtime.WorkspaceUse.ROOT_ONLY
+def _tools_using(mode: tool_runtime.WorkspaceUse) -> set[str]:
+    """Names of the registered tools whose boundary resolves *mode*."""
+    return {record.func.__name__ for record in (*TOOL_RECORDS, *server.EXPLICIT_TOOL_RECORDS) if record.workspace is mode}
+
+
+def test_workspace_modes_are_explicit() -> None:
+    """Only diff_preview resolves a root alone and only server_status needs no workspace; the rest resolve backends."""
+    assert _tools_using(tool_runtime.WorkspaceUse.ROOT_ONLY) == {"diff_preview"}
+    assert _tools_using(tool_runtime.WorkspaceUse.NONE) == {"server_status"}
+
+
+# Tools with no required selecting path that accept ``root_path`` to name their workspace
+# (bl-0056). A new path-less tool must either take ``root_path`` or be added here deliberately.
+_ROOT_PATH_SELECTOR_TOOLS = frozenset(
+    {
+        "autoimport_search",
+        "begin_change_stack",
+        "check_layer_violations",
+        "commit_change_stack",
+        "create_type_stubs",
+        "dead_code_detection",
+        "find_constructors",
+        "find_unused_imports",
+        "fix_circular_imports",
+        "fix_module_names",
+        "get_coupling_metrics",
+        "get_diagnostics",
+        "get_module_dependencies",
+        "get_refactoring_history",
+        "get_symbol_outline",
+        "get_test_coverage_map",
+        "get_workspace_diagnostics",
+        "list_environments",
+        "project_search",
+        "redo_refactoring",
+        "restart_server",
+        "restructure",
+        "rollback_change_stack",
+        "search_symbols",
+        "security_autofix",
+        "security_scan",
+        "structural_replace",
+        "structural_search",
+        "undo_refactoring",
+        "unused_symbol_sweep",
     }
-    assert root_only == {"diff_preview"}
+)
+_LIST_SELECTORS = ("edits", "symbols", "steps")
+
+
+@pytest.mark.asyncio
+async def test_every_tool_without_a_required_selecting_path_accepts_root_path() -> None:
+    """Derived from the live schemas: no tool can be called with no way to name its workspace.
+
+    A tool with a required scalar path selector names its workspace through it. One whose
+    only required selector is a list must reject an empty list (``minItems``) or resolve
+    no backends (ROOT_ONLY); every other tool except the workspace-less ones takes ``root_path``.
+    """
+    workspace_less = _tools_using(tool_runtime.WorkspaceUse.NONE)
+    root_only = _tools_using(tool_runtime.WorkspaceUse.ROOT_ONLY)
+    scalar_selectors = set(PATH_PARAMS)
+    needing_root_path: set[str] = set()
+    for name, (tool, _mcp) in (await _tools_by_name()).items():
+        schema = tool.input_schema
+        required = set(schema.get("required", []))
+        if required & scalar_selectors or name in workspace_less:
+            continue
+        properties = schema.get("properties", {})
+        required_lists = required & set(_LIST_SELECTORS)
+        if required_lists:
+            for list_param in required_lists:
+                assert name in root_only or properties[list_param].get("minItems", 0) >= 1, (
+                    f"{name}.{list_param} accepts an empty list, which selects no workspace and has no root_path"
+                )
+            continue
+        needing_root_path.add(name)
+        assert "root_path" in properties, f"{name} has no required selecting path and no root_path"
+    assert needing_root_path == _ROOT_PATH_SELECTOR_TOOLS
+    assert "root_path" not in (await _tools_by_name())["server_status"][0].input_schema.get("properties", {})
+
+
+@pytest.mark.asyncio
+async def test_test_impact_select_rejects_an_empty_symbol_list() -> None:
+    """An empty ``symbols`` list selects no workspace (and the tool has no root_path), so it is invalid input."""
+    _, mcp = (await _tools_by_name())["test_impact_select"]
+    with pytest.raises(ToolError, match=r"symbols[\s\S]*at least 1 item"):
+        await mcp.call_tool("test_impact_select", {"symbols": []})
 
 
 @pytest.mark.asyncio

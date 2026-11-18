@@ -8,11 +8,14 @@ import logging
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from python_refactor_mcp import __main__ as cli
-from python_refactor_mcp.errors import PyrightError
+from python_refactor_mcp import server
+from python_refactor_mcp.errors import AmbiguousWorkspaceError, PyrightError
 from python_refactor_mcp.tool_runtime import _translate_backend_error
 
 _PACKAGE_LOGGER = logging.getLogger("python_refactor_mcp")
@@ -125,6 +128,34 @@ def test_main_prewarms_resolved_workspace_root(monkeypatch: pytest.MonkeyPatch, 
     cli.main()
 
     assert started_with == [str(tmp_path.resolve())]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_prewarms_the_cli_root_without_selecting_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The startup pre-warm starts the CLI workspace but leaves it unselected for path-less calls."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".git").mkdir()
+    monkeypatch.setattr(server, "_workspace_root", project.resolve())
+
+    with (
+        patch(
+            "python_refactor_mcp.workspace_registry.discover_config",
+            side_effect=lambda root: SimpleNamespace(workspace_root=root),
+        ),
+        patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock()),
+        patch("python_refactor_mcp.workspace_registry.JediBackend"),
+        patch("python_refactor_mcp.workspace_registry.RopeBackend"),
+    ):
+        async with server.app_lifespan(MagicMock()) as multi_ctx:
+            (warmed,) = multi_ctx.registry.active_backends()
+            assert warmed.config.workspace_root == project.resolve()
+            assert warmed.selected is False
+            assert multi_ctx.cli_workspace_root == project.resolve()
+            with pytest.raises(AmbiguousWorkspaceError, match="pre-warmed, not selected"):
+                multi_ctx.registry.implicit_workspace()
 
 
 def test_main_rejects_missing_workspace_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -286,12 +286,14 @@ async def test_get_symbol_outline_returns_items(
 @pytest.mark.asyncio
 async def test_search_symbols_finds_workspace_symbols(
     mcp_session: ClientSession,
+    sample_workspace: Path,
 ) -> None:
     """Ensure workspace symbol search returns matching symbols."""
     result = await mcp_session.call_tool(
         "search_symbols",
         {
             "query": "User",
+            "root_path": str(sample_workspace),
         },
     )
 
@@ -304,13 +306,35 @@ async def test_search_symbols_finds_workspace_symbols(
 
 
 @pytest.mark.asyncio
+async def test_path_less_call_is_ambiguous_until_a_path_selects_the_prewarmed_root(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """The positional pre-warm root is not a default: a path-less call fails until a path or root_path selects it."""
+    before = await mcp_session.call_tool("search_symbols", {"query": "User"})
+    assert before.is_error is True
+    text = " ".join(block.text for block in before.content if isinstance(block, TextContent))
+    assert "[AMBIGUOUS_WORKSPACE]" in text
+    assert "pre-warmed, not selected" in text
+    assert "root_path" in text
+
+    selecting = await mcp_session.call_tool(
+        "get_diagnostics", {"file_path": str(sample_workspace / "src" / "service.py")}
+    )
+    assert selecting.is_error is not True
+
+    after = await mcp_session.call_tool("search_symbols", {"query": "User"})
+    assert after.is_error is not True
+
+
+@pytest.mark.asyncio
 async def test_get_workspace_diagnostics_returns_summary(
     mcp_session: ClientSession,
     sample_workspace: Path,
 ) -> None:
     """Ensure workspace diagnostic summary includes the intentionally broken file."""
     service_path = sample_workspace / "src" / "service.py"
-    first = await mcp_session.call_tool("get_workspace_diagnostics", {})
+    first = await mcp_session.call_tool("get_workspace_diagnostics", {"root_path": str(sample_workspace)})
     assert first.is_error is not True
     payload = first.structured_content
     assert isinstance(payload, dict)
@@ -319,7 +343,7 @@ async def test_get_workspace_diagnostics_returns_summary(
     assert Path(payload["items"][0]["file_path"]) == service_path
     assert payload["items"][0]["error_count"] == 1
 
-    repeated = await mcp_session.call_tool("get_workspace_diagnostics", {})
+    repeated = await mcp_session.call_tool("get_workspace_diagnostics", {"root_path": str(sample_workspace)})
     assert repeated.is_error is not True
     assert repeated.structured_content == payload
 
@@ -949,7 +973,9 @@ async def test_create_type_stubs_writes_real_stubs_and_rejects_unknown_imports(
     Stubs the stdlib ``json`` package: the fixture workspace has no venv, so its detected
     interpreter varies by machine and only stdlib imports resolve deterministically.
     """
-    result = await mcp_session.call_tool("create_type_stubs", {"package_name": "json"})
+    result = await mcp_session.call_tool(
+        "create_type_stubs", {"package_name": "json", "root_path": str(sample_workspace)}
+    )
 
     assert result.is_error is False, result.content
     payload = result.structured_content
@@ -961,8 +987,12 @@ async def test_create_type_stubs_writes_real_stubs_and_rejects_unknown_imports(
     assert all(path.suffix == ".pyi" and path.is_file() for path in files)
     assert all(path.is_relative_to(stub_root / "json") for path in files)
 
-    unknown = await mcp_session.call_tool("create_type_stubs", {"package_name": "no_such_pkg_xyz"})
-    garbage = await mcp_session.call_tool("create_type_stubs", {"package_name": "not an identifier!!"})
+    unknown = await mcp_session.call_tool(
+        "create_type_stubs", {"package_name": "no_such_pkg_xyz", "root_path": str(sample_workspace)}
+    )
+    garbage = await mcp_session.call_tool(
+        "create_type_stubs", {"package_name": "not an identifier!!", "root_path": str(sample_workspace)}
+    )
     for failed in (unknown, garbage):
         assert failed.is_error is True
         text = " ".join(block.text for block in failed.content if isinstance(block, TextContent))

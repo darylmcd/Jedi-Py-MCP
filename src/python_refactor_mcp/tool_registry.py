@@ -147,6 +147,7 @@ from python_refactor_mcp.tool_params import (
     SuppressCodes,
     TransactionSteps,
     TypeDirection,
+    WorkspaceRootPath,
 )
 from python_refactor_mcp.tool_runtime import WorkspaceUse, get_current_backends, tool_error_boundary
 from python_refactor_mcp.tools import analysis, composite, metrics, navigation, refactoring, search
@@ -292,6 +293,7 @@ async def get_diagnostics(
     limit: Limit = None,
     suppress_codes: SuppressCodes = None,
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> list[Diagnostic]:
     """Get type-checking diagnostics (errors, warnings, hints) for one file, a batch of files, or the full project. Use after refactoring to verify no errors were introduced, or to audit code quality. Filter by severity_filter and suppress_codes to reduce noise. Related: get_workspace_diagnostics (aggregated counts)."""
     app = get_current_backends()
@@ -400,6 +402,7 @@ async def create_type_stubs(
     ctx: Context,
     package_name: PackageName,
     output_dir: str | None = None,
+    root_path: WorkspaceRootPath = None,
 ) -> TypeStubCreationResult:
     """Generate .pyi type stub files for a third-party package lacking type information, using the Pyright CLI against the workspace interpreter. Use to improve type checking for untyped dependencies. The package_name is the dotted import name (e.g., 'requests'). Writes immediately — no preview; there is no apply parameter. Stubs land in <workspace>/typings/<top-level package> by default; optional output_dir (workspace-relative or absolute) replaces the typings root and must stay inside the workspace. An existing target directory is refused, and an import that cannot be resolved or yields no stubs is an error. Returns the created .pyi paths. Related: get_diagnostics, get_type_info."""
     app = get_current_backends()
@@ -449,7 +452,13 @@ async def call_hierarchy(
 
 async def test_impact_select(
     ctx: Context,
-    symbols: list[SymbolAnchor],
+    symbols: Annotated[
+        list[SymbolAnchor],
+        Field(
+            min_length=1,
+            description="Changed symbol anchors (at least one); each file_path must be absolute and inside one workspace.",
+        ),
+    ],
     depth: Depth = 2,
     max_items: MaxItems = 200,
 ) -> TestImpactResult:
@@ -880,6 +889,7 @@ async def fix_circular_imports(
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
     apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
 ) -> RefactorResult:
     """Break runtime import cycles by moving only imports proven annotation-only behind `if TYPE_CHECKING:` and stringifying the affected annotations when needed. Mixed annotation/runtime imports and ambiguous source shapes are left unchanged. Scans the active workspace for runtime cycles; optionally restricts edits to `file_path` or `file_paths`. Defaults to preview mode (`apply=false`). Related: get_module_dependencies, get_diagnostics, diff_preview."""
     app = get_current_backends()
@@ -996,6 +1006,7 @@ async def handle_long_imports(
 async def autoimport_search(
     ctx: Context,
     name: AutoImportName,
+    root_path: WorkspaceRootPath = None,
 ) -> list[ImportSuggestion]:
     """Search for importable names using rope's SQLite-backed AutoImport cache. Use for fast project-wide auto-import suggestions, especially in large projects. Complements suggest_imports with cached lookups. Related: suggest_imports, expand_star_imports."""
     app = get_current_backends()
@@ -1076,6 +1087,7 @@ async def restructure(
     imports: list[str] | None = None,
     file_path: OptionalFilePath = None,
     apply: Apply = False,
+    root_path: WorkspaceRootPath = None,
 ) -> RefactorResult:
     """Apply pattern-based code transformations using rope's structural replace engine. Define a source pattern and a goal pattern to find-and-replace code structures. Use checks to constrain matches and imports to add needed imports. Defaults to preview mode. Related: structural_search (find without replace)."""
     app = get_current_backends()
@@ -1231,7 +1243,7 @@ async def generate_code(
     return result
 
 
-async def fix_module_names(ctx: Context, apply: Apply = False) -> RefactorResult:
+async def fix_module_names(ctx: Context, apply: Apply = False, root_path: WorkspaceRootPath = None) -> RefactorResult:
     """Batch-rename modules to conform to PEP 8 lowercase naming conventions, updating all imports. Use to enforce consistent module naming across the project. Defaults to preview mode. Related: rename_symbol, move_module."""
     app = get_current_backends()
     result = await refactoring.fix_module_names(app.pyright, app.rope, apply)
@@ -1244,6 +1256,7 @@ async def find_constructors(
     class_name: ClassName,
     file_path: OptionalFilePath = None,
     limit: Limit = None,
+    root_path: WorkspaceRootPath = None,
 ) -> ConstructorSearchResult:
     """Find all places where a class is instantiated (constructor calls). Returns explicit scan_failures when files or reference lookups cannot be inspected. Use before refactoring a class to understand how it's created and with what arguments. Optionally scope to a single file. Related: find_references, type_hierarchy."""
     app = get_current_backends()
@@ -1262,6 +1275,7 @@ async def search_symbols(
     ctx: Context,
     query: Query,
     limit: Limit = DEFAULT_SEARCH_SYMBOLS_LIMIT,
+    root_path: WorkspaceRootPath = None,
 ) -> SymbolSearchResult:
     """Search for symbols (functions, classes, variables) by name across the workspace. Use to locate a symbol when you know its name but not its file. Searches both Pyright and Jedi and reports partial-backend failures explicitly. limit defaults to 200 (pass null for all); check truncated and total_count. Related: get_symbol_outline (structure-based), find_references (usage-based)."""
     app = get_current_backends()
@@ -1281,6 +1295,7 @@ async def structural_search(
     file_path: OptionalFilePath = None,
     language: StructuralLanguage = "python",
     limit: Limit = None,
+    root_path: WorkspaceRootPath = None,
 ) -> StructuralSearchResult:
     """Search for code patterns using LibCST matcher expressions. Use to find specific code structures (e.g., all try/except blocks, all calls to a specific function pattern). Patterns use the LibCST matcher DSL with m.* helpers. Check files_scanned in the response to distinguish "found nothing" from "failed to scan". The language parameter accepts only "python" (the default); any other value is rejected. Related: restructure (pattern-based replace), dead_code_detection."""
     app = get_current_backends()
@@ -1399,6 +1414,7 @@ async def get_module_dependencies(
     file_path: OptionalFilePath = None,
     file_paths: FilePaths = None,
     limit: Limit = DEFAULT_MODULE_DEPENDENCIES_LIMIT,
+    root_path: WorkspaceRootPath = None,
 ) -> DependencyGraph:
     """Build an import dependency graph with circular dependency detection. Resolves absolute and package-relative imports to file paths, reports each cyclic strongly connected component deterministically, and exposes partial file scans through scan_failures. limit caps only the dependencies edge list (default 500; pass null for all) — modules and circular_dependencies always cover the full graph; check truncated and total_dependencies. Related: get_coupling_metrics, check_layer_violations."""
     app = get_current_backends()
@@ -1451,6 +1467,7 @@ async def get_type_coverage(
 async def get_coupling_metrics(
     ctx: Context,
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> CouplingMetricsResult:
     """Compute afferent/efferent coupling and instability per module. Metrics are returned in items; dependency scan_failures remain visible. Ca = importers count, Ce = imports count, I = Ce/(Ca+Ce). Use to identify modules that are too coupled or too unstable. Related: get_module_dependencies, check_layer_violations."""
     app = get_current_backends()
@@ -1464,6 +1481,7 @@ async def check_layer_violations(
     ctx: Context,
     layers: list[list[str]],
     file_paths: FilePaths = None,
+    root_path: WorkspaceRootPath = None,
 ) -> LayerViolationResult:
     """Check import directions against declared layering rules. Violations are returned in items; partial file scans are returned in scan_failures. The layers parameter is ordered from highest (e.g., presentation) to lowest (e.g., domain). Flags imports from lower layers to higher layers. Related: get_module_dependencies, get_coupling_metrics."""
     app = get_current_backends()
@@ -1571,7 +1589,7 @@ async def simulate_execution(
     return result
 
 
-async def list_environments(ctx: Context) -> list[EnvironmentInfo]:
+async def list_environments(ctx: Context, root_path: WorkspaceRootPath = None) -> list[EnvironmentInfo]:
     """Discover and list Python environments and virtualenvs. Uses Jedi environment detection. Related: server_status."""
     app = get_current_backends()
     result = await app.jedi.list_environments()
@@ -1583,6 +1601,7 @@ async def project_search(
     ctx: Context,
     query: Query,
     complete: bool = False,
+    root_path: WorkspaceRootPath = None,
 ) -> list[SymbolInfo]:
     """Project-wide semantic search using Jedi analysis engine. Complements search_symbols (Pyright workspace/symbol) with Jedi Project.search(). Set complete=True for completion-style search. Related: search_symbols."""
     app = get_current_backends()
@@ -1591,7 +1610,7 @@ async def project_search(
     return result
 
 
-async def restart_server(ctx: Context) -> str:
+async def restart_server(ctx: Context, root_path: WorkspaceRootPath = None) -> str:
     """Discard cached type info and restart Pyright analysis. Use when type information appears stale or after significant external file changes. Acts immediately — no preview; there is no apply parameter. Related: get_diagnostics."""
     app = get_current_backends()
     result = await app.pyright.restart_server()
@@ -1599,7 +1618,7 @@ async def restart_server(ctx: Context) -> str:
     return result
 
 
-async def undo_refactoring(ctx: Context, count: HistoryCount = 1) -> RefactorResult:
+async def undo_refactoring(ctx: Context, count: HistoryCount = 1, root_path: WorkspaceRootPath = None) -> RefactorResult:
     """Undo the last refactoring operations. Uses Rope history. Acts immediately — no preview; there is no apply parameter. Related: redo_refactoring, get_refactoring_history."""
     app = get_current_backends()
     result = await app.rope.undo(count)
@@ -1607,7 +1626,7 @@ async def undo_refactoring(ctx: Context, count: HistoryCount = 1) -> RefactorRes
     return result
 
 
-async def redo_refactoring(ctx: Context, count: HistoryCount = 1) -> RefactorResult:
+async def redo_refactoring(ctx: Context, count: HistoryCount = 1, root_path: WorkspaceRootPath = None) -> RefactorResult:
     """Redo previously undone refactoring operations. Uses Rope history. Acts immediately — no preview; there is no apply parameter. Related: undo_refactoring, get_refactoring_history."""
     app = get_current_backends()
     result = await app.rope.redo(count)
@@ -1615,7 +1634,7 @@ async def redo_refactoring(ctx: Context, count: HistoryCount = 1) -> RefactorRes
     return result
 
 
-async def get_refactoring_history(ctx: Context) -> list[HistoryEntry]:
+async def get_refactoring_history(ctx: Context, root_path: WorkspaceRootPath = None) -> list[HistoryEntry]:
     """Get the refactoring change history. Returns entries with description, date, and affected files. Related: undo_refactoring, redo_refactoring."""
     app = get_current_backends()
     result = await app.rope.get_history()
@@ -1623,7 +1642,7 @@ async def get_refactoring_history(ctx: Context) -> list[HistoryEntry]:
     return result
 
 
-async def begin_change_stack(ctx: Context) -> str:
+async def begin_change_stack(ctx: Context, root_path: WorkspaceRootPath = None) -> str:
     """Start an atomic change stack for chaining multiple refactorings. All changes are applied together on commit. Related: commit_change_stack, rollback_change_stack."""
     app = get_current_backends()
     result = await app.rope.begin_change_stack()
@@ -1631,7 +1650,7 @@ async def begin_change_stack(ctx: Context) -> str:
     return result
 
 
-async def commit_change_stack(ctx: Context) -> RefactorResult:
+async def commit_change_stack(ctx: Context, root_path: WorkspaceRootPath = None) -> RefactorResult:
     """Commit and apply the current change stack atomically. Acts immediately — no preview; there is no apply parameter. Related: begin_change_stack, rollback_change_stack."""
     app = get_current_backends()
     result = await app.rope.commit_change_stack()
@@ -1639,7 +1658,7 @@ async def commit_change_stack(ctx: Context) -> RefactorResult:
     return result
 
 
-async def rollback_change_stack(ctx: Context) -> str:
+async def rollback_change_stack(ctx: Context, root_path: WorkspaceRootPath = None) -> str:
     """Discard the current change stack without applying. Related: begin_change_stack, commit_change_stack."""
     app = get_current_backends()
     result = await app.rope.rollback_change_stack()

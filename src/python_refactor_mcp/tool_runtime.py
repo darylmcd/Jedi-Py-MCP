@@ -137,11 +137,13 @@ class WorkspaceUse(Enum):
     rope backends. ``ROOT_ONLY`` is for a tool that only validates and reads
     caller paths: the boundary derives the workspace root from those paths, never
     resolves or starts a backend, and so also works with zero or several live
-    backends.
+    backends. ``NONE`` is for a tool that reports server state and needs no
+    workspace: the boundary resolves nothing, so it works with none live.
     """
 
     BACKENDS = "backends"
     ROOT_ONLY = "root_only"
+    NONE = "none"
 
 
 @dataclass(slots=True)
@@ -229,7 +231,12 @@ def _require_single_workspace(registry: WorkspaceRegistry, kwargs: dict[str, Any
 
 
 async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> WorkspaceBackends | None:
-    """Resolve the backends for a tool call from its context and arguments."""
+    """Resolve the backends for a tool call from its context and arguments.
+
+    A call that names no workspace-selecting path resolves only to the sole workspace
+    a path-bearing request already selected; anything else raises
+    ``AmbiguousWorkspaceError`` instead of guessing.
+    """
     if ctx is None:
         return None
 
@@ -241,10 +248,7 @@ async def _resolve_backends(ctx: Context | None, kwargs: dict[str, Any]) -> Work
         _require_single_workspace(registry, kwargs)
         return await registry.get_backends(paths[0])
 
-    backends = registry.get_most_recent()
-    if backends is None and multi_ctx.cli_workspace_root is not None:
-        backends = await registry.get_backends(str(multi_ctx.cli_workspace_root))
-    return backends
+    return registry.implicit_workspace()
 
 
 def _resolve_workspace_root(ctx: Context | None, kwargs: dict[str, Any]) -> Path | None:
@@ -396,8 +400,9 @@ def tool_error_boundary(
 ) -> Callable[..., Awaitable[Any]]:
     """Resolve the request workspace and translate anticipated caller-input and backend failures.
 
-    *workspace* selects what is resolved: the backends (default) or, for
-    ``WorkspaceUse.ROOT_ONLY`` tools, only the validated workspace root.
+    *workspace* selects what is resolved: the backends (default), only the
+    validated workspace root (``WorkspaceUse.ROOT_ONLY``), or nothing
+    (``WorkspaceUse.NONE``).
     """
 
     @wraps(func)
@@ -408,7 +413,10 @@ def tool_error_boundary(
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
             backends: WorkspaceBackends | None = None
-            if workspace is WorkspaceUse.ROOT_ONLY:
+            workspace_root: Path | None
+            if workspace is WorkspaceUse.NONE:
+                workspace_root = None
+            elif workspace is WorkspaceUse.ROOT_ONLY:
                 workspace_root = _resolve_workspace_root(ctx, kwargs)
             else:
                 backends = await _resolve_backends(ctx, kwargs)
