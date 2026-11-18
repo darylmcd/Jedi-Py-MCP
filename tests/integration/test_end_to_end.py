@@ -968,3 +968,44 @@ async def test_create_type_stubs_writes_real_stubs_and_rejects_unknown_imports(
         text = " ".join(block.text for block in failed.content if isinstance(block, TextContent))
         assert "[INVALID_INPUT]" in text, text
         assert "package_name" in text, text
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_applies_pyright_ignore_comment_semantics(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """Ignore-comment suppression is Pyright's: pin its real behavior end to end."""
+    cases = sample_workspace / "src" / "ignore_cases.py"
+    cases.write_text(
+        "# pyright: reportUnnecessaryTypeIgnoreComment=true\n"
+        'string_text: int = "x"; s = "# type: ignore"\n'
+        'wrong_rule: int = "x"  # pyright: ignore[reportNoSuchRuleAtAll]\n'
+        'plain_ignore: int = "x"  # type: ignore\n'
+        "unnecessary = 1  # type: ignore\n",
+        encoding="utf-8",
+    )
+    file_top = sample_workspace / "src" / "ignore_file_top.py"
+    file_top.write_text('# type: ignore\ntop_level: int = "x"\n', encoding="utf-8")
+    file_top_control = sample_workspace / "src" / "ignore_file_top_control.py"
+    file_top_control.write_text('top_level: int = "x"\n', encoding="utf-8")
+
+    async def reported(path: Path) -> list[tuple[int, object]]:
+        result = await mcp_session.call_tool("get_diagnostics", {"file_path": str(path)})
+        assert result.is_error is not True
+        payload = _unwrap_result_payload(result.structured_content)
+        assert isinstance(payload, list)
+        return [(item["range"]["start"]["line"], item.get("code")) for item in payload]
+
+    by_line: dict[int, list[object]] = {}
+    for line, code in await reported(cases):
+        by_line.setdefault(line, []).append(code)
+
+    assert "reportAssignmentType" in by_line.get(1, []), "ignore text inside a string must not suppress"
+    assert "reportAssignmentType" in by_line.get(2, []), "an ignore for another rule must not suppress"
+    assert 3 not in by_line, "a plain type: ignore suppresses the line"
+    assert "reportUnnecessaryTypeIgnoreComment" in by_line.get(4, []), "unnecessary ignore surfaces on its comment line"
+    assert [code for _, code in await reported(file_top_control)] == ["reportAssignmentType"], (
+        "control: the same content without the file-top comment reports the error"
+    )
+    assert await reported(file_top) == [], "a file-top type: ignore is handled by Pyright"

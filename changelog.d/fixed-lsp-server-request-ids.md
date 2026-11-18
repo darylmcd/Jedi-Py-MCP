@@ -1,0 +1,1 @@
+- **Fixed:** A language-server request whose id matches a pending client request is now answered instead of being mistaken for that request's response, and server requests with non-numeric ids are answered too.

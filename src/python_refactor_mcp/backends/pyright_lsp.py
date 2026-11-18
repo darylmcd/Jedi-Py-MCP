@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
@@ -56,36 +55,6 @@ from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_p
 from python_refactor_mcp.util.timing import timed
 
 _LOGGER = logging.getLogger(__name__)
-
-_TYPE_IGNORE_PATTERN = re.compile(r"#\s*(type:\s*ignore|pyright:\s*ignore)")
-
-
-def _filter_type_ignore(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
-    """Remove diagnostics on lines with ``# type: ignore`` or ``# pyright: ignore``."""
-    if not diagnostics:
-        return diagnostics
-
-    # Group by file to read each file at most once.
-    by_file: dict[str, list[Diagnostic]] = {}
-    for diag in diagnostics:
-        by_file.setdefault(diag.file_path, []).append(diag)
-
-    kept: list[Diagnostic] = []
-    for fp, file_diags in by_file.items():
-        try:
-            lines = Path(fp).read_text(encoding="utf-8").splitlines()
-        except OSError:
-            kept.extend(file_diags)
-            continue
-
-        for diag in file_diags:
-            line_no = diag.range.start.line
-            if 0 <= line_no < len(lines) and _TYPE_IGNORE_PATTERN.search(lines[line_no]):
-                continue
-            kept.append(diag)
-
-    return kept
-
 
 def _utf16_units(character: str) -> int:
     """Return how many UTF-16 code units encode ``character`` (2 for astral code points)."""
@@ -577,7 +546,7 @@ class PyrightLSPClient:
             diagnostics = [item for items in self._diagnostics.values() for item in items]
 
         return sorted(
-            _filter_type_ignore(diagnostics),
+            diagnostics,
             key=lambda item: (
                 item.file_path,
                 item.range.start.line,
@@ -610,6 +579,29 @@ class PyrightLSPClient:
 
     # ── Analysis features ─────────────────────────────────────────────
 
+    async def _document_request(
+        self,
+        method: str,
+        params: dict[str, JSONValue],
+        absolute_path: str,
+        *,
+        validate: Callable[[], None] | None = None,
+    ) -> JSONDict:
+        """Issue a file-bound LSP request with the document synchronized on the transport that sends it.
+
+        The synchronization runs inside the request's ``prepare`` step, so a
+        replay on a replacement session (after a crash) reopens the document
+        there first, and an edited file is re-synchronized before analysis.
+        ``validate`` runs after synchronization, on the synchronized contents.
+        """
+
+        async def prepare(transport: LSPClient) -> None:
+            await self._refresh_document(absolute_path, transport)
+            if validate is not None:
+                validate()
+
+        return await self._request(method, params, prepare=prepare)
+
     async def _position_request(
         self,
         lsp_method: str,
@@ -631,10 +623,6 @@ class PyrightLSPClient:
         zero-result (Pyright silently returns ``null`` for both) and from a
         backend outage.
         """
-        async def prepare(transport: LSPClient) -> None:
-            await self._refresh_document(absolute_path, transport)
-            self._validate_position(absolute_path, line, char)
-
         params: dict[str, JSONValue] = {
             "textDocument": {"uri": path_to_uri(absolute_path)},
             "position": {"line": line, "character": char},
@@ -646,7 +634,12 @@ class PyrightLSPClient:
                 raise ValueError(f"extra_params may not override reserved LSP envelope keys: {names}")
             params.update(extra_params)
 
-        return await self._request(lsp_method, params, prepare=prepare)
+        return await self._document_request(
+            lsp_method,
+            params,
+            absolute_path,
+            validate=lambda: self._validate_position(absolute_path, line, char),
+        )
 
     def _validate_position(self, absolute_path: str, line: int, char: int) -> None:
         """Bounds-check a 0-based LSP position against the file's contents.
@@ -714,13 +707,12 @@ class PyrightLSPClient:
     async def get_document_symbols(self, file_path: str) -> list[SymbolOutlineItem]:
         """Return hierarchical document symbols for a file."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._document_request(
             "textDocument/documentSymbol",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
             },
+            absolute_path,
         )
         if "error" in response:
             raise PyrightError(f"documentSymbol request failed: {response['error']}")
@@ -1107,9 +1099,7 @@ class PyrightLSPClient:
         """Return nested selection ranges for one or more positions."""
         self._require_capability("selectionRangeProvider", "textDocument/selectionRange")
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._document_request(
             "textDocument/selectionRange",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -1118,6 +1108,7 @@ class PyrightLSPClient:
                     for position in positions
                 ],
             },
+            absolute_path,
         )
         if "error" in response:
             if is_unhandled_method_error(response):
@@ -1162,8 +1153,6 @@ class PyrightLSPClient:
     ) -> list[dict[str, object]]:
         """Return code action candidates for a range."""
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
         lsp_diagnostics: list[JSONValue] = []
         for diagnostic in diagnostics:
             diagnostic_payload: JSONValue = {
@@ -1197,7 +1186,7 @@ class PyrightLSPClient:
             },
             "context": {"diagnostics": lsp_diagnostics},
         }
-        response = await self._request("textDocument/codeAction", request_params)
+        response = await self._document_request("textDocument/codeAction", request_params, absolute_path)
         if "error" in response:
             raise PyrightError(f"codeAction request failed: {response['error']}")
 
@@ -1371,9 +1360,7 @@ class PyrightLSPClient:
         """Get inlay hints for the provided file range."""
         self._require_capability("inlayHintProvider", "textDocument/inlayHint")
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._document_request(
             "textDocument/inlayHint",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
@@ -1382,6 +1369,7 @@ class PyrightLSPClient:
                     "end": {"line": end_line, "character": end_character},
                 },
             },
+            absolute_path,
         )
         if "error" in response:
             if is_unhandled_method_error(response):
@@ -1437,13 +1425,12 @@ class PyrightLSPClient:
         """Get and decode full-document semantic tokens from Pyright."""
         self._require_capability("semanticTokensProvider", "textDocument/semanticTokens/full")
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._document_request(
             "textDocument/semanticTokens/full",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
             },
+            absolute_path,
         )
         if "error" in response:
             if is_unhandled_method_error(response):
@@ -1504,13 +1491,12 @@ class PyrightLSPClient:
         """Get foldable regions for a file from Pyright."""
         self._require_capability("foldingRangeProvider", "textDocument/foldingRange")
         absolute_path = normalize_path(file_path)
-        await self.ensure_file_open(absolute_path)
-
-        response = await self._request(
+        response = await self._document_request(
             "textDocument/foldingRange",
             {
                 "textDocument": {"uri": path_to_uri(absolute_path)},
             },
+            absolute_path,
         )
         if "error" in response:
             if is_unhandled_method_error(response):
