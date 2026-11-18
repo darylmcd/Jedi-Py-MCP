@@ -409,16 +409,21 @@ def tool_error_boundary(
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
         start = time.perf_counter()
         token: contextvars.Token[WorkspaceBackends] | None = None
+        # The lease taken by _resolve_backends lives until the finally below releases it
+        # through the registry that issued it.
+        leased_from: WorkspaceRegistry | None = None
+        backends: WorkspaceBackends | None = None
         try:
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
-            backends: WorkspaceBackends | None = None
             workspace_root: Path | None
             if workspace is WorkspaceUse.NONE:
                 workspace_root = None
             elif workspace is WorkspaceUse.ROOT_ONLY:
                 workspace_root = _resolve_workspace_root(ctx, kwargs)
             else:
+                # Resolved before the lease is taken: nothing between the two can fail.
+                leased_from = get_multi_context(ctx).registry if ctx is not None else None
                 backends = await _resolve_backends(ctx, kwargs)
                 workspace_root = backends.config.workspace_root if backends is not None else None
             token = _current_backends.set(backends) if backends is not None else None
@@ -438,6 +443,8 @@ def tool_error_boundary(
         finally:
             if token is not None:
                 _current_backends.reset(token)
+            if leased_from is not None and backends is not None:
+                leased_from.release(backends)
             elapsed_ms = (time.perf_counter() - start) * 1000
             _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
 

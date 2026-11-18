@@ -66,7 +66,7 @@ Primary command interface: `justfile`. Run `just --list` for the full command su
 | `workspace_root` | optional CLI arg | Single-project registrations only: starts that workspace's backends at startup but does NOT select it. A path-less call (no file path, no `root_path`) fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call or `root_path` selects it. Multi-repo user-scope registrations omit it; path-bearing requests discover project roots dynamically (ADR 0007) |
 | `PYRIGHT_LANGSERVER` | env var | Overrides the default `pyright-langserver` executable |
 | `PYTHON_REFACTOR_MCP_TOOL_PROFILE` | env var | Advertised surface: `refactoring` (default, 75) or `analysis` (56); each stays below the reliability budget of 80 and their union covers the 108-tool catalog |
-| `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid |
+| `MAX_WORKSPACES` | env var | Positive integer workspace cache limit; defaults to `3` and fails startup with a configuration error when invalid. An evicted workspace with an in-flight request stays alive until the request ends, so live workspaces may briefly exceed the limit (ADR 0010) |
 | `PYRIGHT_REQUEST_TIMEOUT_SECONDS` | env var | Per-request Pyright LSP timeout; default `5`, floor `1`. The integration fixture (`tests/integration/conftest.py`) sets `30` unless already set, because each test starts a cold Pyright |
 | `JEDI_OPERATION_TIMEOUT_SECONDS` | env var | Per-operation Jedi timeout; default `10`, floor `1` |
 | `ROPE_OPERATION_TIMEOUT_SECONDS` | env var | Per-operation rope timeout; default `30`, floor `1` |
