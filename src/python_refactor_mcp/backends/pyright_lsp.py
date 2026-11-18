@@ -716,26 +716,63 @@ class PyrightLSPClient:
                 if path not in self._open_files:
                     self._scan_owned.add(path)
 
+    def _settle_scan(self, paths: set[str]) -> list[str]:
+        """Drop one scan's claim on ``paths`` and return those it must close. No awaits.
+
+        All bookkeeping is finished here, before any close is attempted, so a failing or
+        cancelled close can never leave a reference count or an ownership mark behind.
+        """
+        to_close: list[str] = []
+        for path in sorted(paths):
+            remaining = self._scan_refs[path] - 1
+            if remaining > 0:
+                self._scan_refs[path] = remaining
+                continue
+            del self._scan_refs[path]
+            if path in self._scan_owned:
+                self._scan_owned.discard(path)
+                if path in self._open_files:
+                    to_close.append(path)
+        return to_close
+
     async def _release_from_scan(self, paths: set[str]) -> None:
         """Leave a scan; close each still-owned, still-open path no other scan includes.
 
-        Best effort: a failure invalidates the session (the next request restarts it) and is
-        logged, never raised over the scan's own outcome.
+        The bookkeeping is settled with no await first (see :meth:`_settle_scan`); then each
+        path is closed in its own try: a failure invalidates the session (the next request
+        restarts it) and is logged, never raised over the scan's own outcome, and a
+        cancellation is re-raised only after the remaining paths were attempted. If the
+        cancellation arrives while waiting for the document lock, the bookkeeping is still
+        settled and the paths are left open (bounded: they are no longer scan-owned).
+
+        After a session restart (``_clear_documents`` keeps ``_scan_owned`` on purpose) a path
+        that was already open when the scan claimed it and was reopened by the scan afterwards
+        is not owned, so it stays open once the scan ends: a bounded, benign effect (one
+        document per such path, closed by the next restart); clearing ``_scan_owned`` on
+        restart would instead leave documents the scan reopened open forever.
         """
         try:
-            async with self._document_lock:
-                for path in sorted(paths):
-                    remaining = self._scan_refs[path] - 1
-                    if remaining > 0:
-                        self._scan_refs[path] = remaining
-                        continue
-                    del self._scan_refs[path]
-                    if path in self._scan_owned:
-                        self._scan_owned.discard(path)
-                        if path in self._open_files:
-                            await self._close_document(path)
-        except Exception:
-            _LOGGER.warning("Could not close scanned documents; the next request restarts the session.", exc_info=True)
+            await self._document_lock.acquire()
+        except BaseException:
+            self._settle_scan(paths)
+            raise
+        interrupted: BaseException | None = None
+        try:
+            for path in self._settle_scan(paths):
+                try:
+                    await self._close_document(path)
+                except Exception:
+                    _LOGGER.warning(
+                        "Could not close scanned document %s; the next request restarts the session.",
+                        path,
+                        exc_info=True,
+                    )
+                except BaseException as exc:
+                    interrupted = interrupted or exc
+        finally:
+            self._document_lock.release()
+        if interrupted is not None:
+            raise interrupted
 
     async def _pull_many(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -1450,6 +1451,20 @@ class DiagnosticsHarness(PyrightClientHarness):
     def scan_state(self) -> tuple[dict[str, int], set[str]]:
         return dict(self._scan_refs), set(self._scan_owned)
 
+    async def close_for_test(self, path: str) -> None:
+        """The real ``_close_document`` (tests replace the instance attribute)."""
+        await PyrightLSPClient._close_document(self, path)
+
+    async def hold_lock_then_release_scan(self, path: str) -> None:
+        """Release a claimed scan while the document lock is held, then cancel the waiting release."""
+        await self._claim_for_scan({path})
+        async with self._document_lock:
+            release = asyncio.create_task(self._release_from_scan({path}))
+            await asyncio.sleep(0)  # let the release block on the lock
+            release.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await release
+
     async def sync_peers(self, transport: LSPClient) -> None:
         await self._sync_peer_documents(transport)
 
@@ -2577,4 +2592,67 @@ async def test_scan_of_an_already_open_document_never_claims_it(tmp_path: Path) 
 
     assert backend.is_tracked(str(shared))
     assert client.methods_for(shared) == []
+    assert backend.scan_state() == ({}, set())
+
+
+async def _two_scanned_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_close_raises: BaseException
+) -> tuple[DiagnosticsHarness, OrderedClient, Path, Path, list[str]]:
+    client = OrderedClient()
+    backend, first = _diagnostics_harness(tmp_path, client)
+    second = tmp_path / "z_second.py"
+    second.write_text("y = 1\n", encoding="utf-8")
+    real_close = backend.close_for_test
+    attempted: list[str] = []
+
+    async def failing_first(path: str) -> None:
+        attempted.append(path)
+        if len(attempted) == 1:
+            raise first_close_raises
+        await real_close(path)
+
+    monkeypatch.setattr(backend, "_close_document", failing_first)
+    return backend, client, first, second, attempted
+
+
+@pytest.mark.asyncio
+async def test_a_failing_close_does_not_strand_the_other_paths_bookkeeping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, client, first, second, attempted = await _two_scanned_paths(
+        tmp_path, monkeypatch, OSError("pipe closed")
+    )
+
+    results = await backend.get_diagnostics_many([str(first), str(second)], close_opened=True)
+
+    assert results == [[], []]  # the scan's own result is not replaced by the close failure
+    assert backend.scan_state() == ({}, set())
+    assert len(attempted) == 2  # the second path was still closed after the first failed
+    assert not backend.is_tracked(str(second))
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_a_close_settles_every_path_before_propagating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, client, first, second, attempted = await _two_scanned_paths(
+        tmp_path, monkeypatch, asyncio.CancelledError()
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.get_diagnostics_many([str(first), str(second)], close_opened=True)
+
+    assert backend.scan_state() == ({}, set())
+    assert len(attempted) == 2
+    assert not backend.is_tracked(str(second))
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_waiting_for_the_document_lock_still_settles_bookkeeping(
+    tmp_path: Path,
+) -> None:
+    client = OrderedClient()
+    backend, sample = _diagnostics_harness(tmp_path, client)
+    await backend.hold_lock_then_release_scan(str(sample))
+
     assert backend.scan_state() == ({}, set())
