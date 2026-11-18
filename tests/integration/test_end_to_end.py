@@ -349,6 +349,25 @@ async def test_get_workspace_diagnostics_returns_summary(
 
 
 @pytest.mark.asyncio
+async def test_first_pathless_get_diagnostics_reports_workspace_diagnostics(
+    mcp_session: ClientSession,
+    sample_workspace: Path,
+) -> None:
+    """The first path-less call in a fresh session analyzes the workspace instead of answering from a push cache."""
+    service_path = sample_workspace / "src" / "service.py"
+
+    first = await mcp_session.call_tool("get_diagnostics", {"root_path": str(sample_workspace)})
+
+    assert first.is_error is not True, first.content
+    items = _unwrap_result_payload(first.structured_content)
+    assert isinstance(items, list)
+    assert [(Path(item["file_path"]), item["code"]) for item in items] == [(service_path, "reportAssignmentType")]
+
+    repeated = await mcp_session.call_tool("get_diagnostics", {"root_path": str(sample_workspace)})
+    assert repeated.structured_content == first.structured_content  # scan-opened documents were closed, not accumulated
+
+
+@pytest.mark.asyncio
 async def test_applied_edit_replaces_prior_diagnostics(
     sample_workspace: Path,
     monkeypatch: pytest.MonkeyPatch,

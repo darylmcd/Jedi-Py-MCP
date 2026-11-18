@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from python_refactor_mcp.config import ServerConfig
-from python_refactor_mcp.errors import ToolInputError
+from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import (
     Diagnostic,
     DiagnosticSummary,
@@ -22,6 +23,34 @@ _SCAN_CONCURRENCY = 10
 _VALID_SEVERITIES = {"error", "warning", "information", "hint"}
 
 _apply_limit = apply_limit
+
+_MAX_NAMED_FAILURES = 3
+
+
+async def _collect_diagnostics(
+    pyright: _PyrightAnalysisBackend,
+    target_files: Sequence[Path],
+    *,
+    close_opened: bool,
+) -> tuple[list[Diagnostic], list[ScanFailure]]:
+    """Pull the diagnostics of ``target_files`` in one batch: the shared core of both workspace scans.
+
+    One resync of the open documents, then bounded-concurrency pulls. A per-file failure
+    becomes a :class:`ScanFailure`; cancellation propagates.
+    """
+    results = await pyright.get_diagnostics_many(
+        [str(path) for path in target_files], concurrency=_SCAN_CONCURRENCY, close_opened=close_opened
+    )
+    diagnostics: list[Diagnostic] = []
+    failures: list[ScanFailure] = []
+    for path, result in zip(target_files, results, strict=True):
+        if isinstance(result, list):
+            diagnostics.extend(result)
+        else:
+            failures.append(
+                ScanFailure(file_path=str(path), phase="diagnostics", error_type=type(result).__name__)
+            )
+    return diagnostics, failures
 
 
 def _sort_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
@@ -45,8 +74,15 @@ async def get_diagnostics(
     limit: int | None = None,
     suppress_codes: list[str] | None = None,
     file_paths: list[str] | None = None,
+    *,
+    config: ServerConfig | None = None,
 ) -> list[Diagnostic]:
-    """Get diagnostics for one file, a batch of files, or the full project."""
+    """Get diagnostics for one file, a batch of files, or (neither given) every Python file of the workspace.
+
+    The workspace form needs ``config`` (its root is the scan scope) and raises
+    :class:`PyrightError` when any file's diagnostics cannot be read: a partial list would
+    read as clean. ``get_workspace_diagnostics`` is the tolerant alternative.
+    """
     if file_path is not None and file_paths is not None:
         raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
 
@@ -64,8 +100,22 @@ async def get_diagnostics(
                 raise result
             all_diags.extend(result)
         diagnostics = all_diags
-    else:
+    elif file_path is not None:
         diagnostics = await pyright.get_diagnostics(file_path)
+    else:
+        if config is None:
+            raise ValueError("config is required to scan the workspace when no file is given")
+        target_files = python_files(config.workspace_root)
+        diagnostics, failures = await _collect_diagnostics(pyright, target_files, close_opened=True)
+        if failures:
+            named = ", ".join(
+                f"{failure.file_path} ({failure.error_type})" for failure in failures[:_MAX_NAMED_FAILURES]
+            )
+            more = f", and {len(failures) - _MAX_NAMED_FAILURES} more" if len(failures) > _MAX_NAMED_FAILURES else ""
+            raise PyrightError(
+                f"Diagnostics unavailable for {len(failures)} of {len(target_files)} files: {named}{more}. "
+                "Use get_workspace_diagnostics for a scan that tolerates unreadable files."
+            )
 
     # Deduplicate diagnostics that appear at the same position with the same message.
     seen: dict[tuple[str, int, int, int, int, str, str], Diagnostic] = {}
@@ -109,24 +159,11 @@ async def get_workspace_diagnostics(
         else python_files(effective_root)
     )
 
-    # One resync of the open documents, then bounded-concurrency pulls. A per-file failure
-    # is reported below; cancellation propagates.
-    all_results = await pyright.get_diagnostics_many(
-        [str(path) for path in target_files], concurrency=_SCAN_CONCURRENCY
+    diagnostics, scan_failures = await _collect_diagnostics(
+        pyright, target_files, close_opened=False
     )
-    diagnostics: list[Diagnostic] = []
-    scan_failures: list[ScanFailure] = []
-    for path, result in zip(target_files, all_results, strict=True):
-        if isinstance(result, list):
-            diagnostics.extend(d for d in result if suppress_set is None or d.code not in suppress_set)
-        else:
-            scan_failures.append(
-                ScanFailure(
-                    file_path=str(path),
-                    phase="diagnostics",
-                    error_type=type(result).__name__,
-                )
-            )
+    if suppress_set is not None:
+        diagnostics = [d for d in diagnostics if d.code not in suppress_set]
 
     by_file: dict[str, dict[str, int]] = {}
     for diagnostic in diagnostics:

@@ -132,10 +132,11 @@ async def test_get_type_info_uses_jedi_when_pyright_is_unknown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_diagnostics_filters_and_sorts() -> None:
+async def test_get_diagnostics_filters_and_sorts(tmp_path: Path) -> None:
     """Ensure diagnostics filtering is case-insensitive and output is sorted."""
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
     pyright = AsyncMock()
-    pyright.get_diagnostics.return_value = [
+    pyright.get_diagnostics_many.return_value = [[
         Diagnostic(
             file_path="/repo/b.py",
             range=Range(start=Position(line=9, character=0), end=Position(line=9, character=1)),
@@ -157,9 +158,9 @@ async def test_get_diagnostics_filters_and_sorts() -> None:
             message="err",
             code=None,
         ),
-    ]
+    ]]
 
-    filtered = await analysis.get_diagnostics(pyright, severity_filter="warning")
+    filtered = await analysis.get_diagnostics(pyright, severity_filter="warning", config=_config(tmp_path))
 
     assert [(item.file_path, item.range.start.line) for item in filtered] == [
         ("/repo/a.py", 1),
@@ -732,7 +733,9 @@ async def test_get_workspace_diagnostics_scans_through_one_concurrent_batch(tmp_
 
     await analysis.get_workspace_diagnostics(pyright, _config(tmp_path))
 
-    pyright.get_diagnostics_many.assert_awaited_once_with([str((tmp_path / "a.py").resolve())], concurrency=10)
+    pyright.get_diagnostics_many.assert_awaited_once_with(
+        [str((tmp_path / "a.py").resolve())], concurrency=10, close_opened=False
+    )
     pyright.get_diagnostics.assert_not_awaited()
 
 
@@ -744,3 +747,134 @@ async def test_get_workspace_diagnostics_propagates_cancellation(tmp_path: Path)
 
     with pytest.raises(asyncio.CancelledError):
         await analysis.get_workspace_diagnostics(pyright, _config(tmp_path))
+
+
+# ── Pathless get_diagnostics scans the workspace ──────────────────────
+
+
+def _diag(path: Path, line: int, severity: str = "error", code: str | None = None, message: str = "m") -> Diagnostic:
+    return Diagnostic(
+        file_path=str(path),
+        range=Range(start=Position(line=line, character=0), end=Position(line=line, character=1)),
+        severity=severity,
+        message=message,
+        code=code,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_scans_the_workspace_files_and_closes_what_it_opened(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "a.py"
+    second = tmp_path / "pkg" / "b.py"
+    second.parent.mkdir()
+    first.write_text("x = 1\n", encoding="utf-8")
+    second.write_text("y = 2\n", encoding="utf-8")
+    excluded = tmp_path / ".venv" / "lib.py"
+    excluded.parent.mkdir()
+    excluded.write_text("z = 3\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [[_diag(first.resolve(), 3)], [_diag(second.resolve(), 1)]]
+
+    result = await analysis.get_diagnostics(pyright, config=_config(tmp_path))
+
+    assert [(item.file_path, item.range.start.line) for item in result] == [
+        (str(first.resolve()), 3),
+        (str(second.resolve()), 1),
+    ]
+    pyright.get_diagnostics_many.assert_awaited_once_with(
+        [str(first.resolve()), str(second.resolve())], concurrency=10, close_opened=True
+    )
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_applies_filters_and_limit(tmp_path: Path) -> None:
+    source = tmp_path / "a.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [[
+        _diag(source.resolve(), 0, "error", "reportA"),
+        _diag(source.resolve(), 1, "error", "reportB"),
+        _diag(source.resolve(), 2, "warning", "reportA"),
+    ]]
+
+    errors = await analysis.get_diagnostics(
+        pyright, severity_filter="error", suppress_codes=["reportA"], config=_config(tmp_path)
+    )
+    limited = await analysis.get_diagnostics(pyright, limit=2, config=_config(tmp_path))
+
+    assert [item.code for item in errors] == ["reportB"]
+    assert len(limited) == 2
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_raises_when_any_file_fails_instead_of_returning_a_partial_list(
+    tmp_path: Path,
+) -> None:
+    for name in ("a.py", "b.py", "c.py"):
+        (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [
+        [_diag((tmp_path / "a.py").resolve(), 0)],
+        PyrightError("sensitive backend detail"),
+        TimeoutError("late"),
+    ]
+
+    with pytest.raises(PyrightError, match=r"Diagnostics unavailable for 2 of 3 files") as raised:
+        await analysis.get_diagnostics(pyright, config=_config(tmp_path))
+
+    message = str(raised.value)
+    assert "b.py (PyrightError)" in message
+    assert "c.py (TimeoutError)" in message
+    assert "sensitive" not in message
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_propagates_cancellation(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await analysis.get_diagnostics(pyright, config=_config(tmp_path))
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_of_an_empty_workspace_is_empty(tmp_path: Path) -> None:
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = []
+
+    assert await analysis.get_diagnostics(pyright, config=_config(tmp_path)) == []
+
+
+@pytest.mark.asyncio
+async def test_pathless_get_diagnostics_needs_the_workspace_config() -> None:
+    with pytest.raises(ValueError, match="config"):
+        await analysis.get_diagnostics(AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_explicit_file_get_diagnostics_does_not_scan_or_close(tmp_path: Path) -> None:
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+
+    await analysis.get_diagnostics(pyright, file_path=str(tmp_path / "a.py"))
+
+    pyright.get_diagnostics.assert_awaited_once_with(str(tmp_path / "a.py"))
+    pyright.get_diagnostics_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workspace_diagnostics_still_reports_failures_instead_of_raising(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [PyrightError("boom")]
+
+    result = await analysis.get_workspace_diagnostics(pyright, _config(tmp_path))
+
+    assert [(f.phase, f.error_type) for f in result.scan_failures] == [("diagnostics", "PyrightError")]
+    pyright.get_diagnostics_many.assert_awaited_once_with(
+        [str((tmp_path / "a.py").resolve())], concurrency=10, close_opened=False
+    )

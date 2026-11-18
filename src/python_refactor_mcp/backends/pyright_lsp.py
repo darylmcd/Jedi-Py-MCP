@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
@@ -195,7 +196,6 @@ class PyrightLSPClient:
         # ``(mtime_ns, size)`` taken BEFORE the text it describes was read, so a write
         # landing between the read and the stat shows up as a stale stamp, never a lost edit.
         self._file_stamps: dict[str, tuple[int, int]] = {}
-        self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._document_lock = asyncio.Lock()
         self._restart_lock = asyncio.Lock()
         self._session_invalid = False
@@ -303,13 +303,12 @@ class PyrightLSPClient:
             _LOGGER.info("Pyright process restarted successfully")
 
     def _make_client(self) -> LSPClient:
-        """Create and configure a fresh LSP transport client."""
-        client = LSPClient()
-        client.register_notification_handler(
-            "textDocument/publishDiagnostics",
-            self._handle_publish_diagnostics,
-        )
-        return client
+        """Create a fresh LSP transport client.
+
+        Diagnostics are pulled with ``textDocument/diagnostic``; the server's
+        ``publishDiagnostics`` pushes are ignored.
+        """
+        return LSPClient()
 
     def _candidate_commands(self) -> list[list[str]]:
         """Build candidate commands to launch pyright-langserver robustly."""
@@ -499,7 +498,6 @@ class PyrightLSPClient:
         self._file_versions.clear()
         self._file_contents.clear()
         self._file_stamps.clear()
-        self._diagnostics.clear()
 
     def _read_document(self, absolute_path: str) -> tuple[str, tuple[int, int]]:
         """Return the file's text and the stat stamp taken before it was read."""
@@ -507,10 +505,8 @@ class PyrightLSPClient:
             stamp = stamp_of(absolute_path)
             return Path(absolute_path).read_text(encoding="utf-8"), stamp
         except FileNotFoundError as exc:
-            self._diagnostics.pop(absolute_path, None)
             raise ToolInputError(f"file_path does not exist: {absolute_path}") from exc
         except (UnicodeDecodeError, OSError) as exc:
-            self._diagnostics.pop(absolute_path, None)
             raise PyrightError(f"Cannot read file {absolute_path}: {exc}") from exc
 
     async def ensure_file_open(self, file_path: str) -> None:
@@ -573,13 +569,12 @@ class PyrightLSPClient:
     async def _close_document(self, absolute_path: str) -> None:
         """Forget a document and tell the server to close it. Lock held.
 
-        Versions stay monotonic across a close/open cycle, so a late publish for the
-        old text can never match a reopened document.
+        Versions stay monotonic across a close/open cycle, so a reopened document never
+        reuses an old version number.
         """
         self._open_files.discard(absolute_path)
         self._file_contents.pop(absolute_path, None)
         self._file_stamps.pop(absolute_path, None)
-        self._diagnostics.pop(absolute_path, None)
         try:
             await self._client.send_notification(
                 "textDocument/didClose", {"textDocument": {"uri": path_to_uri(absolute_path)}}
@@ -597,7 +592,6 @@ class PyrightLSPClient:
         previous_version = self._file_versions.get(absolute_path)
         version = 1 if previous_version is None else previous_version + 1
         self._file_versions[absolute_path] = version
-        self._diagnostics.pop(absolute_path, None)
         self._file_contents.pop(absolute_path, None)
         self._file_stamps.pop(absolute_path, None)
 
@@ -650,14 +644,12 @@ class PyrightLSPClient:
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return analyzed file diagnostics or the current workspace push snapshot.
+    async def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Return the analyzed diagnostics of one file.
 
-        An explicit file is analyzed after every open document that changed on disk
-        has been resynchronized, so an edited dependency is seen by its importer.
+        The file is analyzed after every open document that changed on disk has been
+        resynchronized, so an edited dependency is seen by its importer.
         """
-        if file_path is None:
-            return _sorted_diagnostics([item for items in self._diagnostics.values() for item in items])
         return await self._pull_diagnostics(normalize_path(file_path), sync_peers=True)
 
     async def get_diagnostics_many(
@@ -666,6 +658,7 @@ class PyrightLSPClient:
         *,
         concurrency: int = 1,
         stop_on_error: bool = False,
+        close_opened: bool = False,
     ) -> list[list[Diagnostic] | Exception]:
         """Return per-file diagnostics for a batch after ONE resync of the open documents.
 
@@ -674,10 +667,44 @@ class PyrightLSPClient:
         result at the first failure; it cannot be combined with ``concurrency > 1``.
         A failure of the shared resync itself (timeout, dead session) raises.
 
+        ``close_opened`` closes, once the batch ends (also on failure or cancellation),
+        the documents this call opened, so a whole-workspace scan does not grow the
+        open set; documents that were already open stay open. A document another
+        request opens meanwhile may be closed too; its next request reopens it.
+
         Limitation: a document is detected as changed by its ``(mtime_ns, size)``
         stamp, so an edit that keeps both the size and the modification time is not
         noticed until the file changes again or the session restarts.
         """
+        if not close_opened:
+            return await self._pull_many(file_paths, concurrency=concurrency, stop_on_error=stop_on_error)
+        already_open = set(self._open_files)
+        scanned: set[str] = set()
+        for path in file_paths:
+            with contextlib.suppress(Exception):  # a bad path is reported by its own pull
+                scanned.add(normalize_path(path))
+        try:
+            return await self._pull_many(file_paths, concurrency=concurrency, stop_on_error=stop_on_error)
+        finally:
+            await self._close_documents(scanned - already_open)
+
+    async def _close_documents(self, paths: set[str]) -> None:
+        """Close the still-open documents among ``paths``; a failure invalidates the session, never the caller."""
+        try:
+            async with self._document_lock:
+                for path in sorted(paths):
+                    if path in self._open_files:
+                        await self._close_document(path)
+        except Exception:
+            _LOGGER.warning("Could not close scanned documents; the next request restarts the session.", exc_info=True)
+
+    async def _pull_many(
+        self,
+        file_paths: Sequence[str],
+        *,
+        concurrency: int,
+        stop_on_error: bool,
+    ) -> list[list[Diagnostic] | Exception]:
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
         if stop_on_error and concurrency != 1:
@@ -753,29 +780,6 @@ class PyrightLSPClient:
             return _sorted_diagnostics(convert_diagnostics(normalized, items))
         except ValueError as exc:
             raise PyrightError("Invalid diagnostic in the textDocument/diagnostic report.") from exc
-
-    async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
-        """Update the workspace snapshot for the published document version."""
-        uri = params.get("uri")
-        items = params.get("diagnostics")
-        if not isinstance(uri, str) or not isinstance(items, list):
-            return
-        try:
-            file_path = uri_to_path(uri)
-        except ValueError:
-            _LOGGER.warning("Invalid URI in publishDiagnostics notification", exc_info=True)
-            return
-        if not file_path:
-            return
-        version = params.get("version")
-        current_version = self._file_versions.get(file_path)
-        if current_version is not None and (type(version) is not int or version != current_version):
-            return
-        try:
-            self._diagnostics[file_path] = convert_diagnostics(file_path, items)
-        except ValueError:
-            self._diagnostics.pop(file_path, None)
-            _LOGGER.warning("Invalid publishDiagnostics notification for %s", file_path, exc_info=True)
 
     # ── Analysis features ─────────────────────────────────────────────
 

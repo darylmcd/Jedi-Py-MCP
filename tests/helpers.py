@@ -16,7 +16,7 @@ def many_from(
     """Adapt a per-file coroutine to the backend's ``get_diagnostics_many`` result shape."""
 
     async def many(
-        paths: list[str], *, concurrency: int = 1, stop_on_error: bool = False
+        paths: list[str], *, concurrency: int = 1, stop_on_error: bool = False, close_opened: bool = False
     ) -> list[list[Diagnostic] | Exception]:
         results: list[list[Diagnostic] | Exception] = []
         for path in paths:

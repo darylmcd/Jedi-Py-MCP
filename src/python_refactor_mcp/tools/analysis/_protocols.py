@@ -40,8 +40,8 @@ class PyrightAnalysisBackend(Protocol):
         """Return hover-based type information for a position."""
         ...
 
-    async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return diagnostics for one file or the full workspace."""
+    async def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Return the diagnostics of one file."""
         ...
 
     async def get_diagnostics_many(
@@ -50,6 +50,7 @@ class PyrightAnalysisBackend(Protocol):
         *,
         concurrency: int = 1,
         stop_on_error: bool = False,
+        close_opened: bool = False,
     ) -> list[list[Diagnostic] | Exception]:
         """Return per-file diagnostics (or the file's failure) after one resync of open documents."""
         ...
