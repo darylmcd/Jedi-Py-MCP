@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from python_refactor_mcp.backends import _threading
 from python_refactor_mcp.backends._threading import run_in_thread
 from python_refactor_mcp.errors import BackendError, JediError, RopeError, ToolInputError
 
@@ -147,3 +151,160 @@ async def test_logger_emits_started_even_on_failure(caplog: pytest.LogCaptureFix
     # ``timed`` logs "started" on entry and "completed" in its finally block.
     assert any("rope.fail_timed: started" in m for m in messages)
     assert any("rope.fail_timed: completed" in m for m in messages)
+
+
+# -- Worker lease: a borrowed lease outlives an abandoned worker --------------
+
+
+class _Scope:
+    """A lease scope that counts borrows and releases."""
+
+    def __init__(self) -> None:
+        self.borrowed = 0
+        self.released = 0
+
+    def __call__(self) -> Callable[[], None]:
+        self.borrowed += 1
+
+        def release() -> None:
+            self.released += 1
+
+        return release
+
+
+async def _until(predicate: Callable[[], bool]) -> None:
+    """Yield to the loop until *predicate* holds; a wall-clock guard turns a hang into a failure."""
+    deadline = time.monotonic() + 10
+    while not predicate():
+        assert time.monotonic() < deadline, "condition never held"
+        await asyncio.sleep(0)
+
+
+@pytest.fixture
+def scope() -> Iterator[_Scope]:
+    counting = _Scope()
+    token = _threading.worker_lease_scope.set(counting)
+    try:
+        yield counting
+    finally:
+        _threading.worker_lease_scope.reset(token)
+
+
+async def _run(work: Callable[[], object], *, timeout: float = 5.0) -> object:
+    return await run_in_thread(work, timeout=timeout, error_cls=RopeError, op_name="rope.leased", logger=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "worker_error", "input_error"])
+async def test_lease_is_borrowed_and_released_once_when_the_worker_finishes(scope: _Scope, outcome: str) -> None:
+    def _work() -> int:
+        if outcome == "worker_error":
+            raise ValueError("boom")
+        if outcome == "input_error":
+            raise ToolInputError("bad (parameter: x)")
+        return 1
+
+    if outcome == "success":
+        assert await _run(_work) == 1
+    else:
+        with pytest.raises((RopeError, ToolInputError)):
+            await _run(_work)
+    await _until(lambda: scope.released >= 1)
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert (scope.borrowed, scope.released) == (1, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["cancel", "timeout"])
+async def test_lease_outlives_a_cancelled_or_timed_out_caller_until_the_worker_returns(
+    scope: _Scope, how: str
+) -> None:
+    gate = threading.Event()
+    started = threading.Event()
+
+    def _work() -> int:
+        started.set()
+        gate.wait(10)
+        return 1
+
+    try:
+        task = asyncio.ensure_future(_run(_work, timeout=0.05 if how == "timeout" else 5.0))
+        await _until(started.is_set)
+        if how == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            with pytest.raises(RopeError):
+                await task
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+        assert (scope.borrowed, scope.released) == (1, 0)  # caller gone, worker still running
+    finally:
+        gate.set()
+    await _until(lambda: scope.released >= 1)
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert (scope.borrowed, scope.released) == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_a_worker_that_never_started_is_skipped_when_its_caller_leaves(scope: _Scope) -> None:
+    executor = ThreadPoolExecutor(max_workers=1)
+    asyncio.get_running_loop().set_default_executor(executor)
+    gate = threading.Event()
+    started = threading.Event()
+    ran: list[str] = []
+
+    def _first() -> None:
+        started.set()
+        gate.wait(10)
+
+    def _second() -> None:
+        ran.append("second")
+
+    first = asyncio.ensure_future(_run(_first))
+    try:
+        await _until(started.is_set)
+        second = asyncio.ensure_future(_run(_second))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await second
+    finally:
+        gate.set()
+    await first
+    await _until(lambda: scope.released >= 2)
+    executor.shutdown(wait=True)
+
+    assert ran == []
+    assert (scope.borrowed, scope.released) == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_without_a_scope_the_helper_borrows_nothing() -> None:
+    """Guard: direct backend callers (no tool boundary) are unchanged."""
+    assert _threading.worker_lease_scope.get() is None
+    assert await _run(lambda: 7) == 7
+
+
+@pytest.mark.asyncio
+async def test_a_failing_release_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
+    def _bad_scope() -> Callable[[], None]:
+        def release() -> None:
+            raise RuntimeError("release defect")
+
+        return release
+
+    token = _threading.worker_lease_scope.set(_bad_scope)
+    try:
+        with caplog.at_level(logging.WARNING, logger="python_refactor_mcp.backends._threading"):
+            assert await _run(lambda: 1) == 1
+            await _until(lambda: any("worker lease failed" in r.getMessage() for r in caplog.records))
+    finally:
+        _threading.worker_lease_scope.reset(token)

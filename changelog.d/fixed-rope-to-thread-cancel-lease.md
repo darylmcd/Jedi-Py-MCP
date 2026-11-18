@@ -1,0 +1,1 @@
+- **Fixed:** A cancelled or timed-out rope or Jedi operation no longer lets an evicted workspace be shut down while its worker thread is still running; the worker holds its own workspace lease until it finishes.
