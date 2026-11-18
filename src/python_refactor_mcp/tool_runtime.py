@@ -441,10 +441,13 @@ def tool_error_boundary(
         except BackendError as exc:
             raise _translate_backend_error(exc, func.__name__) from None
         finally:
-            if token is not None:
-                _current_backends.reset(token)
-            if leased_from is not None and backends is not None:
-                leased_from.release(backends)
+            try:
+                if token is not None:
+                    _current_backends.reset(token)
+            finally:
+                # Independent of the reset above: a failing reset must not leak the lease.
+                if leased_from is not None and backends is not None:
+                    leased_from.release(backends)
             elapsed_ms = (time.perf_counter() - start) * 1000
             _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
 

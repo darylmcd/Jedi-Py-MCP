@@ -369,10 +369,10 @@ class WorkspaceRegistry:
     def _schedule_shutdown(self, backends: WorkspaceBackends) -> None:
         """Start the tracked shutdown of a retired backend whose last lease was released.
 
-        Starts nothing once the registry is closed (shutdown_all already stopped every
-        backend and gathers the tasks it started) or when the backend is already stopped.
+        Starts nothing when the backend is already stopped, which covers every backend
+        :meth:`shutdown_all` force-stopped: a late release after teardown spawns no task.
         """
-        if self._closed or not backends.is_initialized:
+        if not backends.is_initialized:
             return
         task = asyncio.ensure_future(backends.shutdown())
         self._retiring.add(task)

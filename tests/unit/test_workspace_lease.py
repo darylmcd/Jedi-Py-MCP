@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from python_refactor_mcp import tool_runtime
 from python_refactor_mcp.errors import PyrightError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, tool_error_boundary
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
@@ -467,6 +468,34 @@ async def test_the_boundary_releases_the_lease_when_the_coroutine_is_closed(tmp_
 
     assert _leases(registry) == [0]
     parked.cancel()
+
+
+@pytest.mark.asyncio
+async def test_the_boundary_releases_the_lease_even_when_resetting_the_context_var_raises(
+    tmp_path: Path, world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+
+    class _FailingReset:
+        def set(self, value: object) -> object:
+            _ = value
+            return object()
+
+        def reset(self, token: object) -> None:
+            _ = token
+            raise LookupError("reset failed")
+
+    monkeypatch.setattr(tool_runtime, "_current_backends", _FailingReset())
+
+    async def tool(ctx: Any, file_path: str) -> str:
+        _ = (ctx, file_path)
+        return "ok"
+
+    with pytest.raises(LookupError, match="reset failed"):
+        await tool_error_boundary(tool)(_boundary_ctx(registry), file_path=_source(project))
+
+    assert _leases(registry) == [0]
 
 
 @pytest.mark.asyncio
