@@ -184,7 +184,7 @@ async def get_symbol_outline(
     kind_filter: list[str] | None = None,
     name_pattern: str | None = None,
     limit: int | None = None,
-    root_path: str | None = None,
+    directory: str | None = None,
     file_paths: list[str] | None = None,
     offset: int = 0,
     max_nodes: int | None = None,
@@ -202,10 +202,10 @@ async def get_symbol_outline(
         candidate_files = [_require_file("file_paths", p) for p in file_paths]
     elif file_path is not None:
         candidate_files = [_require_file("file_path", file_path)]
-    elif root_path:
-        effective_root = Path(root_path).resolve()
+    elif directory:
+        effective_root = Path(directory).resolve()
         if not effective_root.is_dir():
-            raise ToolInputError(f"root_path is not an existing directory: {root_path}")
+            raise ToolInputError(f"{directory} is not an existing directory (parameter: directory)")
         candidate_files = python_files(effective_root)
     else:
         candidate_files = python_files(config.workspace_root)

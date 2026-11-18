@@ -90,7 +90,8 @@ The workspace-root argument is optional and meant for single-project
 registrations only. When supplied, that workspace is pre-warmed (its backends
 start) during server startup, but it is not selected: a tool call that names no
 file fails with `[AMBIGUOUS_WORKSPACE]` until a path-bearing call, or an
-absolute `root_path` argument, selects that root. A user-scope registration
+absolute `root_path` argument (`directory` on the four scan tools), selects
+that root. A user-scope registration
 shared by several repositories should omit the argument; the server then starts
 cold and discovers a project root from each path-bearing tool request. A UNC
 or device-namespace workspace root (`\\server\share\...`) is refused at startup;
@@ -102,7 +103,12 @@ Tools that can be called without a file path (for example `search_symbols`,
 selects the workspace. With no `root_path`, such a call resolves only to the
 sole workspace a path-bearing call already selected; with several live
 workspaces, or only the pre-warmed one, it is rejected and the error lists the
-live roots. See [ADR 0007](adr/0007-explicit-workspace-selection.md).
+live roots. `get_workspace_diagnostics`, `get_symbol_outline`,
+`dead_code_detection` and `unused_symbol_sweep` scan a directory and take it as
+`directory` (it scopes the scan and selects the workspace containing it);
+they reject `root_path`. See
+[ADR 0007](adr/0007-explicit-workspace-selection.md) and
+[ADR 0012](adr/0012-scan-directory-parameter.md).
 
 Python interpreter discovery order:
 

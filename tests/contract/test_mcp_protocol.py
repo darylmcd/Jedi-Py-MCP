@@ -247,6 +247,7 @@ def test_workspace_modes_are_explicit() -> None:
 
 # Tools with no required selecting path that accept ``root_path`` to name their workspace
 # (bl-0056). A new path-less tool must either take ``root_path`` or be added here deliberately.
+# ``root_path`` only ever selects a workspace (ADR 0012).
 _ROOT_PATH_SELECTOR_TOOLS = frozenset(
     {
         "autoimport_search",
@@ -254,7 +255,6 @@ _ROOT_PATH_SELECTOR_TOOLS = frozenset(
         "check_layer_violations",
         "commit_change_stack",
         "create_type_stubs",
-        "dead_code_detection",
         "find_constructors",
         "find_unused_imports",
         "fix_circular_imports",
@@ -263,9 +263,7 @@ _ROOT_PATH_SELECTOR_TOOLS = frozenset(
         "get_diagnostics",
         "get_module_dependencies",
         "get_refactoring_history",
-        "get_symbol_outline",
         "get_test_coverage_map",
-        "get_workspace_diagnostics",
         "list_environments",
         "project_search",
         "redo_refactoring",
@@ -278,8 +276,12 @@ _ROOT_PATH_SELECTOR_TOOLS = frozenset(
         "structural_replace",
         "structural_search",
         "undo_refactoring",
-        "unused_symbol_sweep",
     }
+)
+# The four tools that scan a directory take it as ``directory``: it scopes the scan and also
+# selects the workspace containing it (ADR 0012). They do not take ``root_path``.
+_DIRECTORY_SCAN_TOOLS = frozenset(
+    {"dead_code_detection", "get_symbol_outline", "get_workspace_diagnostics", "unused_symbol_sweep"}
 )
 _LIST_SELECTORS = ("edits", "symbols", "steps")
 
@@ -296,6 +298,7 @@ async def test_every_tool_without_a_required_selecting_path_accepts_root_path() 
     root_only = _tools_using(tool_runtime.WorkspaceUse.ROOT_ONLY)
     scalar_selectors = set(PATH_PARAMS)
     needing_root_path: set[str] = set()
+    needing_directory: set[str] = set()
     for name, (tool, _mcp) in (await _tools_by_name()).items():
         schema = tool.input_schema
         required = set(schema.get("required", []))
@@ -309,9 +312,16 @@ async def test_every_tool_without_a_required_selecting_path_accepts_root_path() 
                     f"{name}.{list_param} accepts an empty list, which selects no workspace and has no root_path"
                 )
             continue
+        if name in _DIRECTORY_SCAN_TOOLS:
+            needing_directory.add(name)
+            assert "directory" in properties, f"{name} has no required selecting path and no directory"
+            assert "root_path" not in properties, f"{name} must not accept root_path (ADR 0012)"
+            continue
         needing_root_path.add(name)
         assert "root_path" in properties, f"{name} has no required selecting path and no root_path"
+        assert "directory" not in properties, f"{name} takes root_path; directory is reserved for the scan tools"
     assert needing_root_path == _ROOT_PATH_SELECTOR_TOOLS
+    assert needing_directory == _DIRECTORY_SCAN_TOOLS
     assert "root_path" not in (await _tools_by_name())["server_status"][0].input_schema.get("properties", {})
 
 
@@ -338,6 +348,7 @@ async def test_path_params_are_validated() -> None:
         "stub_file",
         "destination_file",
         "root_path",
+        "directory",
         "source_path",
         "destination_package",
     }
@@ -627,3 +638,39 @@ async def test_unknown_argument_key_is_rejected_naming_the_key(
     _, mcp = tools[tool_name]
     with pytest.raises(ToolError, match=rf"{key}[\s\S]*Extra inputs are not permitted"):
         await mcp.call_tool(tool_name, arguments)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", sorted(_DIRECTORY_SCAN_TOOLS))
+async def test_scan_tools_describe_directory_and_have_no_root_path(tool_name: str) -> None:
+    """``directory`` is the scan scope that also selects its workspace; ``root_path`` is not a property here."""
+    tool, _mcp = (await _tools_by_name())[tool_name]
+    properties = tool.input_schema["properties"]
+    assert "root_path" not in properties
+    description = properties["directory"]["description"]
+    assert "scan" in description
+    assert "selects the workspace" in description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", sorted(_DIRECTORY_SCAN_TOOLS))
+@pytest.mark.parametrize("extra", [{}, {"directory": "C:/workspace"}])
+async def test_scan_tools_reject_root_path_naming_the_migration(tool_name: str, extra: dict[str, Any]) -> None:
+    """The superseded ``root_path`` fails validation naming ``directory`` and ADR 0012, even beside ``directory``.
+
+    It is raised inside the SDK arg model, so the text carries no ``[CODE]`` prefix.
+    """
+    _, mcp = (await _tools_by_name())[tool_name]
+    with pytest.raises(ToolError, match=r"'root_path' is not accepted by .*renamed to 'directory' \(ADR 0012\)"):
+        await mcp.call_tool(tool_name, {"root_path": "C:/workspace", **extra})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", sorted(_DIRECTORY_SCAN_TOOLS))
+async def test_scan_tools_accept_directory_through_argument_validation(tool_name: str) -> None:
+    """``directory`` passes argument validation; a relative one is then refused by the boundary naming it."""
+    _, mcp = (await _tools_by_name())[tool_name]
+    with pytest.raises(ToolError) as excinfo:
+        await mcp.call_tool(tool_name, {"directory": "relative/dir"})
+    assert "Extra inputs are not permitted" not in str(excinfo.value)
+    assert "parameter: directory" in str(excinfo.value)

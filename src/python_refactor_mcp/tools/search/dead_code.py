@@ -96,14 +96,14 @@ async def dead_code_detection(
     config: ServerConfig,
     file_path: str | None = None,
     exclude_patterns: list[str] | None = None,
-    root_path: str | None = None,
+    directory: str | None = None,
     exclude_test_files: bool = True,
     file_paths: list[str] | None = None,
     offset: int = 0,
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Detect dead code candidates using diagnostics and reference counts."""
-    resolved = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    resolved = resolve_target_files(file_path, file_paths, directory, config, exclude_test_files)
     target_files = resolved.files
     target_paths = {str(path.resolve()) for path in target_files}
 

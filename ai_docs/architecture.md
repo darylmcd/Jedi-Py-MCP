@@ -41,7 +41,7 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 ## Runtime Flow
 
 1. `config.py` selects and validates the bounded tool profile before registration.
-2. Optional CLI `workspace_root` pre-warms one workspace WITHOUT selecting it (single-project registrations only); path-bearing tool calls (including `root_path`) discover and select project roots. A path-less call resolves only to a sole selected workspace, else `[AMBIGUOUS_WORKSPACE]` (ADR 0007).
+2. Optional CLI `workspace_root` pre-warms one workspace WITHOUT selecting it (single-project registrations only); path-bearing tool calls (including `root_path`, and `directory` on the four scan tools) discover and select project roots. A path-less call resolves only to a sole selected workspace, else `[AMBIGUOUS_WORKSPACE]` (ADR 0007, ADR 0012).
 3. `config.py` resolves the interpreter and `pyrightconfig.json` for each discovered workspace.
 4. `build_server(root)` wires `workspace_lifespan(root)` (one `WorkspaceRegistry` per server, teardown guaranteed) and the tools of `tool_registry.TOOL_RECORDS`; the lifespan yields a `MultiWorkspaceContext`; backends initialize per workspace.
 5. Incoming tool calls are routed through `tools/` orchestration modules.

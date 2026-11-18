@@ -81,14 +81,14 @@ async def unused_symbol_sweep(
     config: ServerConfig,
     file_path: str | None = None,
     exclude_patterns: list[str] | None = None,
-    root_path: str | None = None,
+    directory: str | None = None,
     exclude_test_files: bool = True,
     file_paths: list[str] | None = None,
     offset: int = 0,
     limit: int | None = None,
 ) -> PaginatedDeadCode:
     """Audit the public export surface for symbols with no cross-file references."""
-    resolved = resolve_target_files(file_path, file_paths, root_path, config, exclude_test_files)
+    resolved = resolve_target_files(file_path, file_paths, directory, config, exclude_test_files)
     compiled_excludes = [re.compile(pattern) for pattern in (exclude_patterns or [])]
     opened_files, open_failures = await open_target_files(pyright, resolved.files)
 
