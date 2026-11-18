@@ -26,7 +26,9 @@ async def _run_to_completion(coro: Coroutine[Any, Any, None]) -> None:
     """Run *coro* to completion even if the awaiting task is cancelled (once or repeatedly).
 
     The cancellation is re-raised after the work finishes. The task is held in a local
-    so a second cancellation cannot drop the only reference to it.
+    so a second cancellation cannot drop the only reference to it. A failure of the
+    task is retrieved and logged rather than left unretrieved: the cancellation
+    outranks it, so it cannot propagate.
     """
     task = asyncio.ensure_future(coro)
     try:
@@ -37,7 +39,18 @@ async def _run_to_completion(coro: Coroutine[Any, Any, None]) -> None:
                 await asyncio.wait({task})
             except asyncio.CancelledError:
                 continue
+        if not task.cancelled():
+            failure = task.exception()
+            if failure is not None:
+                _LOGGER.warning("Cleanup task failed while its caller was cancelled", exc_info=failure)
         raise
+
+
+async def _shutdown_all(backends_list: list[WorkspaceBackends]) -> None:
+    """Shut every backend in *backends_list* down, one after another."""
+    for backends in backends_list:
+        _LOGGER.info("Shutting down workspace: %s", backends.config.workspace_root)
+        await backends.shutdown()
 
 
 @dataclass
@@ -126,7 +139,9 @@ class WorkspaceRegistry:
     async def set_roots(self, roots: list[Path]) -> None:
         """Update the set of known workspace roots.
 
-        Shuts down backends for any roots that were removed.
+        Shuts down backends for any roots that were removed. The removed workspaces
+        leave the registry in the same step that replaces the roots, before any
+        shutdown is awaited, and every one is shut down even if the caller is cancelled.
         Does NOT eagerly initialize new roots (lazy on first tool call).
         """
         resolved = [r.resolve() for r in roots]
@@ -139,11 +154,8 @@ class WorkspaceRegistry:
             # Every root passed here is explicit, including one previously auto-discovered.
             self._auto_roots.clear()
 
-            for root in removed:
-                backends = self._workspaces.pop(root, None)
-                if backends is not None:
-                    _LOGGER.info("Shutting down removed workspace: %s", root)
-                    await backends.shutdown()
+            popped = [self._workspaces.pop(root) for root in removed if root in self._workspaces]
+            await _run_to_completion(_shutdown_all(popped))
 
     def get_known_roots(self) -> list[Path]:
         """Return a copy of the current known roots list."""
@@ -277,11 +289,14 @@ class WorkspaceRegistry:
         await evict_backends.shutdown()
 
     async def shutdown_all(self) -> None:
-        """Shut down all workspace backends. Called during server teardown."""
+        """Shut down all workspace backends. Called during server teardown.
+
+        The registry is emptied before any shutdown is awaited, so a concurrent call never
+        resolves a workspace that is being shut down, and a cancellation cannot leave one running.
+        """
         async with self._lock:
-            for root, backends in list(self._workspaces.items()):
-                _LOGGER.info("Shutting down workspace: %s", root)
-                await backends.shutdown()
+            popped = list(self._workspaces.values())
             self._workspaces.clear()
             self._known_roots.clear()
             self._auto_roots.clear()
+            await _run_to_completion(_shutdown_all(popped))
