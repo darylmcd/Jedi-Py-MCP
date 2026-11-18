@@ -344,6 +344,7 @@ async def test_every_directory_typed_tool_param_is_validated() -> None:
         for tool in await mcp.list_tools():
             properties = tool.input_schema.get("properties", {})
             directory_params.update(name for name in properties if name.endswith(("_dir", "_directory")))
+    directory_params.discard("directory")  # the scan tools' anchoring scan directory is a PATH_PARAMS entry
     assert directory_params, "expected at least one directory-typed tool parameter (output_dir)"
     assert directory_params <= set(DIR_PARAMS), (
         f"directory params missing from DIR_PARAMS: {sorted(directory_params - set(DIR_PARAMS))}"
@@ -1287,7 +1288,9 @@ async def _echo_tool(ctx: Any, **kwargs: Any) -> dict[str, Any]:
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
 @pytest.mark.parametrize("spelling", _UNC_SPELLINGS)
-@pytest.mark.parametrize("shape", ["file_path", "root_path", "destination_file", "file_paths", "output_dir"])
+@pytest.mark.parametrize(
+    "shape", ["file_path", "root_path", "directory", "destination_file", "file_paths", "output_dir"]
+)
 async def test_unc_and_device_paths_are_rejected_before_any_filesystem_access(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str, shape: str
 ) -> None:
@@ -1297,6 +1300,7 @@ async def test_unc_and_device_paths_are_rejected_before_any_filesystem_access(
     arguments: dict[str, Any] = {
         "file_path": {"file_path": spelling},
         "root_path": {"root_path": spelling},
+        "directory": {"directory": spelling},
         "destination_file": {"file_path": good, "destination_file": spelling},
         "file_paths": {"file_paths": [good, spelling]},
         "output_dir": {"file_path": good, "output_dir": spelling},
@@ -1421,6 +1425,13 @@ _PATH_LIKE_ALLOWLIST: dict[str, str] = {
     "target_modules": "dict KEYS are paths, UNC-guarded and contained by RopeBackend._workspace_python_file",
 }
 _PATH_SUFFIXES = ("_file", "_path", "_dir", "_directory")
+# The scan tools' ``directory`` (ADR 0012) has no suffix, so it is named here or no drift guard would see it.
+_BARE_PATH_NAMES = ("directory",)
+
+
+def _is_path_like(name: str) -> bool:
+    """Return whether *name* looks like a path parameter by suffix or by the bare names above."""
+    return name.endswith(_PATH_SUFFIXES) or name in _BARE_PATH_NAMES
 
 
 def _schema_path_property_names(
@@ -1433,7 +1444,7 @@ def _schema_path_property_names(
         if isinstance(ref, str) and ref not in seen:
             found |= _schema_path_property_names(defs.get(ref.rsplit("/", 1)[-1]), defs, seen | {ref})
         for name, child in (schema.get("properties") or {}).items():
-            if name.endswith(_PATH_SUFFIXES):
+            if _is_path_like(name):
                 found.add(name)
             found |= _schema_path_property_names(child, defs, seen)
         for key, child in schema.items():
@@ -1464,7 +1475,7 @@ async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> Non
                 if name in _PATH_LIKE_ALLOWLIST:
                     seen_allowlisted.add(name)
                     continue
-                if name.endswith(_PATH_SUFFIXES) and name not in covered:
+                if _is_path_like(name) and name not in covered:
                     uncovered_scalars.add(name)
                 if _schema_path_property_names(prop, defs) and name not in covered | nested_covered:
                     uncovered_nested.add(name)
@@ -1714,3 +1725,112 @@ async def test_root_only_path_bearing_call_does_not_select_the_workspace(tmp_pat
     assert warmed.selected is False
     with pytest.raises(AmbiguousWorkspaceError, match="pre-warmed, not selected"):
         registry.implicit_workspace()
+
+
+# ── directory: the scan tools' scope that also anchors a workspace (ADR 0012) ──
+
+
+def _nested_project_layout(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a marked repo holding a nested project (its own ``pyproject.toml``)."""
+    repo = tmp_path / "repo"
+    nested = repo / "packages" / "inner"
+    (nested / "src").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (nested / "pyproject.toml").write_text("[project]\nname = 'inner'\n", encoding="utf-8")
+    return repo, nested
+
+
+@pytest.mark.asyncio
+async def test_directory_selects_the_workspace_containing_it_in_a_real_registry(tmp_path: Path) -> None:
+    """A path-less scan tool with ``directory`` selects the workspace that contains it, like ``file_path``."""
+    repo, _nested = _nested_project_layout(tmp_path)
+    (repo / "pkg").mkdir()
+    registry = WorkspaceRegistry()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def scan_like(ctx: object, directory: str | None = None) -> tuple[Path, str | None]:
+        return get_current_backends().config.workspace_root, directory
+
+    with _patched_backend_classes():
+        assert await scan_like(ctx, directory=str(repo / "pkg")) == (repo.resolve(), str((repo / "pkg").resolve()))
+        (live,) = registry.active_backends()
+        assert live.selected is True
+
+
+@pytest.mark.asyncio
+async def test_directory_naming_a_nested_project_scans_that_nested_workspace(tmp_path: Path) -> None:
+    """Deliberate (ADR 0012): a nested project directory is its own workspace, so the scan runs there.
+
+    The selected workspace contains the scanned directory, so the scan cannot leave it; ``root_path``
+    never narrows a scan, which is why this lives on ``directory`` and not on ``root_path``.
+    """
+    repo, nested = _nested_project_layout(tmp_path)
+    registry = WorkspaceRegistry()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def scan_like(ctx: object, directory: str | None = None) -> Path:
+        return get_current_backends().config.workspace_root
+
+    with _patched_backend_classes():
+        assert await scan_like(ctx, directory=str(nested / "src")) == nested.resolve()
+        assert await scan_like(ctx, directory=str(repo)) == repo.resolve()
+
+
+@pytest.mark.asyncio
+async def test_relative_directory_is_rejected_before_any_backend_starts(tmp_path: Path) -> None:
+    """A relative ``directory`` cannot select (or start) a workspace through the server cwd."""
+    ctx = _ctx_with(MultiWorkspaceContext(registry=_BackendlessRegistry(), cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, directory: str | None = None) -> str:
+        raise AssertionError("tool body must not run")
+
+    with pytest.raises(ToolError, match=r"is not an absolute path \(parameter: directory\)"):
+        await tool(ctx, directory="some/dir")
+
+
+@pytest.mark.asyncio
+async def test_directory_with_a_file_path_in_another_workspace_keeps_the_multi_workspace_error(
+    tmp_path: Path,
+) -> None:
+    """``directory`` is one more selector: a ``file_path`` in another workspace is rejected before any backend."""
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for root in (first, second):
+        root.mkdir()
+        (root / ".git").mkdir()
+        (root / "a.py").touch()
+    ctx = _ctx_with(MultiWorkspaceContext(registry=_BackendlessRegistry(), cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, directory: str | None = None, file_path: str | None = None) -> str:
+        raise AssertionError("tool body must not run")
+
+    with pytest.raises(ToolError, match=_MIXED_ROOT_MESSAGE):
+        await tool(ctx, directory=str(first), file_path=str(second / "a.py"))
+
+
+@pytest.mark.asyncio
+async def test_directory_outside_every_workspace_is_refused(tmp_path: Path) -> None:
+    """A ``directory`` with no enclosing workspace marker fails workspace resolution; it never scans the path."""
+    _workspace, outside = _escape_layout(tmp_path)
+    ctx = _ctx_with(MultiWorkspaceContext(registry=_BackendlessRegistry(), cli_workspace_root=None))
+
+    @tool_error_boundary
+    async def tool(ctx: object, directory: str | None = None) -> str:
+        raise AssertionError("tool body must not run")
+
+    with pytest.raises(ToolError, match=r"^\[WORKSPACE_RESOLUTION\] "):
+        await tool(ctx, directory=str(outside))
+
+
+@pytest.mark.asyncio
+async def test_directory_outside_the_workspace_a_file_path_selected_is_refused(tmp_path: Path) -> None:
+    """After ``file_path`` selects a workspace, an unmarked ``directory`` outside it fails the containment check."""
+    workspace, outside = _escape_layout(tmp_path)
+    ctx, _spy = _real_registry_ctx()
+
+    with pytest.raises(ToolError, match=r"outside the workspace root"):
+        await tool_error_boundary(_echo_tool)(ctx, file_path=str(workspace / "a.py"), directory=str(outside))

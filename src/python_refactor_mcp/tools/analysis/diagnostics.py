@@ -91,14 +91,14 @@ async def get_diagnostics(
 async def get_workspace_diagnostics(
     pyright: _PyrightAnalysisBackend,
     config: ServerConfig,
-    root_path: str | None = None,
+    directory: str | None = None,
     suppress_codes: list[str] | None = None,
     file_paths: list[str] | None = None,
     offset: int = 0,
     limit: int | None = None,
 ) -> PaginatedDiagnosticSummary:
     """Aggregate workspace diagnostics into one summary per file."""
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
+    effective_root = Path(directory).resolve() if directory else config.workspace_root
     suppress_set = set(suppress_codes) if suppress_codes else None
 
     target_files: list[Path] = (

@@ -46,7 +46,7 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase
 from mcp.types import ToolAnnotations
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILES, ToolProfile
@@ -121,6 +121,7 @@ from python_refactor_mcp.tool_params import (
     Depth,
     DestinationFile,
     DestinationPackage,
+    Directory,
     DocstringStyle,
     EndCharacter,
     EndLine,
@@ -149,7 +150,6 @@ from python_refactor_mcp.tool_params import (
     PackageName,
     ParameterIndex,
     Query,
-    RootPath,
     RopePattern,
     SeverityFilter,
     SourceFile,
@@ -334,7 +334,7 @@ async def get_diagnostics(
 
 async def get_workspace_diagnostics(
     ctx: Context,
-    root_path: RootPath = None,
+    directory: Directory = None,
     suppress_codes: SuppressCodes = None,
     file_paths: FilePaths = None,
     offset: Offset = 0,
@@ -345,7 +345,7 @@ async def get_workspace_diagnostics(
     result = await analysis.get_workspace_diagnostics(
         app.pyright,
         app.config,
-        root_path,
+        directory,
         suppress_codes,
         file_paths,
         offset,
@@ -1343,7 +1343,7 @@ async def dead_code_detection(
     ctx: Context,
     file_path: OptionalFilePath = None,
     exclude_patterns: ExcludePatterns = None,
-    root_path: RootPath = None,
+    directory: Directory = None,
     exclude_test_files: ExcludeTestFiles = True,
     file_paths: FilePaths = None,
     offset: Offset = 0,
@@ -1356,7 +1356,7 @@ async def dead_code_detection(
         app.config,
         file_path,
         exclude_patterns,
-        root_path,
+        directory,
         exclude_test_files,
         file_paths,
         offset,
@@ -1376,7 +1376,7 @@ async def unused_symbol_sweep(
     ctx: Context,
     file_path: OptionalFilePath = None,
     exclude_patterns: ExcludePatterns = None,
-    root_path: RootPath = None,
+    directory: Directory = None,
     exclude_test_files: ExcludeTestFiles = True,
     file_paths: FilePaths = None,
     offset: Offset = 0,
@@ -1389,7 +1389,7 @@ async def unused_symbol_sweep(
         app.config,
         file_path,
         exclude_patterns,
-        root_path,
+        directory,
         exclude_test_files,
         file_paths,
         offset,
@@ -1771,7 +1771,7 @@ async def get_symbol_outline(
     kind_filter: list[str] | None = None,
     name_pattern: str | None = None,
     limit: Limit = None,
-    root_path: RootPath = None,
+    directory: Directory = None,
     file_paths: FilePaths = None,
     offset: Offset = 0,
     max_nodes: OptionalMaxNodes = None,
@@ -1794,7 +1794,7 @@ async def get_symbol_outline(
         kind_filter,
         name_pattern,
         effective_limit,
-        root_path,
+        directory,
         file_paths,
         offset,
         effective_max_nodes,
@@ -1973,12 +1973,20 @@ class ToolRecord:
     ``func`` is the *undecorated* delegate coroutine; ``annotations`` is the
     MCP :class:`ToolAnnotations` constant passed through verbatim per tool;
     ``workspace`` says what the boundary resolves for the tool (see
-    :class:`WorkspaceUse`).
+    :class:`WorkspaceUse`); ``renamed_params`` lists ``(old, new)`` argument
+    renames whose old name is rejected with a message naming the new one.
     """
 
     func: Callable[..., Awaitable[Any]]
     annotations: ToolAnnotations
     workspace: WorkspaceUse = WorkspaceUse.BACKENDS
+    renamed_params: tuple[tuple[str, str], ...] = ()
+
+
+# ``root_path`` only selects a workspace; the four tools that scan a directory take it
+# as ``directory`` (ADR 0012). The old name is rejected, never aliased: accepting it
+# would silently widen a scan that used to be narrowed.
+_SCAN_DIRECTORY_RENAME: tuple[tuple[str, str], ...] = (("root_path", "directory"),)
 
 
 # Advertising 80 or more tools in one profile leaves too little model
@@ -2027,7 +2035,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(get_document_highlights, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_semantic_tokens, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_diagnostics, READ_ONLY_ANNOTATIONS),
-    ToolRecord(get_workspace_diagnostics, READ_ONLY_ANNOTATIONS),
+    ToolRecord(get_workspace_diagnostics, READ_ONLY_ANNOTATIONS, renamed_params=_SCAN_DIRECTORY_RENAME),
     ToolRecord(deep_type_inference, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_type_hint_string, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_syntax_errors, READ_ONLY_ANNOTATIONS),
@@ -2088,8 +2096,8 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(find_constructors, READ_ONLY_ANNOTATIONS),
     ToolRecord(search_symbols, READ_ONLY_ANNOTATIONS),
     ToolRecord(structural_search, READ_ONLY_ANNOTATIONS),
-    ToolRecord(dead_code_detection, READ_ONLY_ANNOTATIONS),
-    ToolRecord(unused_symbol_sweep, READ_ONLY_ANNOTATIONS),
+    ToolRecord(dead_code_detection, READ_ONLY_ANNOTATIONS, renamed_params=_SCAN_DIRECTORY_RENAME),
+    ToolRecord(unused_symbol_sweep, READ_ONLY_ANNOTATIONS, renamed_params=_SCAN_DIRECTORY_RENAME),
     ToolRecord(suggest_imports, READ_ONLY_ANNOTATIONS),
     ToolRecord(code_metrics, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_module_dependencies, READ_ONLY_ANNOTATIONS),
@@ -2118,7 +2126,7 @@ TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(multi_project_rename, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(get_completions, READ_ONLY_ANNOTATIONS),
     ToolRecord(get_inlay_hints, READ_ONLY_ANNOTATIONS),
-    ToolRecord(get_symbol_outline, READ_ONLY_ANNOTATIONS),
+    ToolRecord(get_symbol_outline, READ_ONLY_ANNOTATIONS, renamed_params=_SCAN_DIRECTORY_RENAME),
     ToolRecord(argument_normalizer, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(argument_default_inliner, DESTRUCTIVE_ANNOTATIONS),
     ToolRecord(find_unused_imports, READ_ONLY_ANNOTATIONS),
@@ -2215,8 +2223,33 @@ def profile_description(doc: str, advertised: frozenset[str]) -> str:
     return f"{head} {rest}" if head and rest else head or rest
 
 
-def _forbid_unknown_arguments(tool: Tool) -> Tool:
+def _renamed_argument_validator(tool_name: str, renamed: tuple[tuple[str, str], ...]) -> Any:
+    """Build a before-validator rejecting each superseded argument name with its replacement.
+
+    It runs inside pydantic, before ``tool_error_boundary``, so the caller sees a
+    validation error carrying the message (no ``[CODE]`` prefix). A request that sends
+    both the old and the new name is rejected too.
+    """
+
+    def _reject(cls: type[ArgModelBase], data: Any) -> Any:
+        if isinstance(data, dict):
+            for old, new in renamed:
+                if old in data:
+                    raise ToolInputError(
+                        f"'{old}' is not accepted by {tool_name}: it was renamed to '{new}' (ADR 0012). "
+                        f"Pass the directory to scan as '{new}'; it also selects the workspace "
+                        f"(parameter: {old})"
+                    )
+        return data
+
+    # Pydantic treats a ``cls``-first before-validator function as a classmethod.
+    return model_validator(mode="before")(_reject)
+
+
+def _forbid_unknown_arguments(tool: Tool, renamed: tuple[tuple[str, str], ...] = ()) -> Tool:
     """Make *tool* reject unknown top-level argument keys and advertise it.
+
+    A name in *renamed* (``(old, new)``) is rejected first, with a message that names the new one.
 
     The SDK builds every argument model on ``ArgModelBase``, which ignores extra
     keys, so a misspelled parameter would silently fall back to its default. A
@@ -2229,7 +2262,11 @@ def _forbid_unknown_arguments(tool: Tool) -> Tool:
         type(
             arg_model.__name__,
             (arg_model,),
-            {"model_config": ConfigDict(extra="forbid"), "__module__": arg_model.__module__},
+            {
+                "model_config": ConfigDict(extra="forbid"),
+                "__module__": arg_model.__module__,
+                **({"_reject_renamed": _renamed_argument_validator(tool.name, renamed)} if renamed else {}),
+            },
         ),
     )
     tool.fn_metadata.arg_model = strict_model
@@ -2262,7 +2299,8 @@ def build_tools(profile: ToolProfile) -> list[Tool]:
                 tool_error_boundary(record.func, workspace=record.workspace),
                 description=profile_description(inspect.getdoc(record.func) or "", selected_names),
                 annotations=record.annotations,
-            )
+            ),
+            record.renamed_params,
         )
         for record in TOOL_RECORDS
         if record.func.__name__ in selected_names

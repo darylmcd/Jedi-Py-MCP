@@ -435,6 +435,12 @@ def test_implicit_workspace_rejects_an_empty_registry() -> None:
         WorkspaceRegistry().implicit_workspace()
 
 
+def test_ambiguity_message_names_directory_for_the_scan_tools() -> None:
+    """The four scan tools reject ``root_path`` (ADR 0012), so the remedy must also name ``directory``."""
+    with pytest.raises(AmbiguousWorkspaceError, match=r"names no file, root_path or directory.*take directory instead"):
+        WorkspaceRegistry().implicit_workspace()
+
+
 def test_implicit_workspace_returns_and_touches_the_sole_selected_workspace(tmp_path: Path) -> None:
     registry = WorkspaceRegistry()
     only = _live(registry, tmp_path / "only", selected=True)
