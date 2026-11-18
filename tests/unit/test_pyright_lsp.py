@@ -175,6 +175,30 @@ async def test_server_request_with_non_numeric_string_id_is_answered() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_id", [True, 1.5, {"id": 1}, [1]], ids=["bool", "float", "dict", "list"])
+async def test_method_message_with_malformed_id_is_never_routed_as_response_or_notification(
+    bad_id: JSONValue,
+) -> None:
+    """A message carrying ``method`` is dropped when its id is not an LSP id: not a response, not a notification."""
+    client, process = _client_with_fake_stdin()
+    future: asyncio.Future[JSONDict] = asyncio.get_running_loop().create_future()
+    client.add_pending_future(1, future)
+    received: list[JSONDict] = []
+
+    async def _handler(params: JSONDict) -> None:
+        received.append(params)
+
+    client.register_notification_handler("custom/request", _handler)
+
+    await client.route_message({"jsonrpc": "2.0", "id": bad_id, "method": "custom/request", "params": {"a": 1}})
+
+    assert not future.done()
+    assert client.pending_count() == 1
+    assert received == []
+    assert _written_responses(process) == []
+
+
+@pytest.mark.asyncio
 async def test_notification_routing() -> None:
     """Verify notifications are dispatched to registered handlers."""
     client = LSPClientHarness()
