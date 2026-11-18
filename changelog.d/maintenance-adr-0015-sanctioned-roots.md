@@ -1,0 +1,1 @@
+- **Maintenance:** Record ADR 0015, the server-owned sanctioned-root boundary (`PYTHON_REFACTOR_MCP_SANCTIONED_ROOTS`); decision only, the breaking behaviour ships in later pieces with their own `changed-breaking-` fragments.
