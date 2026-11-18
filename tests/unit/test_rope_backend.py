@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import runpy
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from rope.base.fscommands import FileSystemCommands  # type: ignore[import-untyped]
@@ -1241,6 +1243,32 @@ def _split_fixture(tmp_path: Path) -> tuple[RopeBackend, Path, Path, Path]:
     backend = RopeBackend(_config(tmp_path))
     backend.initialize()
     return backend, source, alpha, beta
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+@pytest.mark.parametrize("unc", [r"\\unc-srv\share\t.py", r"\\?\UNC\unc-srv\share\t.py", r"\\.\pipe\unc-srv"])
+@pytest.mark.parametrize("position", ["target_modules", "source_file"])
+async def test_split_module_rejects_unc_paths_before_resolving(tmp_path: Path, unc: str, position: str) -> None:
+    """``target_modules`` keys and ``source_file`` reach ``resolve()`` through the sink, which refuses UNC first."""
+    backend, source, alpha, _beta = _split_fixture(tmp_path)
+    real_resolve = Path.resolve
+
+    def guarded_resolve(self: Path, *args: object, **kwargs: object) -> Path:
+        if "unc-srv" in str(self):
+            raise AssertionError(f"resolve reached {self}")
+        return real_resolve(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    source_arg, targets = (
+        (str(source), {str(alpha): ["Alpha"], unc: ["Beta"]})
+        if position == "target_modules"
+        else (unc, {str(alpha): ["Alpha"], str(tmp_path / "beta.py"): ["Beta"]})
+    )
+    with (
+        patch.object(Path, "resolve", guarded_resolve),
+        pytest.raises(ToolInputError, match=rf"UNC or device-namespace path.*parameter: {position}"),
+    ):
+        await backend.split_module(source_arg, targets, apply=False)
 
 
 @pytest.mark.asyncio

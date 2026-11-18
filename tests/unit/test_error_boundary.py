@@ -10,6 +10,7 @@ translation.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
 import os
 import subprocess
@@ -24,6 +25,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp import tool_runtime
+from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import TOOL_PROFILES
 from python_refactor_mcp.errors import (
     AmbiguousWorkspaceError,
@@ -1415,8 +1417,8 @@ async def test_nested_path_item_without_a_validated_model_is_a_wiring_defect(tmp
 
 # Top-level parameters that look like paths but are deliberately not boundary-validated here.
 _PATH_LIKE_ALLOWLIST: dict[str, str] = {
-    "additional_roots": "extra Rope project roots by design; policy is the remainder row multi-project-rename-roots",
-    "target_modules": "dict KEYS are paths, validated by RopeBackend._workspace_python_file inside the workspace",
+    "additional_roots": "extra Rope roots by design (UNC-guarded); containment is row multi-project-rename-roots",
+    "target_modules": "dict KEYS are paths, UNC-guarded and contained by RopeBackend._workspace_python_file",
 }
 _PATH_SUFFIXES = ("_file", "_path", "_dir", "_directory")
 
@@ -1471,6 +1473,121 @@ async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> Non
         f"path-bearing nested params missing from NESTED_PATH_PARAMS: {sorted(uncovered_nested)}"
     )
     assert seen_allowlisted == set(_PATH_LIKE_ALLOWLIST), "stale allowlist entry: no live tool takes it"
+
+
+def _string_leaves(schema: object, defs: dict[str, object], leaf: str, seen: frozenset[str] = frozenset()) -> set[str]:
+    """Return the label of every free-form string value reachable under *schema*.
+
+    A label is the nearest property name; a dict key is ``<key>``, a dict value's own strings
+    are labelled by the enclosing name. Enum and const strings are not free-form and are skipped.
+    """
+    found: set[str] = set()
+    if not isinstance(schema, dict):
+        return found
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        if ref in seen:
+            return found
+        return _string_leaves(defs.get(ref.rsplit("/", 1)[-1]), defs, leaf, seen | {ref})
+    kind = schema.get("type")
+    kinds = kind if isinstance(kind, list) else [kind]
+    if "string" in kinds and "enum" not in schema and "const" not in schema:
+        found.add(leaf)
+    for name, child in (schema.get("properties") or {}).items():
+        found |= _string_leaves(child, defs, name, seen)
+    extra = schema.get("additionalProperties")
+    if extra not in (None, False) or schema.get("propertyNames") or schema.get("patternProperties"):
+        found.add("<key>")
+        found |= _string_leaves(extra, defs, leaf, seen)
+    found |= _string_leaves(schema.get("items"), defs, leaf, seen)
+    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        for child in schema.get(key) or []:
+            found |= _string_leaves(child, defs, leaf, seen)
+    return found
+
+
+# String parameters that are not paths, as (parameter, label): each is text, a name or a pattern that no
+# tool resolves against the filesystem. Every entry must be taken by a live tool (stale entries fail).
+_NON_PATH_PARAMS: dict[tuple[str, str], str] = {
+    ("action_title", "action_title"): "code action title matched against Pyright's offered actions",
+    ("checks", "<key>"): "rope restructure check names",
+    ("checks", "checks"): "rope restructure check expressions",
+    ("default_value", "default_value"): "Python expression text inserted as a default",
+    ("exclude_patterns", "exclude_patterns"): "regular expressions applied to already-validated file paths",
+    ("goal", "goal"): "rope restructure goal pattern",
+    ("imports", "imports"): "import statements for restructure",
+    ("kind_filter", "kind_filter"): "symbol kind names",
+    ("kinds", "kinds"): "symbol kind names",
+    ("layers", "layers"): "dotted module-name prefixes compared with import names",
+    ("name", "name"): "autoimport symbol name",
+    ("name_pattern", "name_pattern"): "symbol-name pattern",
+    ("operations", "default"): "change_signature default expression text",
+    ("operations", "name"): "change_signature parameter name",
+    ("operations", "new_name"): "change_signature parameter name (validate_identifier in the backend)",
+    ("package_name", "package_name"): "dotted import name; every segment passes validate_identifier",
+    ("pattern", "pattern"): "search or restructure pattern text",
+    ("query", "query"): "symbol search text",
+    ("replacement", "replacement"): "replacement pattern text",
+    ("source", "source"): "in-memory source text, never a path",
+    ("suppress_codes", "suppress_codes"): "diagnostic rule codes",
+    ("symbol", "symbol"): "symbol name",
+    ("target_modules", "target_modules"): "dict VALUES: symbol names moved into the keyed module",
+    ("typed_dict_name", "typed_dict_name"): "generated class name",
+}
+# String values nested inside the path-bearing models (``edits``, ``symbols``, ``steps``) that are not paths.
+_NESTED_NON_PATH_LEAVES: dict[str, str] = {
+    "new_text": "replacement text of a TextEdit",
+}
+# Path strings the boundary does not see, each guarded at the sink that consumes it.
+_SINK_GUARDED: dict[tuple[str, str], tuple[Callable[..., Any], str]] = {
+    ("target_modules", "<key>"): (RopeBackend._workspace_python_file, "split_module target module keys"),
+}
+
+
+@pytest.mark.asyncio
+async def test_every_string_parameter_is_classified_as_path_guarded_or_non_path() -> None:
+    """Class guard, derived from the live schemas of every profile.
+
+    Walks every parameter of every tool (nested objects, dict keys, list items) and requires each
+    free-form string to be a boundary path/identifier parameter, in ``_LOCAL_ONLY_LIST_PARAMS``,
+    guarded at a named sink that calls the UNC guard, or a documented non-path. A new tool or
+    parameter with no classification fails here, so a path cannot reach I/O unguarded by omission.
+    """
+    boundary_scalars = set(PATH_PARAMS) | set(DIR_PARAMS)
+    boundary_lists = set(tool_runtime._LIST_PATH_PARAMS) | set(tool_runtime._LOCAL_ONLY_LIST_PARAMS)
+    nested = set(tool_runtime.NESTED_PATH_PARAMS) | {"steps"}
+    identifiers = set(tool_runtime.IDENTIFIER_PARAMS) | set(tool_runtime._LIST_IDENTIFIER_PARAMS)
+    unclassified: set[tuple[str, str]] = set()
+    seen_non_path: set[tuple[str, str]] = set()
+    seen_nested_non_path: set[str] = set()
+    seen_sinks: set[tuple[str, str]] = set()
+    for profile in TOOL_PROFILES:
+        mcp = MCPServer(f"string parameter classification ({profile})", tools=build_tools(profile))
+        for tool in await mcp.list_tools():
+            defs = tool.input_schema.get("$defs", {})
+            for top, prop in tool.input_schema.get("properties", {}).items():
+                for leaf in _string_leaves(prop, defs, top):
+                    if top in boundary_scalars | boundary_lists | identifiers and leaf == top:
+                        continue
+                    if top in nested:
+                        if leaf == "file_path" or leaf in identifiers:
+                            continue
+                        if leaf in _NESTED_NON_PATH_LEAVES:
+                            seen_nested_non_path.add(leaf)
+                            continue
+                    elif (top, leaf) in _SINK_GUARDED:
+                        seen_sinks.add((top, leaf))
+                        continue
+                    elif (top, leaf) in _NON_PATH_PARAMS:
+                        seen_non_path.add((top, leaf))
+                        continue
+                    unclassified.add((top, leaf))
+    assert not unclassified, f"unclassified string parameters (classify each): {sorted(unclassified)}"
+    assert seen_non_path == set(_NON_PATH_PARAMS), "stale _NON_PATH_PARAMS entry"
+    assert seen_nested_non_path == set(_NESTED_NON_PATH_LEAVES), "stale _NESTED_NON_PATH_LEAVES entry"
+    assert seen_sinks == set(_SINK_GUARDED), "stale _SINK_GUARDED entry"
+    for (top, _leaf), (sink, _what) in _SINK_GUARDED.items():
+        assert "require_local_path(" in inspect.getsource(sink), f"sink for {top} does not call the UNC guard"
 
 
 def test_validate_params_rejects_non_nfkc_identifiers(tmp_path: Path) -> None:
