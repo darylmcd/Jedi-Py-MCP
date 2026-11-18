@@ -178,6 +178,7 @@ async def test_server_request_with_non_numeric_string_id_is_answered() -> None:
 @pytest.mark.parametrize("bad_id", [True, 1.5, {"id": 1}, [1]], ids=["bool", "float", "dict", "list"])
 async def test_method_message_with_malformed_id_is_never_routed_as_response_or_notification(
     bad_id: JSONValue,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A message carrying ``method`` is dropped when its id is not an LSP id: not a response, not a notification."""
     client, process = _client_with_fake_stdin()
@@ -190,8 +191,12 @@ async def test_method_message_with_malformed_id_is_never_routed_as_response_or_n
 
     client.register_notification_handler("custom/request", _handler)
 
-    await client.route_message({"jsonrpc": "2.0", "id": bad_id, "method": "custom/request", "params": {"a": 1}})
+    with caplog.at_level("WARNING"):
+        await client.route_message({"jsonrpc": "2.0", "id": bad_id, "method": "custom/request", "params": {"a": 1}})
 
+    assert [record.getMessage() for record in caplog.records] == [
+        f"Dropping server message custom/request with malformed id of type {type(bad_id).__name__}"
+    ]
     assert not future.done()
     assert client.pending_count() == 1
     assert received == []

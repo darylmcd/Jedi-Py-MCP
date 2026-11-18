@@ -242,7 +242,11 @@ class LSPClient:
                 # LSP ids are integer | string. A malformed id cannot be echoed back, and an
                 # invalid-request error needs a null id the server cannot correlate, so drop it.
                 # It must still never complete a pending client request or reach a notification handler.
-                _LOGGER.warning("Dropping server message %s with malformed id %r", method_value, id_value)
+                _LOGGER.warning(
+                    "Dropping server message %s with malformed id of type %s",
+                    method_value,
+                    type(id_value).__name__,
+                )
             return
 
         request_id = _normalize_response_id(id_value)
