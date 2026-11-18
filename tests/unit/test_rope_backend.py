@@ -11,7 +11,7 @@ import pytest
 from rope.base.fscommands import FileSystemCommands  # type: ignore[import-untyped]
 from rope.contrib.autoimport.sqlite import AutoImport  # type: ignore[import-untyped]
 
-from python_refactor_mcp.backends.rope_backend import RopeBackend, _positional_parameters
+from python_refactor_mcp.backends.rope_backend import RopeBackend
 from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import RopeError, ToolInputError
 from python_refactor_mcp.models import RefactorResult, SignatureOperation
@@ -220,10 +220,6 @@ _METHOD = "class C:\n    def m(self, a=1):\n        return a\n\n\nC().m()\n"
             "def f(a=1):\n    return a\n\n\nf()\n", [SignatureOperation(op="normalize"), _ADD_B],
             (0, 4), "operations[1].default", ("'b'", "'a'"), id="attributed-to-the-op-that-added-it",
         ),
-        pytest.param(
-            "def f(a, b=1, *args):\n    return a\n\n\nf(1)\n", [SignatureOperation(op="add", index=2, name="c")],
-            (0, 4), "operations[0].default", ("'c'", "'b'"), id="varargs-hides-no-default-from-rope",
-        ),
     ],
 )
 async def test_add_reorder_reject_required_parameter_after_default(
@@ -277,23 +273,45 @@ async def test_add_reorder_accept_valid_final_signatures(
     assert result.edits[0].new_text.splitlines()[0] == expected
 
 
+_VARARGS = "def f(a, b=1, *args):\n    return a\n\n\nf(1)\n"
+
+
 @pytest.mark.asyncio
-async def test_defaults_come_from_the_definition_when_the_target_has_varargs(tmp_path: Path) -> None:
-    """rope drops the default of every parameter before ``*args``; adding a defaulted parameter first is valid."""
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(SignatureOperation(op="add", index=1, name="c"), id="add"),
+        pytest.param(SignatureOperation(op="add", index=0, name="c", default="2"), id="add-default"),
+        pytest.param(SignatureOperation(op="remove", index=0), id="remove"),
+        pytest.param(SignatureOperation(op="reorder", new_order=[1, 0]), id="reorder"),
+        pytest.param(SignatureOperation(op="inline_default", index=1), id="inline-default"),
+        pytest.param(SignatureOperation(op="rename", index=1, new_name="c"), id="rename"),
+        pytest.param(SignatureOperation(op="normalize"), id="normalize"),
+    ],
+)
+async def test_change_signature_refuses_targets_with_varargs(tmp_path: Path, operation: SignatureOperation) -> None:
+    """rope emits ``*args=<default>`` and shifts the defaults before ``*args``; refuse every operation."""
+    with pytest.raises(ToolInputError, match=r"does not support functions with \*args.*\(parameter: line\)$"):
+        await _change_signature(tmp_path, _VARARGS, [operation])
+
+    assert (tmp_path / "m.py").read_text(encoding="utf-8") == _VARARGS
+
+
+@pytest.mark.asyncio
+async def test_change_signature_accepts_a_bare_star_and_double_star_target(tmp_path: Path) -> None:
+    """Only ``*args`` is refused: ``**kw`` alone is rewritten correctly by rope."""
     result = await _change_signature(
         tmp_path,
-        "def f(a=1, *args):\n    return a\n\n\nf()\n",
-        [SignatureOperation(op="add", index=0, name="c", default="2")],
+        "def f(a, b=1, **kw):\n    return a\n\n\nf(1)\n",
+        [SignatureOperation(op="remove", index=0)],
     )
 
-    assert result.edits
+    assert result.edits[0].new_text.splitlines()[0] == "def f(b=1, **kw):"
 
 
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("def f(a, b=1, *args, **kw): pass", [("a", None), ("b", "1")], id="varargs-keeps-b-default"),
-        pytest.param("def f(a=1, *args): pass", [("a", "1")], id="default-before-varargs"),
         pytest.param("def f(a, /, b=2, *, c, d=4): pass", [("a", None), ("b", "2")], id="posonly-and-kwonly"),
         pytest.param("def f(a=1, /, b=2): pass", [("a", "1"), ("b", "2")], id="posonly-default"),
         pytest.param("def f(self, a, b=(1, 2)): pass", [("self", None), ("a", None), ("b", "(1, 2)")], id="method"),
@@ -302,7 +320,9 @@ async def test_defaults_come_from_the_definition_when_the_target_has_varargs(tmp
 def test_positional_parameters_read_defaults_from_the_definition(
     source: str, expected: list[tuple[str, str | None]]
 ) -> None:
-    """rope misreads defaults before ``*args``; the inline_default and rename checks use this reading too."""
+    """The walk reads which parameters have a default from the definition; keyword-only ones are not listed."""
+    from python_refactor_mcp.backends.rope_backend import _positional_parameters
+
     function = ast.parse(source).body[0]
     assert isinstance(function, ast.FunctionDef)
 

@@ -222,12 +222,11 @@ def _build_operation_changers(operations: list[SignatureOperation]) -> list[list
 def _positional_parameters(function_ast: ast.FunctionDef) -> list[tuple[str, str | None]]:
     """Return ``(name, default source)`` for the positional parameters of *function_ast*.
 
-    rope's ``DefinitionInfo.read`` misreads a definition with ``*args``: it adds a
-    ``*args`` entry and attaches the last positional default to it, so every
-    default before ``*args`` shifts out of place (``def f(a, b=1, *args)`` reads
-    ``b`` as required). The definition's AST is the source of truth for which
-    parameters have a default. Keyword-only parameters never take part in the
-    required-after-default ordering and are not listed.
+    The definition's AST is the source of truth for which parameters have a
+    default (rope's ``DefinitionInfo.read`` shifts the defaults before ``*args``;
+    ``change_signature`` refuses such targets before this walk). Keyword-only
+    parameters never take part in the required-after-default ordering and are
+    not listed.
     """
     arguments = function_ast.args
     positional = [*arguments.posonlyargs, *arguments.args]
@@ -1173,6 +1172,12 @@ class RopeBackend:
                 raise ToolInputError(
                     "change_signature does not support async functions: rope does not rewrite their "
                     "definitions consistently (parameter: line)"
+                )
+            if pyfunction.get_ast().args.vararg is not None:
+                raise ToolInputError(
+                    "change_signature does not support functions with *args: rope cannot rewrite "
+                    "their header (it emits an unparseable `*args=<default>` and shifts the "
+                    "defaults before it) (parameter: line)"
                 )
             renames = _simulate_signature_operations(
                 DefinitionInfo.read(pyfunction), pyfunction.get_ast(), operations, changers_by_operation,
