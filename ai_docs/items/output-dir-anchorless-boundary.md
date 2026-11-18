@@ -23,3 +23,7 @@
 ## Context
 
 Needs an operator decision first.
+
+## Notes
+
+Remediation run 2026-11-17: not worked. The acceptance starts with an operator policy decision recorded in an ADR; no code attempt is meaningful before it. Marked BLOCKED so count skips it.

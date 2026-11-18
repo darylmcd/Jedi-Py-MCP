@@ -1,16 +1,16 @@
 # pure-file-tools-start-backends — Pure file/AST tools should not start backends
 
-**row:** `pure-file-tools-start-backends` · **pri:** `Low` · **size:** `M` · **verified:** `93cd1b324525daf60c5666c8f1107db9ce846b21`
+**row:** `pure-file-tools-start-backends` · **pri:** `Low` · **size:** `M`
 
 ## Anchors
 
-- `src/python_refactor_mcp/tool_registry.py:1378`
-- `src/python_refactor_mcp/tool_registry.py:1418`
-- `src/python_refactor_mcp/tool_registry.py:1432`
-- `src/python_refactor_mcp/tool_registry.py:1484`
-- `src/python_refactor_mcp/tool_registry.py:1496`
-- `src/python_refactor_mcp/tool_registry.py:1509`
-- `src/python_refactor_mcp/server.py:353`
+- `src/python_refactor_mcp/tool_registry.py:1423`
+- `src/python_refactor_mcp/tool_registry.py:1464`
+- `src/python_refactor_mcp/tool_registry.py:1477`
+- `src/python_refactor_mcp/tool_registry.py:1531`
+- `src/python_refactor_mcp/tool_registry.py:1544`
+- `src/python_refactor_mcp/tool_registry.py:1552`
+- `src/python_refactor_mcp/tool_registry.py:1886`
 
 ## Acceptance
 

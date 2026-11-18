@@ -1,6 +1,6 @@
 # workspace-selection-authorized-roots — Restrict path-selected workspaces to authorized roots
 
-**row:** `workspace-selection-authorized-roots` · **pri:** `Medium` · **size:** `M` · **verified:** `de4d87d21cacd62dbbabf881188c339d330b98b7`
+**row:** `workspace-selection-authorized-roots` · **pri:** `Medium` · **size:** `M`
 
 ## Anchors
 
@@ -22,3 +22,7 @@
 ## Context
 
 Operator decision needed first. Related: `bl-0056`.
+
+## Notes
+
+Remediation run 2026-11-17: not worked. The acceptance starts with an operator policy decision recorded in an ADR; no code attempt is meaningful before it. Marked BLOCKED so count skips it.
