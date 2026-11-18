@@ -453,7 +453,7 @@ async def test_impact_select(
     depth: Depth = 2,
     max_items: MaxItems = 200,
 ) -> TestImpactResult:
-    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor has file_path (absolute, inside one workspace), line, and character.Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map. Positions are 0-based (line and character offsets, LSP convention)."""
+    """Given changed symbol anchors, return the pytest tests that transitively exercise them. Each anchor has file_path (absolute, inside one workspace), line, and character. Traverses the call-hierarchy callers graph per anchor and keeps callers in test files, emitting best-effort `<file_path>::<symbol>` pytest node IDs (parametrized/nested-class tests are not resolved to exact collected IDs). Related: call_hierarchy, get_test_coverage_map. Positions are 0-based (line and character offsets, LSP convention)."""
     app = get_current_backends()
     result = await analysis.test_impact_select(app.pyright, symbols, depth, max_items)
     _LOGGER.debug("test_impact_select entries=%s tests=%s", len(result.entries), result.total_affected_tests)
