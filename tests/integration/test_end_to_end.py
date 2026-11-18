@@ -987,6 +987,8 @@ async def test_get_diagnostics_applies_pyright_ignore_comment_semantics(
     )
     file_top = sample_workspace / "src" / "ignore_file_top.py"
     file_top.write_text('# type: ignore\ntop_level: int = "x"\n', encoding="utf-8")
+    file_top_control = sample_workspace / "src" / "ignore_file_top_control.py"
+    file_top_control.write_text('top_level: int = "x"\n', encoding="utf-8")
 
     async def reported(path: Path) -> list[tuple[int, object]]:
         result = await mcp_session.call_tool("get_diagnostics", {"file_path": str(path)})
@@ -1003,4 +1005,7 @@ async def test_get_diagnostics_applies_pyright_ignore_comment_semantics(
     assert "reportAssignmentType" in by_line.get(2, []), "an ignore for another rule must not suppress"
     assert 3 not in by_line, "a plain type: ignore suppresses the line"
     assert "reportUnnecessaryTypeIgnoreComment" in by_line.get(4, []), "unnecessary ignore surfaces on its comment line"
+    assert [code for _, code in await reported(file_top_control)] == ["reportAssignmentType"], (
+        "control: the same content without the file-top comment reports the error"
+    )
     assert await reported(file_top) == [], "a file-top type: ignore is handled by Pyright"
