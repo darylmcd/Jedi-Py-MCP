@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -69,33 +69,35 @@ _LOGGER = logging.getLogger(__name__)
 # Default payload bounds for workspace-wide get_symbol_outline scans.
 _WORKSPACE_OUTLINE_ROOT_LIMIT = 500
 _WORKSPACE_OUTLINE_MAX_NODES = 250
-_workspace_root: Path | None = None
 
 
 # ── Server lifecycle ─────────────────────────────────────────────────────
 
 
-@asynccontextmanager
-async def app_lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContext]:
-    """Create workspace registry and optionally pre-warm the CLI workspace."""
-    _ = server
-    max_ws = discover_max_workspaces()
-    registry = WorkspaceRegistry(max_workspaces=max_ws)
+def workspace_lifespan(
+    workspace_root: Path | None,
+) -> Callable[[MCPServer], AbstractAsyncContextManager[MultiWorkspaceContext]]:
+    """Return a lifespan that owns one workspace registry and pre-warms *workspace_root*.
 
-    # Pre-warm CLI workspace if provided.
-    if _workspace_root is not None:
-        await registry.set_roots([_workspace_root])
-        # Eagerly start the CLI workspace's backends without selecting it: a path-less
-        # call must still name its workspace (root_path) or follow a path-bearing call.
-        await registry.prewarm(_workspace_root)
+    The root travels in the closure, so servers built in one process share no state.
+    Every startup step runs inside the ``try`` whose ``finally`` owns teardown.
+    """
 
-    try:
-        yield MultiWorkspaceContext(
-            registry=registry,
-            cli_workspace_root=_workspace_root,
-        )
-    finally:
-        await registry.shutdown_all()
+    @asynccontextmanager
+    async def lifespan(server: MCPServer) -> AsyncGenerator[MultiWorkspaceContext]:
+        _ = server
+        registry = WorkspaceRegistry(max_workspaces=discover_max_workspaces())
+        try:
+            if workspace_root is not None:
+                await registry.set_roots([workspace_root])
+                # Eagerly start the CLI workspace's backends without selecting it: a path-less
+                # call must still name its workspace (root_path) or follow a path-bearing call.
+                await registry.prewarm(workspace_root)
+            yield MultiWorkspaceContext(registry=registry, cli_workspace_root=workspace_root)
+        finally:
+            await registry.shutdown_all()
+
+    return lifespan
 
 
 _ACTIVE_TOOL_PROFILE = discover_tool_profile()
@@ -463,16 +465,18 @@ EXPLICIT_TOOL_RECORDS: tuple[ToolRecord, ...] = (
     ToolRecord(server_status, READ_ONLY_ANNOTATIONS, WorkspaceUse.NONE),
 )
 
-mcp = MCPServer(
-    "Python Refactor",
-    instructions=build_server_instructions(
-        _ACTIVE_TOOL_PROFILE,
-        tool_names_for_profile(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
-    ),
-    lifespan=app_lifespan,
-    version=__version__,
-    tools=build_tools(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
-)
+def build_server(workspace_root: Path | None = None) -> MCPServer:
+    """Build one MCP server whose lifespan pre-warms *workspace_root* (``None`` starts cold)."""
+    return MCPServer(
+        "Python Refactor",
+        instructions=build_server_instructions(
+            _ACTIVE_TOOL_PROFILE,
+            tool_names_for_profile(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
+        ),
+        lifespan=workspace_lifespan(workspace_root),
+        version=__version__,
+        tools=build_tools(_ACTIVE_TOOL_PROFILE, extra_records=EXPLICIT_TOOL_RECORDS),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -489,6 +493,4 @@ def run_server(workspace_root: str | None = None) -> None:
     selects it.  If omitted, the server starts cold and discovers workspaces
     dynamically from path parameters on path-bearing tool calls.
     """
-    global _workspace_root  # noqa: PLW0603
-    _workspace_root = Path(workspace_root).resolve() if workspace_root else None
-    mcp.run()
+    build_server(Path(workspace_root).resolve() if workspace_root else None).run()
