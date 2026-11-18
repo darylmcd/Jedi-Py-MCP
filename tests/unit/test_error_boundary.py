@@ -1359,6 +1359,16 @@ async def test_every_path_bearing_tool_param_is_covered_by_the_boundary() -> Non
     assert seen_allowlisted == set(_PATH_LIKE_ALLOWLIST), "stale allowlist entry: no live tool takes it"
 
 
+def test_validate_params_rejects_non_nfkc_identifiers(tmp_path: Path) -> None:
+    """Identifier parameters must be NFKC-normal: ``ast`` normalises names, so ﬁle would alias file unseen."""
+    with pytest.raises(ValueError, match="not NFKC-normalized"):
+        _validate_params({"new_name": "ﬁle"}, tmp_path)
+    with pytest.raises(ValueError, match="not NFKC-normalized"):
+        _validate_params({"class_names": ["Good", "ﬁle"]}, tmp_path)
+    with pytest.raises(ValueError, match="not NFKC-normalized"):
+        _validate_params({"steps": [_rename_step(str(tmp_path / "a.py"), new_name="ﬁle")]}, tmp_path)
+
+
 # ── root_path selection (bl-0056) ────────────────────────────────────────
 
 

@@ -69,8 +69,10 @@ from python_refactor_mcp.util.diff import (
     write_bytes_atomic,
 )
 from python_refactor_mcp.util.file_filter import python_files
+from python_refactor_mcp.util.param_rename import function_ordinal, rename_parameter_bindings
 from python_refactor_mcp.util.paths import normalize_path
 from python_refactor_mcp.util.shared import end_position_for_content as _end_position_for_content
+from python_refactor_mcp.util.shared import validate_identifier
 
 _LOGGER = logging.getLogger(__name__)
 _DEFAULT_ROPE_TIMEOUT = 30.0
@@ -156,12 +158,41 @@ def _build_normalize(op: SignatureOperation, position: int) -> list[object]:
     return [ArgumentNormalizer()]
 
 
+class _ArgumentRenamer:
+    """rope changer that renames one parameter in place.
+
+    rope ships no rename changer; a remover plus an adder deletes the parameter,
+    so every call-site argument for it and its default are lost. This changer
+    keeps the parameter's position and default (``default`` replaces it when
+    given) and moves its call-site argument to the new name. Callers validate the
+    index and name first (``_simulate_signature_operations``). rope never edits
+    the function body; ``rename_parameter_bindings`` does. rope changers are
+    duck-typed: ``change_definition_info`` and ``change_argument_mapping``.
+    """
+
+    def __init__(self, index: int, new_name: str, default: str | None) -> None:
+        self.index = index
+        self.new_name = new_name
+        self.default = default
+
+    def change_definition_info(self, definition_info: Any) -> None:
+        args = definition_info.args_with_defaults
+        old_default = args[self.index][1]
+        args[self.index] = (self.new_name, self.default if self.default is not None else old_default)
+
+    def change_argument_mapping(self, definition_info: Any, argument_mapping: Any) -> None:
+        old_name = definition_info.args_with_defaults[self.index][0]
+        param_dict = argument_mapping.param_dict
+        if old_name in param_dict:
+            param_dict[self.new_name] = param_dict.pop(old_name)
+
+
 def _build_rename(op: SignatureOperation, position: int) -> list[object]:
     if op.index is None:
         raise _missing_operation_field("rename", "index", position)
     if not op.new_name:
         raise _missing_operation_field("rename", "new_name", position)
-    return [ArgumentRemover(op.index), ArgumentAdder(op.index, op.new_name, default=op.default)]
+    return [_ArgumentRenamer(op.index, op.new_name, op.default)]
 
 
 _OP_DISPATCH: dict[str, Callable[[SignatureOperation, int], list[object]]] = {
@@ -188,26 +219,78 @@ def _build_operation_changers(operations: list[SignatureOperation]) -> list[list
     return built
 
 
-def _validate_signature_operations(
+def _simulate_signature_operations(
     definition_info: Any,
     operations: list[SignatureOperation],
     changers_by_operation: list[list[object]],
-) -> None:
-    """Reject ``inline_default`` operations rope would mishandle.
+) -> dict[str, str]:
+    """Validate the operations and return which original parameters end up renamed.
 
     ``definition_info`` is rope's ``DefinitionInfo`` for the original
     definition (``self`` included for methods). A copy is walked through the
-    same changers rope will run, in order, so each ``inline_default`` is checked
-    against the signature the earlier operations actually leave: the index is in
-    range, the target has a default, and no earlier parameter keeps one (removing
-    the default would place a required parameter after a defaulted one).
+    same changers rope will run, in order, so each operation is checked against
+    the signature the earlier operations actually leave. ``inline_default``: the
+    index is in range, the target has a default, and no earlier parameter keeps
+    one (removing the default would place a required parameter after a defaulted
+    one). ``rename``: the index is in range, the new name is a valid identifier
+    no other parameter uses, and an explicit ``default`` is not followed by a
+    required parameter. Violations raise ``ToolInputError``.
+
+    Returns ``{original name: final name}`` for every parameter whose name
+    changed and that survives (a rename chain collapses; a removed parameter
+    drops out).
     """
     state = copy.deepcopy(definition_info)
-    for operation, changers in zip(operations, changers_by_operation, strict=True):
+    origin = {name: name for name, _default in state.args_with_defaults}
+    for position, (operation, changers) in enumerate(zip(operations, changers_by_operation, strict=True)):
+        names_before = [name for name, _default in state.args_with_defaults]
         if operation.op == "inline_default" and operation.index is not None:
             _check_inline_default(state.args_with_defaults, operation.index)
+        if operation.op == "rename" and operation.index is not None and operation.new_name:
+            _check_rename(names_before, operation, position)
         for changer in changers:
             changer.change_definition_info(state)  # type: ignore[attr-defined]
+        if operation.index is None or operation.index >= len(names_before):
+            continue
+        if operation.op == "rename" and operation.new_name:
+            current = names_before[operation.index]
+            if operation.new_name != current:
+                origin[operation.new_name] = origin.pop(current)
+            _check_rename_default(state.args_with_defaults, operation, position)
+        elif operation.op == "remove":
+            origin.pop(names_before[operation.index], None)
+    return {orig: final for final, orig in origin.items() if orig != final}
+
+
+def _check_rename(names: Sequence[str], operation: SignatureOperation, position: int) -> None:
+    """Raise ``ToolInputError`` for a rename target rope or the body pass cannot honour."""
+    assert operation.index is not None
+    assert operation.new_name is not None
+    if operation.index >= len(names):
+        raise ToolInputError(
+            f"index {operation.index} is out of range for rename: the target has {len(names)} "
+            f"parameter(s) (parameter: operations[{position}].index)"
+        )
+    validate_identifier(operation.new_name, f"operations[{position}].new_name")
+    others = [name for i, name in enumerate(names) if i != operation.index]
+    if operation.new_name in others:
+        raise ToolInputError(
+            f"cannot rename to {operation.new_name!r}: another parameter already has that name "
+            f"(parameter: operations[{position}].new_name)"
+        )
+
+
+def _check_rename_default(
+    args: Sequence[tuple[str, str | None]], operation: SignatureOperation, position: int
+) -> None:
+    """An explicit rename ``default`` must not be followed by a required parameter."""
+    assert operation.index is not None
+    if operation.default is not None and any(default is None for _name, default in args[operation.index + 1 :]):
+        raise ToolInputError(
+            f"cannot give parameter {args[operation.index][0]!r} a default: a later parameter has no "
+            "default, so the signature would place a required parameter after a defaulted one "
+            f"(parameter: operations[{position}].default)"
+        )
 
 
 def _check_inline_default(args: Sequence[tuple[str, str | None]], index: int) -> None:
@@ -226,6 +309,29 @@ def _check_inline_default(args: Sequence[tuple[str, str | None]], index: int) ->
             f"{', '.join(preceding)} keep a default, so removing it would place a "
             "required parameter after a defaulted one (parameter: index)"
         )
+
+
+def _rename_parameter_bodies(changes: ChangeSet, pyfunction: Any, renames: dict[str, str]) -> None:
+    """Rename the body bindings of renamed parameters in the definition module's rope change.
+
+    rope rewrites the header and the call sites but never the body. The pass
+    refuses (``ToolInputError``) unless it can prove the rewrite equivalent, and
+    runs before anything is applied, so a refusal leaves every file untouched.
+    """
+    function_ast = pyfunction.get_ast()
+    resource = pyfunction.get_module().get_resource()
+    if not isinstance(function_ast, ast.FunctionDef) or resource is None:
+        raise ToolInputError(
+            "rename is supported on functions defined in a workspace file with def "
+            "(parameter: operations)"
+        )
+    source = resource.read()
+    ordinal = function_ordinal(source, function_ast.lineno, function_ast.name)
+    for change in _basic_changes(changes):
+        if isinstance(change, ChangeContents) and change.resource.path == resource.path:
+            change.new_contents = rename_parameter_bindings(change.new_contents, ordinal, renames, original=source)
+            return
+    raise RopeError("rope produced no edit for the function definition.")
 
 
 def _build_autoimport(project: Project) -> AutoImport:
@@ -954,6 +1060,11 @@ class RopeBackend:
             restores both while respecting explicit add/rename defaults and
             ``inline_default`` removal.
 
+        ``rename`` renames in place (position, default and call arguments are
+        kept) and renames the parameter's body bindings; it raises
+        :class:`ToolInputError`, writing nothing, when it cannot prove the
+        result equivalent. ``async def`` targets are refused for every operation.
+
         ``inline_default`` inlines the default at call sites that omit the
         argument and removes it from the definition. Each ``inline_default`` is
         checked against the signature the earlier operations leave: its
@@ -973,10 +1084,18 @@ class RopeBackend:
             pyname = signature.pyname
             if pyname is None:
                 raise RopeError("rope could not resolve the function to change.")
-            _validate_signature_operations(
-                DefinitionInfo.read(pyname.get_object()), operations, changers_by_operation,
+            pyfunction: Any = pyname.get_object()
+            if isinstance(pyfunction.get_ast(), ast.AsyncFunctionDef):
+                raise ToolInputError(
+                    "change_signature does not support async functions: rope does not rewrite their "
+                    "definitions consistently (parameter: line)"
+                )
+            renames = _simulate_signature_operations(
+                DefinitionInfo.read(pyfunction), operations, changers_by_operation,
             )
             changes = signature.get_changes([c for group in changers_by_operation for c in group])
+            if renames:
+                _rename_parameter_bodies(changes, pyfunction, renames)
             return self._build_result(changes, "Changed function signature", apply)
 
         return await run_in_thread(

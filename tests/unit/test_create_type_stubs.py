@@ -76,7 +76,7 @@ async def test_relative_output_dir_anchors_at_workspace(tmp_path: Path, fake_cli
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", ["", "not an identifier!!", "pkg..sub", "class", "1pkg"])
+@pytest.mark.parametrize("name", ["", "not an identifier!!", "pkg..sub", "class", "1pkg", "ﬁle"])
 async def test_rejects_invalid_package_name(tmp_path: Path, fake_cli: _FakeCli, name: str) -> None:
     with pytest.raises(ToolInputError, match="package_name"):
         await create_type_stubs(_config(tmp_path), name)

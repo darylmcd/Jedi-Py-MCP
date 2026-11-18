@@ -9,6 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from python_refactor_mcp import server
+from python_refactor_mcp.backends.rope_backend import RopeBackend
+from python_refactor_mcp.config import ServerConfig
 from python_refactor_mcp.errors import (
     BackendError,
     LspFeatureUnsupportedError,
@@ -1536,3 +1538,37 @@ def test_workspace_edit_to_text_edits_rejects_range_missing_coordinates(tmp_path
 
     with pytest.raises(ValidationError):
         workspace_edit_to_text_edits(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply", [False, True])
+async def test_change_signature_rename_preview_and_apply_keep_binding_values_and_annotations(
+    tmp_path: Path, apply: bool
+) -> None:
+    """Tool level: rope's rename, the body pass and the annotation post-pass agree for preview and apply."""
+
+    source = "def f(a: int, b: str = 'x') -> str:\n    return b * a\n\n\nf(1)\nf(2, b='y')\n"
+    module = tmp_path / "m.py"
+    module.write_text(source, encoding="utf-8")
+    rope = RopeBackend(
+        ServerConfig(
+            workspace_root=tmp_path,
+            python_executable=Path("python"),
+            venv_path=None,
+            pyright_executable="pyright-langserver",
+            pyrightconfig_path=None,
+            rope_prefs={},
+        )
+    )
+    rope.initialize()
+    pyright = AsyncMock()
+    pyright.prepare_rename.return_value = {"placeholder": "f"}
+    pyright.get_diagnostics.return_value = []
+
+    operations = [SignatureOperation(op="rename", index=1, new_name="renamed")]
+    result = await refactoring.change_signature(pyright, rope, str(module), 0, 4, operations, apply=apply)
+
+    expected = "def f(a: int, renamed: str = 'x') -> str:\n    return renamed * a\n\n\nf(1)\nf(2, 'y')\n"
+    assert result.edits[0].new_text == expected
+    assert module.read_text(encoding="utf-8") == (expected if apply else source)
+    assert result.applied is apply

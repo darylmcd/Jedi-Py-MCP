@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import keyword
 import logging
+import unicodedata
 from pathlib import Path
 from typing import Protocol
 
@@ -112,7 +113,7 @@ def end_position_for_content(content: str) -> Position:
 
 
 def validate_identifier(name: str, param_label: str) -> str:
-    """Validate that *name* is a legal Python identifier and not a keyword.
+    """Validate that *name* is a legal, NFKC-normal Python identifier and not a keyword.
 
     Returns *name* unchanged.  Raises ``ToolInputError`` on failure.
     """
@@ -121,6 +122,11 @@ def validate_identifier(name: str, param_label: str) -> str:
     if keyword.iskeyword(name):
         raise ToolInputError(
             f"'{name}' is a Python keyword and cannot be used as an identifier (parameter: {param_label})"
+        )
+    if unicodedata.normalize("NFKC", name) != name:
+        # ``ast`` normalises identifiers to NFKC, so a non-normal spelling could collide unseen.
+        raise ToolInputError(
+            f"'{name}' is not NFKC-normalized; use '{unicodedata.normalize('NFKC', name)}' (parameter: {param_label})"
         )
     return name
 

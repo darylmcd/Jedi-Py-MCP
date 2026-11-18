@@ -1,0 +1,1 @@
+- **Fixed:** `change_signature` `rename` now keeps the parameter's position, default and call-site arguments (`f(1, 2)` and `f(1, b=3)` no longer become `f(1)`) and renames the parameter's bindings in the function body (previously the body kept the old name).
