@@ -183,6 +183,11 @@ class PyrightLSPClient:
         self._server_capabilities: JSONDict | None = None
 
     @property
+    def workspace_root(self) -> Path:
+        """Workspace root this client serves."""
+        return self._config.workspace_root
+
+    @property
     def is_running(self) -> bool:
         """Whether the Pyright language-server subprocess is alive.
 

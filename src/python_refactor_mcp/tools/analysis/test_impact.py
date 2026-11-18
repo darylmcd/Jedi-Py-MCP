@@ -20,11 +20,7 @@ from python_refactor_mcp.models import (
     TestImpactResult,
 )
 from python_refactor_mcp.tools.navigation.hierarchy import call_hierarchy, enclosing_class_name
-
-
-def _is_test_path(file_path: str) -> bool:
-    """Match the test-file heuristic used by get_test_coverage_map."""
-    return "test" in Path(file_path).name.lower() or "tests" in file_path.lower()
+from python_refactor_mcp.util.file_filter import is_test_file
 
 
 def _node_id(item: CallHierarchyItem) -> str:
@@ -59,7 +55,10 @@ async def test_impact_select(
             pyright, file_path, line, character, "callers", depth, max_items
         )
 
-        test_callers = [caller for caller in result.callers if _is_test_path(caller.file_path)]
+        workspace_root = pyright.workspace_root
+        test_callers = [
+            caller for caller in result.callers if is_test_file(Path(caller.file_path), workspace_root)
+        ]
         node_ids = sorted({_node_id(caller) for caller in test_callers})
         affected_files = sorted({caller.file_path for caller in test_callers})
         all_node_ids.update(node_ids)

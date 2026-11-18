@@ -25,6 +25,34 @@ def _item(name: str, path: str, line: int) -> CallHierarchyItem:
     )
 
 
+def _pyright(root: Path = Path("/repo")) -> AsyncMock:
+    pyright = AsyncMock()
+    pyright.workspace_root = root
+    return pyright
+
+
+@pytest.mark.asyncio
+async def test_test_impact_select_classifies_callers_by_workspace_relative_test_paths(tmp_path: Path) -> None:
+    """latest.py is not a test; a tests/ module is; an ancestor tests/ dir of the workspace is ignored."""
+    workspace = tmp_path / "tests" / "proj"
+    root = _item("target", str(workspace / "mod.py"), 1)
+    callers = [
+        _item("uses_latest", str(workspace / "latest.py"), 1),
+        _item("uses_src", str(workspace / "src" / "user.py"), 1),
+        _item("helper_caller", str(workspace / "tests" / "helpers.py"), 1),
+    ]
+    pyright = _pyright(workspace)
+    pyright.prepare_call_hierarchy.return_value = [root]
+    pyright.get_incoming_calls.side_effect = lambda item: callers if item.name == "target" else []
+
+    result = await analysis.test_impact_select(
+        pyright, [SymbolAnchor(file_path=str(workspace / "mod.py"), line=1, character=0)]
+    )
+
+    assert result.entries[0].affected_test_files == [str(workspace / "tests" / "helpers.py")]
+    assert result.total_affected_tests == 1
+
+
 @pytest.mark.asyncio
 async def test_test_impact_select_returns_test_node_ids() -> None:
     """Test-file callers become pytest node IDs; the symbol name is the root."""
@@ -32,7 +60,7 @@ async def test_test_impact_select_returns_test_node_ids() -> None:
     test_caller = _item("test_target", "/repo/tests/test_mod.py", 5)
     prod_caller = _item("other", "/repo/mod2.py", 9)
 
-    pyright = AsyncMock()
+    pyright = _pyright()
     pyright.prepare_call_hierarchy.return_value = [root]
 
     async def _incoming(item: CallHierarchyItem) -> list[CallHierarchyItem]:
@@ -60,7 +88,7 @@ async def test_test_impact_select_excludes_non_test_callers() -> None:
     root = _item("target", "/repo/mod.py", 1)
     prod_caller = _item("other", "/repo/mod2.py", 9)
 
-    pyright = AsyncMock()
+    pyright = _pyright()
     pyright.prepare_call_hierarchy.return_value = [root]
 
     async def _incoming(item: CallHierarchyItem) -> list[CallHierarchyItem]:
@@ -84,7 +112,7 @@ async def test_test_impact_select_handles_no_callers() -> None:
     """A symbol with no callers yields a valid empty entry, not an error."""
     root = _item("target", "/repo/mod.py", 1)
 
-    pyright = AsyncMock()
+    pyright = _pyright()
     pyright.prepare_call_hierarchy.return_value = [root]
     pyright.get_incoming_calls.return_value = []
 
@@ -110,7 +138,7 @@ async def test_class_method_node_id_is_exactly_collectable(tmp_path: Path) -> No
     )
     root = _item("target", str(tmp_path / "mod.py"), 1)
     test_caller = _item("test_target", str(test_file), 1)
-    pyright = AsyncMock()
+    pyright = _pyright(tmp_path)
     pyright.prepare_call_hierarchy.return_value = [root]
     pyright.get_incoming_calls.side_effect = lambda item: [test_caller] if item.name == "target" else []
 
