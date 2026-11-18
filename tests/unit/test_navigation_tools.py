@@ -280,7 +280,7 @@ async def test_get_symbol_outline_rejects_non_positive_max_nodes(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("parameter", ["file_path", "file_paths", "root_path"])
+@pytest.mark.parametrize("parameter", ["file_path", "file_paths", "directory"])
 async def test_get_symbol_outline_rejects_missing_scope(parameter: str, tmp_path: Path) -> None:
     """An explicit missing scope is a caller error, not an empty outline."""
     present = tmp_path / "present.py"
@@ -289,7 +289,7 @@ async def test_get_symbol_outline_rejects_missing_scope(parameter: str, tmp_path
     arguments: dict[str, object] = {
         "file_path": {"file_path": missing},
         "file_paths": {"file_paths": [str(present), missing]},
-        "root_path": {"root_path": missing},
+        "directory": {"directory": missing},
     }[parameter]
     pyright = AsyncMock()
 

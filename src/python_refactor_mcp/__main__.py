@@ -71,14 +71,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m python_refactor_mcp",
         description="Start the python-refactor-mcp stdio server. "
-        "Workspace roots are discovered automatically from tool request file paths and root_path arguments.",
+        "Workspace roots are discovered automatically from tool request file paths "
+        "and root_path or directory arguments.",
     )
     parser.add_argument(
         "workspace_root",
         nargs="?",
         help="Optional workspace root to pre-warm at startup (single-project registrations only). "
         "It is not selected: a tool call that names no file fails with AMBIGUOUS_WORKSPACE until a "
-        "path-bearing call or root_path selects it. Omit it when one registration serves several repositories.",
+        "path-bearing call, root_path or (scan tools) directory selects it. "
+        "Omit it when one registration serves several repositories.",
     )
     parser.add_argument("--version", action="version", version=f"python-refactor-mcp {__version__}")
     return parser

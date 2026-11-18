@@ -36,10 +36,10 @@ class ToolInputError(ValueError):
 
 
 class AmbiguousWorkspaceError(ToolInputError):
-    """Raised when a call names no file or ``root_path`` and no single workspace is unambiguously meant.
+    """Raised when a call names no file, ``root_path`` or ``directory`` and no single workspace is meant.
 
-    The message names the live workspace roots and the ``root_path`` parameter that
-    selects one; the boundary surfaces it as ``[AMBIGUOUS_WORKSPACE] <message>``.
+    The message names the live workspace roots and the ``root_path`` parameter (``directory``
+    on the four scan tools, ADR 0012) that selects one; the boundary surfaces it as ``[AMBIGUOUS_WORKSPACE] <message>``.
     """
 
     code: ClassVar[str] = "AMBIGUOUS_WORKSPACE"

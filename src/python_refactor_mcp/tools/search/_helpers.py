@@ -137,18 +137,18 @@ def _resolve_failure(path: Path, wrong_kind_error: str) -> ScanFailure:
 def resolve_target_files(
     file_path: str | None,
     file_paths: list[str] | None,
-    root_path: str | None,
+    directory: str | None,
     config: ServerConfig,
     exclude_test_files: bool,
 ) -> ResolvedTargets:
     """Resolve the stable file set shared by workspace search scans.
 
-    A missing ``root_path`` or explicit file is returned as a ``phase="resolve"``
+    A missing ``directory`` or explicit file is returned as a ``phase="resolve"``
     failure so callers never report a nonexistent scope as a clean empty scan.
     """
     if file_path is not None and file_paths is not None:
         raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
-    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
+    effective_root = Path(directory).resolve() if directory else config.workspace_root
     if file_paths is not None:
         requested = [Path(path).resolve() for path in file_paths]
     elif file_path is not None:

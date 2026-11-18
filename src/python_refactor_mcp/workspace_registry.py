@@ -262,7 +262,7 @@ class WorkspaceRegistry:
         it is touched so the LRU sees the use, and comes with one lease the caller must
         :meth:`release`. Several live workspaces, a pre-warmed root no request has
         selected, and an empty registry raise :class:`AmbiguousWorkspaceError` naming the
-        live roots and the ``root_path`` parameter.
+        live roots and the ``root_path`` (``directory`` on the four scan tools) parameter.
         """
         live = self.active_backends()
         if len(live) == 1 and live[0].selected:
@@ -279,8 +279,10 @@ class WorkspaceRegistry:
             )
             detail = f"{len(live)} workspace{'s are' if len(live) > 1 else ' is'} live: {roots}"
         raise AmbiguousWorkspaceError(
-            f"This call names no file or root_path and {detail}. "
-            "Pass an absolute root_path naming the target workspace."
+            f"This call names no file, root_path or directory and {detail}. "
+            "Pass an absolute root_path naming the target workspace "
+            "(get_workspace_diagnostics, get_symbol_outline, dead_code_detection and unused_symbol_sweep "
+            "take directory instead)."
         )
 
     def active_backends(self) -> list[WorkspaceBackends]:

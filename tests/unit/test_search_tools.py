@@ -347,13 +347,13 @@ async def test_symbol_scans_report_missing_files(tool_name: str, tmp_path: Path)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool_name", ["dead_code_detection", "unused_symbol_sweep"])
-async def test_symbol_scans_report_missing_root_path(tool_name: str, tmp_path: Path) -> None:
-    """A nonexistent root_path is a scan failure, never a clean empty result."""
+async def test_symbol_scans_report_missing_directory(tool_name: str, tmp_path: Path) -> None:
+    """A nonexistent directory is a scan failure, never a clean empty result."""
     missing_root = tmp_path / "no-such-dir"
     pyright = AsyncMock()
     pyright.get_diagnostics.return_value = []
 
-    result = await getattr(search, tool_name)(pyright, _config(tmp_path), root_path=str(missing_root))
+    result = await getattr(search, tool_name)(pyright, _config(tmp_path), directory=str(missing_root))
 
     assert result.items == []
     assert [(f.file_path, f.phase, f.error_type) for f in result.scan_failures] == [
@@ -614,8 +614,8 @@ def test_resolve_target_files_applies_directory_rule_to_explicit_paths(tmp_path:
     assert both.files == [source.resolve()]
 
 
-def test_resolve_target_files_root_path_override_is_the_relative_root(tmp_path: Path) -> None:
-    """An explicit root_path defines which directory components count."""
+def test_resolve_target_files_directory_override_is_the_relative_root(tmp_path: Path) -> None:
+    """An explicit directory defines which directory components count."""
     inner = tmp_path / "tests" / "proj"
     _touch(inner, "src/models.py", "tests/fix.py")
 

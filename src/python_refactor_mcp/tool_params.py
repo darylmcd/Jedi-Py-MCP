@@ -42,9 +42,10 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
         "and how truncation is reported."
     ),
     "offset": "Number of results to skip before the returned page (pagination).",
-    "root_path": (
+    "directory": (
         "Absolute directory to scan when no explicit file scope is given; defaults to the workspace root. "
-        "Must lie inside the workspace. Also selects the workspace when no file path does."
+        "It also selects the workspace (the one containing it, found like file_path) when no file path does, "
+        "so a nested project directory scans that nested workspace. Must lie inside the workspace."
     ),
     "source_file": "Absolute path to the source Python module the tool reads from; it must lie inside the workspace.",
     "source_path": (
@@ -91,8 +92,9 @@ PARAM_DESCRIPTIONS: dict[str, str] = {
 _NEW_METHOD_NAME = "Name for the newly extracted method."
 _WORKSPACE_ROOT_PATH = (
     "Absolute path of the workspace root, or any path inside it, that selects which workspace answers "
-    "when the call names no file. Required when several workspaces are live or only the workspace "
-    "pre-warmed at startup exists; redundant when it lies in the same workspace as the call's other paths."
+    "when the call names no file. It only selects: it never narrows what the tool scans. Required when "
+    "several workspaces are live or only the workspace pre-warmed at startup exists; redundant when it "
+    "lies in the same workspace as the call's other paths."
 )
 _OPTIONAL_FILE_PATH = (
     "Absolute path to a single Python file that scopes the call (it must lie inside the workspace); "
@@ -128,7 +130,7 @@ OptionalEndLine = Annotated[int | None, Field(ge=0, description=PARAM_DESCRIPTIO
 EndCharacter = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["end_character"])]
 Limit = Annotated[int | None, Field(ge=1, description=PARAM_DESCRIPTIONS["limit"])]
 Offset = Annotated[int, Field(ge=0, description=PARAM_DESCRIPTIONS["offset"])]
-RootPath = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["root_path"])]
+Directory = Annotated[str | None, Field(description=PARAM_DESCRIPTIONS["directory"])]
 WorkspaceRootPath = Annotated[str | None, Field(description=_WORKSPACE_ROOT_PATH)]
 SourceFile = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_file"])]
 SourcePath = Annotated[str, Field(description=PARAM_DESCRIPTIONS["source_path"])]

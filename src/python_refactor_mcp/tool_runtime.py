@@ -39,12 +39,15 @@ _LOGGER = logging.getLogger("python_refactor_mcp.server")
 # workspace rather than the destination. Every entry (and each list/transaction
 # path) must be absolute: these values choose the workspace, so no workspace
 # exists yet to anchor a relative value, and the server cwd is not a contract.
+# ``root_path`` only selects a workspace; ``directory`` (the four scan tools, ADR 0012) is a
+# scan directory that selects the workspace containing it, exactly like ``file_path``.
 PATH_PARAMS: tuple[str, ...] = (
     "file_path",
     "source_file",
     "source_path",
     "stub_file",
     "root_path",
+    "directory",
     "destination_file",
     "destination_package",
 )

@@ -334,7 +334,7 @@ async def test_get_workspace_diagnostics_returns_summary(
 ) -> None:
     """Ensure workspace diagnostic summary includes the intentionally broken file."""
     service_path = sample_workspace / "src" / "service.py"
-    first = await mcp_session.call_tool("get_workspace_diagnostics", {"root_path": str(sample_workspace)})
+    first = await mcp_session.call_tool("get_workspace_diagnostics", {"directory": str(sample_workspace)})
     assert first.is_error is not True
     payload = first.structured_content
     assert isinstance(payload, dict)
@@ -343,7 +343,7 @@ async def test_get_workspace_diagnostics_returns_summary(
     assert Path(payload["items"][0]["file_path"]) == service_path
     assert payload["items"][0]["error_count"] == 1
 
-    repeated = await mcp_session.call_tool("get_workspace_diagnostics", {"root_path": str(sample_workspace)})
+    repeated = await mcp_session.call_tool("get_workspace_diagnostics", {"directory": str(sample_workspace)})
     assert repeated.is_error is not True
     assert repeated.structured_content == payload
 
