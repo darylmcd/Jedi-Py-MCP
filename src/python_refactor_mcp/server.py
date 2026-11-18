@@ -12,6 +12,7 @@ from python_refactor_mcp import __version__
 from python_refactor_mcp.config import TOOL_PROFILE_ENV, ToolProfile, discover_max_workspaces, discover_tool_profile
 from python_refactor_mcp.tool_registry import build_tools, tool_names_for_profile
 from python_refactor_mcp.tool_runtime import MultiWorkspaceContext
+from python_refactor_mcp.util.shared import require_local_path
 from python_refactor_mcp.workspace_registry import WorkspaceRegistry
 
 # ── Server lifecycle ─────────────────────────────────────────────────────
@@ -149,6 +150,10 @@ def run_server(workspace_root: str | None = None) -> None:
     for that workspace are eagerly initialized at startup but the workspace is not
     selected: a path-less call fails until a path-bearing call or ``root_path``
     selects it.  If omitted, the server starts cold and discovers workspaces
-    dynamically from path parameters on path-bearing tool calls.
+    dynamically from path parameters on path-bearing tool calls. A UNC or
+    device-namespace *workspace_root* raises ``ToolInputError`` before any
+    filesystem access.
     """
+    if workspace_root:
+        require_local_path(workspace_root, "workspace_root")
     build_server(Path(workspace_root).resolve() if workspace_root else None).run()

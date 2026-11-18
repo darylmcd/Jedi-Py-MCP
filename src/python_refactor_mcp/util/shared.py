@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import keyword
 import logging
+import os
+import re
 import unicodedata
 from pathlib import Path
+from types import ModuleType
 from typing import Protocol
 
 from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import Diagnostic, Location, Position, RefactorResult
 
 _LOGGER = logging.getLogger(__name__)
+
+# A bare local drive in the extended-length form (``\\?\C:``): no network or device I/O.
+_EXTENDED_LOCAL_DRIVE = re.compile(r"\\\\\?\\[A-Za-z]:")
 
 
 class DiagnosticsNotifier(Protocol):
@@ -131,6 +137,39 @@ def validate_identifier(name: str, param_label: str) -> str:
     return name
 
 
+def is_network_or_device_path(value: str, *, pathmod: ModuleType = os.path) -> bool:
+    r"""Whether *value* names a UNC share or a Windows device-namespace path.
+
+    Pure string classification, no filesystem access. After ``/`` is read as ``\``,
+    a path that starts with two backslashes is a UNC share (``\\host\share``), a
+    device path (``\\.\...``) or an extended-length path (``\\?\UNC\...``,
+    ``\\?\Volume{...}``); resolving one can open a network connection or a device
+    handle. Only a bare local drive in the extended-length form (``\\?\C:\x``) is
+    allowed. Host-conditional: with POSIX rules ``//srv/share`` is an ordinary path,
+    so *pathmod* (``ntpath`` in tests) selects the rules.
+    """
+    if pathmod.sep != "\\":
+        return False
+    normalized = value.replace(pathmod.altsep or "/", "\\")
+    if not normalized.startswith("\\\\"):
+        return False
+    return _EXTENDED_LOCAL_DRIVE.fullmatch(pathmod.splitdrive(normalized)[0]) is None
+
+
+def require_local_path(value: str, where: str, *, pathmod: ModuleType = os.path) -> None:
+    """Raise ``ToolInputError`` when *value* is a UNC or device-namespace path.
+
+    Call before any filesystem access on a caller-supplied string. *where* names the
+    argument in the message. This guards the string only: a symlink or junction inside
+    a workspace that targets a share is not detected (ADR 0011).
+    """
+    if is_network_or_device_path(value, pathmod=pathmod):
+        raise ToolInputError(
+            f"'{value}' is a UNC or device-namespace path, which is not supported; "
+            f"use a local drive path ({where})"
+        )
+
+
 def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
     """Resolve *file_path* and verify it is under *workspace_root*.
 
@@ -139,6 +178,7 @@ def validate_workspace_path(file_path: str, workspace_root: Path) -> str:
     rejected rather than resolved: resolving it would anchor it at the server
     process cwd, which is not a caller-visible contract.
     """
+    require_local_path(file_path, "file path")
     requested = Path(file_path)
     if not requested.is_absolute():
         raise ToolInputError(f"File path must be absolute: '{file_path}' is relative")

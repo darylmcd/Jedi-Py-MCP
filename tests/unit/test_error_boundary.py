@@ -1236,18 +1236,95 @@ async def test_diff_preview_windows_spellings_resolve_to_the_same_workspace(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
-async def test_diff_preview_routes_unc_edit_path_through_workspace_resolution() -> None:
-    """A UNC edit path is absolute, so it must reach workspace resolution (stubbed: no network) and be rejected."""
+async def test_diff_preview_rejects_unc_edit_path_before_workspace_resolution() -> None:
+    """A UNC edit path is absolute but never reaches workspace resolution: it is rejected as input first."""
     registry = MagicMock()
-    registry.resolve_workspace_root = MagicMock(side_effect=WorkspaceResolutionError("no workspace for UNC path"))
+    registry.resolve_workspace_root = MagicMock(side_effect=AssertionError("resolution reached"))
     registry.get_backends = AsyncMock()
     ctx = _ctx_with(MultiWorkspaceContext(registry=registry, cli_workspace_root=None))
 
-    with pytest.raises(ToolError, match=r"^\[WORKSPACE_RESOLUTION\]"):
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] .*UNC or device-namespace path.*edits\[0\]\.file_path"):
         await _diff_preview_tool()(ctx, edits=[_edit("\\\\server\\share\\x.py")])
 
-    registry.resolve_workspace_root.assert_called_once()
+    registry.resolve_workspace_root.assert_not_called()
     registry.get_backends.assert_not_awaited()
+
+
+_UNC_NEEDLE = "unc-srv"
+_UNC_SPELLINGS = [
+    "\\\\unc-srv\\share\\a.py",
+    "//unc-srv/share/a.py",
+    "\\\\?\\UNC\\unc-srv\\share\\a.py",
+    "\\\\.\\pipe\\unc-srv",
+]
+
+
+def _forbid_unc_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any resolve/exists/is_dir/stat/realpath call whose path names the UNC host; others pass through.
+
+    The match is on the argument: an unconditional spy would trip on pytest and asyncio internals.
+    """
+
+    def guard(real: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(target: Any, *args: Any, **kwargs: Any) -> Any:
+            if _UNC_NEEDLE in str(target):
+                raise AssertionError(f"filesystem access for {target}")
+            return real(target, *args, **kwargs)
+
+        return wrapper
+
+    for owner, name in ((Path, "resolve"), (Path, "exists"), (Path, "is_dir"), (os, "stat"), (os.path, "realpath")):
+        monkeypatch.setattr(owner, name, guard(getattr(owner, name)))
+
+
+async def _echo_tool(ctx: Any, **kwargs: Any) -> dict[str, Any]:
+    """Stand-in tool body: the boundary under test runs before it."""
+    return kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+@pytest.mark.parametrize("spelling", _UNC_SPELLINGS)
+@pytest.mark.parametrize("shape", ["file_path", "root_path", "destination_file", "file_paths", "output_dir"])
+async def test_unc_and_device_paths_are_rejected_before_any_filesystem_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str, shape: str
+) -> None:
+    """Every path-bearing argument shape is classified before ``resolve()``, marker probes or the registry."""
+    workspace, _outside = _escape_layout(tmp_path)
+    good = str(workspace / "a.py")
+    arguments: dict[str, Any] = {
+        "file_path": {"file_path": spelling},
+        "root_path": {"root_path": spelling},
+        "destination_file": {"file_path": good, "destination_file": spelling},
+        "file_paths": {"file_paths": [good, spelling]},
+        "output_dir": {"file_path": good, "output_dir": spelling},
+    }[shape]
+    ctx, spy = _real_registry_ctx()
+    _forbid_unc_io(monkeypatch)
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] .*UNC or device-namespace path"):
+        await tool_error_boundary(_echo_tool)(ctx, **arguments)
+
+    # ``output_dir`` never selects a workspace, so its valid ``file_path`` legitimately resolves
+    # backends; the UNC value is checked afterwards and must never be among the resolved paths.
+    expected_resolved = [good] if shape == "output_dir" else []
+    assert [call.args[0] for call in spy.await_args_list] == expected_resolved
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+async def test_unc_edit_in_a_later_position_is_rejected_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nested ``edits[1].file_path`` is rejected by index before any resolution."""
+    workspace, _outside = _escape_layout(tmp_path)
+    ctx, spy = _real_registry_ctx()
+    _forbid_unc_io(monkeypatch)
+
+    with pytest.raises(ToolError, match=r"^\[INVALID_INPUT\] .*UNC or device-namespace path.*edits\[1\]\.file_path"):
+        await _diff_preview_tool()(ctx, edits=[_edit(str(workspace / "a.py")), _edit(_UNC_SPELLINGS[0])])
+
+    spy.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from python_refactor_mcp.errors import BackendError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.models import TransactionStepArgs
 from python_refactor_mcp.util.shared import (
+    require_local_path,
     resolve_workspace_dir,
     validate_identifier,
     validate_workspace_path,
@@ -271,7 +272,11 @@ def _resolve_workspace_root(ctx: Context | None, kwargs: dict[str, Any]) -> Path
 
 
 def _require_absolute(value: str, param_label: str) -> None:
-    """Raise ``ToolInputError`` naming *param_label* when *value* is not an absolute path."""
+    """Raise ``ToolInputError`` naming *param_label* when *value* is a UNC or device path or not absolute.
+
+    The UNC check comes first: such a path is absolute, and resolving it touches the network.
+    """
+    require_local_path(value, f"parameter: {param_label}")
     if not Path(value).is_absolute():
         raise ToolInputError(f"'{value}' is not an absolute path (parameter: {param_label})")
 

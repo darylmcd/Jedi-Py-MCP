@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,7 +17,7 @@ import pytest
 
 from python_refactor_mcp import __main__ as cli
 from python_refactor_mcp import server
-from python_refactor_mcp.errors import AmbiguousWorkspaceError, PyrightError
+from python_refactor_mcp.errors import AmbiguousWorkspaceError, PyrightError, ToolInputError
 from python_refactor_mcp.tool_runtime import _translate_backend_error
 from python_refactor_mcp.workspace_registry import WorkspaceRegistry
 
@@ -229,3 +230,41 @@ def test_main_rejects_missing_workspace_root(monkeypatch: pytest.MonkeyPatch, tm
 
     with pytest.raises(SystemExit, match="Workspace root does not exist or is not a directory"):
         cli.main()
+
+
+_UNC_ROOTS = [r"\\unc-srv\share\ws", r"\\?\UNC\unc-srv\share\ws", r"\\.\pipe\unc-srv"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+@pytest.mark.parametrize("root", _UNC_ROOTS)
+def test_main_rejects_unc_workspace_root_before_any_filesystem_access(
+    monkeypatch: pytest.MonkeyPatch, root: str
+) -> None:
+    """A UNC or device-namespace CLI root is refused at startup, before resolve(), exists() or the server."""
+    monkeypatch.setattr(sys, "argv", ["python-refactor-mcp", root])
+    started = MagicMock()
+    monkeypatch.setattr(cli, "run_server", started)
+
+    with (
+        patch.object(Path, "resolve", side_effect=AssertionError("resolve reached")),
+        pytest.raises(SystemExit, match="UNC or device-namespace path"),
+    ):
+        cli.main()
+
+    started.assert_not_called()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC paths exist only on Windows")
+@pytest.mark.parametrize("root", _UNC_ROOTS)
+def test_run_server_rejects_unc_workspace_root_before_building(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
+    """The programmatic entry applies the same guard, so no server is built for a UNC root."""
+    built = MagicMock()
+    monkeypatch.setattr(server, "build_server", built)
+
+    with (
+        patch.object(Path, "resolve", side_effect=AssertionError("resolve reached")),
+        pytest.raises(ToolInputError, match="UNC or device-namespace path"),
+    ):
+        server.run_server(root)
+
+    built.assert_not_called()

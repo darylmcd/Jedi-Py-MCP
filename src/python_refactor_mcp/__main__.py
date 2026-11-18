@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import TextIO
 
 from python_refactor_mcp import __version__
+from python_refactor_mcp.errors import ToolInputError
 from python_refactor_mcp.server import run_server
+from python_refactor_mcp.util.shared import require_local_path
 
 _PACKAGE_LOGGER_NAME = "python_refactor_mcp"
 _BACKEND_FAILURE_EVENT = "tool_backend_failure"
@@ -89,6 +91,10 @@ def main() -> None:
 
     workspace_root: str | None = None
     if args.workspace_root is not None:
+        try:
+            require_local_path(args.workspace_root, "workspace_root")
+        except ToolInputError as exc:
+            raise SystemExit(str(exc)) from None
         resolved = Path(args.workspace_root).resolve()
         if not resolved.exists() or not resolved.is_dir():
             raise SystemExit(f"Workspace root does not exist or is not a directory: {resolved}")
