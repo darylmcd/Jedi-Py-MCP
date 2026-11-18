@@ -4,13 +4,93 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import tempfile
+from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 
 from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import Position, TextEdit
+
+_TERMINATOR_SPLIT = re.compile(r"(\r\n|\r|\n)")
+# Largest changed-middle size (old lines x new lines) diffed line by line; about 0.5 s.
+_MAX_DIFF_CELLS = 40_000_000
+
+
+def _normalize_newlines(text: str) -> str:
+    """Translate ``\\r\\n`` and lone ``\\r`` to ``\\n`` (what ``Path.read_text`` yields)."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def encode_with_line_endings(original: bytes, new_text: str) -> bytes:
+    """Encode *new_text* (universal-newline text) as UTF-8 with *original*'s line endings.
+
+    Edit planning reads files as universal-newline text, so planned text uses
+    ``\\n``; this puts the file's own endings back at write time. ``\\r`` and
+    ``\\r\\n`` inside *new_text* are normalised first, so *original* is the only
+    authority on endings. Rules:
+
+    * no terminator, or one terminator style throughout, in the original: every
+      line ending becomes that style (no terminator at all means ``\\n``);
+    * mixed original: a line equal to an original line (line diff) keeps that
+      line's ending; a changed line takes the ending of the original line it
+      replaces (paired by position inside the changed block); an inserted or
+      unpaired line takes the dominant ending (most frequent; a tie goes to the
+      ending seen first);
+    * whether the last line ends in a terminator follows *new_text*.
+
+    A BOM is ordinary text here and round-trips. The mixed case runs
+    ``difflib.SequenceMatcher`` only over the lines left after trimming the
+    common leading and trailing lines. It is quadratic (measured: 10k mixed
+    lines with every 10th changed 1.1 s, 40k lines 25 s), so when the changed
+    middle of both sides exceeds ``_MAX_DIFF_CELLS`` line pairs the changed
+    lines are paired by position instead (inserts and deletes inside that
+    middle then shift the pairing; only huge mixed-ending files are affected).
+    """
+    new = _normalize_newlines(new_text)
+    old_parts = _TERMINATOR_SPLIT.split(original.decode("utf-8"))
+    terminators = old_parts[1::2]
+    if len(set(terminators)) <= 1:
+        style = terminators[0] if terminators else "\n"
+        return (new if style == "\n" else new.replace("\n", style)).encode("utf-8")
+
+    old_bodies = old_parts[0::2]
+    new_bodies = new.split("\n")
+    counts = Counter(terminators)
+    dominant = max(counts, key=lambda term: (counts[term], -terminators.index(term)))
+    # For each new line, the index of the original line it corresponds to (or None).
+    source: list[int | None] = [None] * len(new_bodies)
+    head = 0
+    limit = min(len(old_bodies), len(new_bodies))
+    while head < limit and old_bodies[head] == new_bodies[head]:
+        source[head] = head
+        head += 1
+    tail = 0
+    while tail < limit - head and old_bodies[-1 - tail] == new_bodies[-1 - tail]:
+        source[len(new_bodies) - 1 - tail] = len(old_bodies) - 1 - tail
+        tail += 1
+    old_mid = old_bodies[head : len(old_bodies) - tail]
+    new_mid = new_bodies[head : len(new_bodies) - tail]
+    if len(old_mid) * len(new_mid) <= _MAX_DIFF_CELLS:
+        matcher = difflib.SequenceMatcher(None, old_mid, new_mid, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag in ("equal", "replace"):
+                for offset in range(min(i2 - i1, j2 - j1)):
+                    source[head + j1 + offset] = head + i1 + offset
+    else:
+        # Too large to diff: pair the changed lines by position.
+        for offset in range(min(len(old_mid), len(new_mid))):
+            source[head + offset] = head + offset
+
+    out: list[str] = []
+    for index, body in enumerate(new_bodies):
+        out.append(body)
+        if index < len(new_bodies) - 1:
+            origin = source[index]
+            out.append(terminators[origin] if origin is not None and origin < len(terminators) else dominant)
+    return "".join(out).encode("utf-8")
 
 
 def _position_to_index(content: str, position: Position) -> int:
@@ -92,7 +172,7 @@ def apply_text_edits_atomically(
         edits_by_file.setdefault(edit.file_path, []).append(edit)
 
     originals: dict[str, bytes] = {}
-    updated: dict[str, str] = {}
+    updated: dict[str, bytes] = {}
     expected_by_path = (
         {str(Path(file_path).resolve()): content for file_path, content in expected_contents.items()}
         if expected_contents is not None
@@ -102,7 +182,7 @@ def apply_text_edits_atomically(
         path = Path(file_path).resolve()
         try:
             original_bytes = path.read_bytes()
-            original_text = original_bytes.decode("utf-8")
+            original_text = _normalize_newlines(original_bytes.decode("utf-8"))
         except (OSError, UnicodeError) as exc:
             raise RopeError(f"Cannot prepare atomic edit batch for {path}: {exc}") from exc
         resolved_path = str(path)
@@ -113,15 +193,18 @@ def apply_text_edits_atomically(
             if original_bytes != expected:
                 raise RopeError(f"Stale edit source changed before atomic batch commit: {path}")
         originals[resolved_path] = original_bytes
-        updated[resolved_path] = apply_text_edits(resolved_path, file_edits, content=original_text)
+        updated[resolved_path] = encode_with_line_endings(
+            original_bytes,
+            apply_text_edits(resolved_path, file_edits, content=original_text),
+        )
 
     written: list[str] = []
     written_payloads: dict[str, bytes] = {}
     try:
         for file_path in sorted(updated):
-            write_atomic_if_unchanged(file_path, updated[file_path], originals[file_path])
+            write_bytes_atomic_if_unchanged(file_path, updated[file_path], originals[file_path])
             written.append(file_path)
-            written_payloads[file_path] = updated[file_path].encode("utf-8")
+            written_payloads[file_path] = updated[file_path]
     except Exception as exc:
         rollback_failures: list[str] = []
         for file_path in reversed(written):
@@ -187,26 +270,29 @@ def _replace_atomic(
 
 
 def write_atomic(file_path: str, content: str) -> None:
-    """Write file content atomically using a temp file and rename."""
+    """Write universal-newline *content* atomically, keeping the target's line endings.
 
-    def _write(fd: int) -> None:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp_file:
-            tmp_file.write(content)
-
-    _replace_atomic(file_path, _write, "Atomic write failed")
+    The target's current bytes decide the endings (see :func:`encode_with_line_endings`);
+    a new file is written with ``\\n``.
+    """
+    path = Path(file_path).resolve()
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = b""
+    except OSError as exc:
+        raise RopeError(f"Cannot read atomic-write target {path}: {exc}") from exc
+    write_bytes_atomic(file_path, encode_with_line_endings(current, content))
 
 
 def write_atomic_if_unchanged(file_path: str, content: str, expected_content: bytes) -> None:
-    """Atomically write text only when the target still matches *expected_content*."""
+    """Atomically write universal-newline text only when the target still matches *expected_content*.
 
-    def _write(fd: int) -> None:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp_file:
-            tmp_file.write(content)
-
-    _replace_atomic(
+    Line endings follow *expected_content*, the bytes the edit was planned from.
+    """
+    write_bytes_atomic_if_unchanged(
         file_path,
-        _write,
-        "Guarded atomic write failed",
+        encode_with_line_endings(expected_content, content),
         expected_content,
     )
 
