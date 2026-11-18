@@ -152,10 +152,12 @@ class WorkspaceRegistry:
     # ── Backend access (hot path) ────────────────────────────────────────
 
     async def get_backends(self, file_path: str) -> WorkspaceBackends:
-        """Resolve workspace for *file_path*, lazily initialize, and return backends.
+        """Resolve the workspace enclosing *file_path*, lazily initialize it, select it, and return backends.
 
-        This is the hot path — called on every tool invocation that has a
-        file_path parameter.
+        This is the hot path — the boundary calls it with the first workspace-selecting
+        path of every request that has one (``file_path``, ``root_path``, the other
+        ``PATH_PARAMS``, list and nested paths). The workspace is marked selected, so
+        later path-less calls may resolve to it (see :meth:`implicit_workspace`).
         """
         root = self.resolve_workspace_root(Path(file_path).resolve())
         backends = await self._get_or_create(root)

@@ -92,7 +92,7 @@ _NEW_METHOD_NAME = "Name for the newly extracted method."
 _WORKSPACE_ROOT_PATH = (
     "Absolute path of the workspace root, or any path inside it, that selects which workspace answers "
     "when the call names no file. Required when several workspaces are live or only the workspace "
-    "pre-warmed at startup exists; ignored when another path argument selects the workspace."
+    "pre-warmed at startup exists; redundant when it lies in the same workspace as the call's other paths."
 )
 _OPTIONAL_FILE_PATH = (
     "Absolute path to a single Python file that scopes the call (it must lie inside the workspace); "
