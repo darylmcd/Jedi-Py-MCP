@@ -20,6 +20,7 @@ from python_refactor_mcp.errors import RopeError
 from python_refactor_mcp.models import Position, Range, SignatureOperation, TextEdit
 from python_refactor_mcp.tools import refactoring
 from python_refactor_mcp.tools.refactoring import format as format_mod
+from python_refactor_mcp.tools.refactoring import lint_fix as lint_fix_mod
 from python_refactor_mcp.tools.refactoring.helpers import result_from_text_edits
 from python_refactor_mcp.util import diff as diff_module
 from python_refactor_mcp.util.cst_apply import apply_cst_transformer, apply_cst_transformer_batch
@@ -387,7 +388,17 @@ async def _assert_keeps_endings(
 @pytest.mark.asyncio
 @_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_format_code_apply_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
+async def test_format_code_apply_keeps_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, style: str, variant: str
+) -> None:
+    # The ruff subprocess is faked, as in the other format_code unit tests: the unit suite
+    # must not need a ruff executable on PATH (CI does not activate the venv).
+    async def fake_format(_file_path: str, content: str) -> str:
+        assert "\r" not in content  # planning sees universal-newline text
+        return content.replace("x=1", "x = 1").replace("  y   = 2", "    y = 2").rstrip("\n") + "\n"
+
+    monkeypatch.setattr(format_mod, "_ruff_format_stdin", fake_format)
+
     async def run(path: Path) -> None:
         await format_mod.format_code(AsyncMock(), str(path), apply=True)
 
@@ -397,7 +408,15 @@ async def test_format_code_apply_keeps_line_endings(tmp_path: Path, style: str, 
 @pytest.mark.asyncio
 @_VARIANTS
 @pytest.mark.parametrize("style", ["\r\n", "\r"])
-async def test_apply_lint_fixes_keeps_line_endings(tmp_path: Path, style: str, variant: str) -> None:
+async def test_apply_lint_fixes_keeps_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, style: str, variant: str
+) -> None:
+    async def fake_fix(_file_path: str, content: str, unsafe_fixes: bool = False) -> str:
+        assert "\r" not in content
+        return content.replace("import os\n", "")
+
+    monkeypatch.setattr(lint_fix_mod, "_ruff_fix_stdin", fake_fix)
+
     async def run(path: Path) -> None:
         await refactoring.apply_lint_fixes(AsyncMock(), str(path), apply=True)
 
