@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -55,6 +55,23 @@ from python_refactor_mcp.util.paths import normalize_path, path_to_uri, uri_to_p
 from python_refactor_mcp.util.timing import timed
 
 _LOGGER = logging.getLogger(__name__)
+
+def _sorted_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
+    return sorted(
+        diagnostics,
+        key=lambda item: (
+            item.file_path,
+            item.range.start.line,
+            item.range.start.character,
+        ),
+    )
+
+
+def stamp_of(absolute_path: str) -> tuple[int, int]:
+    """Return the change stamp ``(mtime_ns, size)`` of a file; raises ``OSError`` when it is gone."""
+    stat = os.stat(absolute_path)
+    return stat.st_mtime_ns, stat.st_size
+
 
 def _utf16_units(character: str) -> int:
     """Return how many UTF-16 code units encode ``character`` (2 for astral code points)."""
@@ -175,6 +192,9 @@ class PyrightLSPClient:
         self._open_files: set[str] = set()
         self._file_versions: dict[str, int] = {}
         self._file_contents: dict[str, str] = {}
+        # ``(mtime_ns, size)`` taken BEFORE the text it describes was read, so a write
+        # landing between the read and the stat shows up as a stale stamp, never a lost edit.
+        self._file_stamps: dict[str, tuple[int, int]] = {}
         self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._document_lock = asyncio.Lock()
         self._restart_lock = asyncio.Lock()
@@ -459,11 +479,14 @@ class PyrightLSPClient:
         self._open_files.clear()
         self._file_versions.clear()
         self._file_contents.clear()
+        self._file_stamps.clear()
         self._diagnostics.clear()
 
-    def _read_document(self, absolute_path: str) -> str:
+    def _read_document(self, absolute_path: str) -> tuple[str, tuple[int, int]]:
+        """Return the file's text and the stat stamp taken before it was read."""
         try:
-            return Path(absolute_path).read_text(encoding="utf-8")
+            stamp = stamp_of(absolute_path)
+            return Path(absolute_path).read_text(encoding="utf-8"), stamp
         except FileNotFoundError as exc:
             self._diagnostics.pop(absolute_path, None)
             raise ToolInputError(f"file_path does not exist: {absolute_path}") from exc
@@ -477,18 +500,77 @@ class PyrightLSPClient:
         await self._ensure_healthy()
         async with self._document_lock:
             if absolute_path not in self._file_contents:
-                await self._sync_document(absolute_path, self._read_document(absolute_path))
+                text, stamp = self._read_document(absolute_path)
+                await self._sync_document(absolute_path, text, stamp)
 
     async def _refresh_document(self, absolute_path: str, transport: LSPClient) -> None:
         """Synchronize current disk contents with Pyright before analysis."""
         async with self._document_lock:
-            if transport is not self._client or self._session_invalid:
-                raise PyrightError("Pyright session changed while preparing the document.")
-            text = self._read_document(absolute_path)
+            self._require_current_session(transport)
+            text, stamp = self._read_document(absolute_path)
             if self._file_contents.get(absolute_path) != text:
-                await self._sync_document(absolute_path, text)
+                await self._sync_document(absolute_path, text, stamp)
+            else:
+                self._file_stamps[absolute_path] = stamp
 
-    async def _sync_document(self, absolute_path: str, text: str) -> None:
+    def _require_current_session(self, transport: LSPClient) -> None:
+        if transport is not self._client or self._session_invalid:
+            raise PyrightError("Pyright session changed while preparing the document.")
+
+    async def _sync_peer_documents(self, transport: LSPClient, *, skip: str | None = None) -> None:
+        """Resynchronize every other open document whose file changed on disk.
+
+        Pyright analyzes a file against the open-document text of everything it imports,
+        so a dependency edited outside this server must reach the language server before
+        its importer is analyzed. Unchanged files cost one ``stat``; a deleted or
+        unreadable one is closed instead of failing the analysis of an unrelated file.
+        """
+        async with self._document_lock:
+            self._require_current_session(transport)
+            for path in sorted(self._open_files):
+                if path != skip:
+                    await self._resync_peer(path)
+
+    async def _resync_peer(self, absolute_path: str) -> None:
+        """Bring one open document up to date, or close it when its file is gone. Lock held."""
+        try:
+            stamp = stamp_of(absolute_path)
+        except OSError:
+            await self._close_document(absolute_path)
+            return
+        if absolute_path in self._file_contents and self._file_stamps.get(absolute_path) == stamp:
+            return
+        try:
+            text, stamp = self._read_document(absolute_path)
+        except (ToolInputError, PyrightError):
+            _LOGGER.warning("Closing unreadable open document %s", absolute_path, exc_info=True)
+            await self._close_document(absolute_path)
+            return
+        if self._file_contents.get(absolute_path) == text:
+            self._file_stamps[absolute_path] = stamp
+        else:
+            await self._sync_document(absolute_path, text, stamp)
+
+    async def _close_document(self, absolute_path: str) -> None:
+        """Forget a document and tell the server to close it. Lock held.
+
+        Versions stay monotonic across a close/open cycle, so a late publish for the
+        old text can never match a reopened document.
+        """
+        self._open_files.discard(absolute_path)
+        self._file_contents.pop(absolute_path, None)
+        self._file_stamps.pop(absolute_path, None)
+        self._diagnostics.pop(absolute_path, None)
+        try:
+            await self._client.send_notification(
+                "textDocument/didClose", {"textDocument": {"uri": path_to_uri(absolute_path)}}
+            )
+        except (Exception, asyncio.CancelledError):
+            # The server may still hold the document; only a fresh session is certain.
+            self._session_invalid = True
+            raise
+
+    async def _sync_document(self, absolute_path: str, text: str, stamp: tuple[int, int]) -> None:
         """Send document contents while holding the document lock."""
         if self._session_invalid:
             raise PyrightError("Pyright session is unavailable while synchronizing the document.")
@@ -498,6 +580,7 @@ class PyrightLSPClient:
         self._file_versions[absolute_path] = version
         self._diagnostics.pop(absolute_path, None)
         self._file_contents.pop(absolute_path, None)
+        self._file_stamps.pop(absolute_path, None)
 
         document: dict[str, JSONValue] = {"uri": file_uri, "version": version}
         if absolute_path in self._open_files:
@@ -515,6 +598,21 @@ class PyrightLSPClient:
                 raise
             self._open_files.add(absolute_path)
         self._file_contents[absolute_path] = text
+        self._file_stamps[absolute_path] = stamp
+
+    async def _on_healthy_transport(self, operation: Callable[[LSPClient], Awaitable[None]]) -> None:
+        """Run ``operation`` on the live transport, once more on a replacement after a crash."""
+        client = await self._ensure_healthy()
+        try:
+            await operation(client)
+        except (BrokenPipeError, ConnectionResetError):
+            replacement = await self._ensure_healthy(disconnected=client)
+            await operation(replacement)
+        except PyrightError:
+            if client is self._client and self.is_running:
+                raise
+            replacement = await self._ensure_healthy()
+            await operation(replacement)
 
     async def notify_file_changed(self, file_path: str) -> None:
         """Synchronize an edited file and invalidate its previous diagnostics."""
@@ -527,60 +625,103 @@ class PyrightLSPClient:
             )
 
         try:
-            client = await self._ensure_healthy()
-            try:
-                await synchronize(client)
-            except (BrokenPipeError, ConnectionResetError):
-                replacement = await self._ensure_healthy(disconnected=client)
-                await synchronize(replacement)
-            except PyrightError:
-                if client is self._client and self.is_running:
-                    raise
-                replacement = await self._ensure_healthy()
-                await synchronize(replacement)
+            await self._on_healthy_transport(synchronize)
         except (ToolInputError, BrokenPipeError, ConnectionResetError, TimeoutError) as exc:
             raise PyrightError("Could not synchronize edited file with Pyright.") from exc
 
     # ── Diagnostics ───────────────────────────────────────────────────
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
-        """Return analyzed file diagnostics or the current workspace push snapshot."""
-        if file_path is not None:
-            normalized = normalize_path(file_path)
+        """Return analyzed file diagnostics or the current workspace push snapshot.
 
-            async def prepare(transport: LSPClient) -> None:
-                await self._refresh_document(normalized, transport)
+        An explicit file is analyzed after every open document that changed on disk
+        has been resynchronized, so an edited dependency is seen by its importer.
+        """
+        if file_path is None:
+            return _sorted_diagnostics([item for items in self._diagnostics.values() for item in items])
+        return await self._pull_diagnostics(normalize_path(file_path), sync_peers=True)
 
-            response = await self._request(
-                "textDocument/diagnostic",
-                {"textDocument": {"uri": path_to_uri(normalized)}},
-                prepare=prepare,
+    async def get_diagnostics_many(
+        self,
+        file_paths: Sequence[str],
+        *,
+        concurrency: int = 1,
+        stop_on_error: bool = False,
+    ) -> list[list[Diagnostic] | Exception]:
+        """Return per-file diagnostics for a batch after ONE resync of the open documents.
+
+        A per-file failure is returned in that file's slot (``Exception`` only:
+        cancellation propagates). ``stop_on_error`` runs sequentially and ends the
+        result at the first failure; it cannot be combined with ``concurrency > 1``.
+        A failure of the shared resync itself (timeout, dead session) raises.
+        """
+        if concurrency < 1:
+            raise ValueError("concurrency must be at least 1")
+        if stop_on_error and concurrency != 1:
+            raise ValueError("stop_on_error requires concurrency=1")
+        if not file_paths:
+            return []
+
+        async def resync(transport: LSPClient) -> None:
+            await asyncio.wait_for(
+                self._sync_peer_documents(transport),
+                timeout=self._request_timeout_seconds,
             )
-            if is_unhandled_method_error(response):
-                raise LspFeatureUnsupportedError("Pyright does not implement textDocument/diagnostic.")
-            if "error" in response:
-                raise PyrightError(f"textDocument/diagnostic failed: {response['error']}")
-            report = response.get("result")
-            if not isinstance(report, dict) or report.get("kind") != "full":
-                raise PyrightError("Expected a full textDocument/diagnostic report.")
-            items = report.get("items")
-            if not isinstance(items, list):
-                raise PyrightError("Expected an items array in the textDocument/diagnostic report.")
-            try:
-                diagnostics = convert_diagnostics(normalized, items)
-            except ValueError as exc:
-                raise PyrightError("Invalid diagnostic in the textDocument/diagnostic report.") from exc
-        else:
-            diagnostics = [item for items in self._diagnostics.values() for item in items]
 
-        return sorted(
-            diagnostics,
-            key=lambda item: (
-                item.file_path,
-                item.range.start.line,
-                item.range.start.character,
-            ),
+        try:
+            await self._on_healthy_transport(resync)
+        except TimeoutError as exc:
+            raise PyrightError("Could not resynchronize open documents with Pyright in time.") from exc
+
+        async def one(path: str) -> list[Diagnostic] | Exception:
+            try:
+                return await self._pull_diagnostics(normalize_path(path), sync_peers=False)
+            except Exception as exc:
+                return exc
+
+        if concurrency == 1:
+            results: list[list[Diagnostic] | Exception] = []
+            for path in file_paths:
+                result = await one(path)
+                results.append(result)
+                if stop_on_error and isinstance(result, Exception):
+                    break
+            return results
+        gate = asyncio.Semaphore(concurrency)
+
+        async def bounded(path: str) -> list[Diagnostic] | Exception:
+            async with gate:
+                return await one(path)
+
+        return list(await asyncio.gather(*(bounded(path) for path in file_paths)))
+
+    async def _pull_diagnostics(self, normalized: str, *, sync_peers: bool) -> list[Diagnostic]:
+        """Pull one file's diagnostics, optionally resynchronizing the other open documents first."""
+
+        async def prepare(transport: LSPClient) -> None:
+            if sync_peers:
+                await self._sync_peer_documents(transport, skip=normalized)
+            await self._refresh_document(normalized, transport)
+
+        response = await self._request(
+            "textDocument/diagnostic",
+            {"textDocument": {"uri": path_to_uri(normalized)}},
+            prepare=prepare,
         )
+        if is_unhandled_method_error(response):
+            raise LspFeatureUnsupportedError("Pyright does not implement textDocument/diagnostic.")
+        if "error" in response:
+            raise PyrightError(f"textDocument/diagnostic failed: {response['error']}")
+        report = response.get("result")
+        if not isinstance(report, dict) or report.get("kind") != "full":
+            raise PyrightError("Expected a full textDocument/diagnostic report.")
+        items = report.get("items")
+        if not isinstance(items, list):
+            raise PyrightError("Expected an items array in the textDocument/diagnostic report.")
+        try:
+            return _sorted_diagnostics(convert_diagnostics(normalized, items))
+        except ValueError as exc:
+            raise PyrightError("Invalid diagnostic in the textDocument/diagnostic report.") from exc
 
     async def _handle_publish_diagnostics(self, params: JSONDict) -> None:
         """Update the workspace snapshot for the published document version."""

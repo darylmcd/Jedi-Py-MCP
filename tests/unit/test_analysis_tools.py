@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,6 +28,25 @@ from python_refactor_mcp.models import (
 )
 from python_refactor_mcp.tools import analysis
 from tests.helpers import make_location as _location
+
+
+def _many_from(per_file: Callable[[str], Awaitable[list[Diagnostic]]]) -> Callable[..., Awaitable[list[Any]]]:
+    """Adapt a per-file coroutine to the backend's get_diagnostics_many result shape."""
+
+    async def many(
+        paths: list[str], *, concurrency: int = 1, stop_on_error: bool = False
+    ) -> list[list[Diagnostic] | Exception]:
+        results: list[list[Diagnostic] | Exception] = []
+        for path in paths:
+            try:
+                results.append(await per_file(path))
+            except Exception as exc:
+                results.append(exc)
+                if stop_on_error:
+                    break
+        return results
+
+    return many
 
 
 @pytest.mark.asyncio
@@ -335,7 +357,7 @@ async def test_get_workspace_diagnostics_aggregates_by_file(tmp_path: Path) -> N
             ]
         return []
 
-    pyright.get_diagnostics.side_effect = _diagnostics_for
+    pyright.get_diagnostics_many.side_effect = _many_from(_diagnostics_for)
     config = ServerConfig(
         workspace_root=tmp_path,
         python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
@@ -377,7 +399,7 @@ async def test_get_workspace_diagnostics_reports_failed_file_as_scan_failure(tmp
             )
         ]
 
-    pyright.get_diagnostics.side_effect = _diagnostics_for
+    pyright.get_diagnostics_many.side_effect = _many_from(_diagnostics_for)
     config = ServerConfig(
         workspace_root=tmp_path,
         python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
@@ -678,3 +700,67 @@ async def test_find_type_users_unparsable_file_classifies_other(tmp_path: Path) 
     assert result.total_count == 1
     assert result.sites[0].kind == "other"
     assert result.by_kind["other"] == 1
+
+
+def _config(tmp_path: Path) -> ServerConfig:
+    return ServerConfig(
+        workspace_root=tmp_path,
+        python_executable=tmp_path / ".venv" / "Scripts" / "python.exe",
+        venv_path=None,
+        pyright_executable="pyright-langserver",
+        pyrightconfig_path=None,
+        rope_prefs={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_file_paths_uses_one_sequential_batch_and_aborts_on_first_error() -> None:
+    """file_paths keeps its documented fail-fast behaviour through the batch call."""
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [PyrightError("boom")]
+
+    with pytest.raises(PyrightError, match="boom"):
+        await analysis.get_diagnostics(pyright, file_paths=["/repo/a.py", "/repo/b.py"])
+
+    pyright.get_diagnostics_many.assert_awaited_once_with(["/repo/a.py", "/repo/b.py"], stop_on_error=True)
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_file_paths_merges_batch_results() -> None:
+    pyright = AsyncMock()
+    first = Diagnostic(
+        file_path="/repo/a.py",
+        range=Range(start=Position(line=1, character=0), end=Position(line=1, character=1)),
+        severity="error",
+        message="a",
+        code=None,
+    )
+    second = first.model_copy(update={"file_path": "/repo/b.py", "message": "b"})
+    pyright.get_diagnostics_many.return_value = [[second], [first]]
+
+    result = await analysis.get_diagnostics(pyright, file_paths=["/repo/b.py", "/repo/a.py"])
+
+    assert [item.message for item in result] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_diagnostics_scans_through_one_concurrent_batch(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.return_value = [[]]
+
+    await analysis.get_workspace_diagnostics(pyright, _config(tmp_path))
+
+    pyright.get_diagnostics_many.assert_awaited_once_with([str((tmp_path / "a.py").resolve())], concurrency=10)
+    pyright.get_diagnostics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_diagnostics_propagates_cancellation(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics_many.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await analysis.get_workspace_diagnostics(pyright, _config(tmp_path))

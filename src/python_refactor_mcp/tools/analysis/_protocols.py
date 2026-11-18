@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from python_refactor_mcp.models import (
@@ -41,6 +42,16 @@ class PyrightAnalysisBackend(Protocol):
 
     async def get_diagnostics(self, file_path: str | None) -> list[Diagnostic]:
         """Return diagnostics for one file or the full workspace."""
+        ...
+
+    async def get_diagnostics_many(
+        self,
+        file_paths: Sequence[str],
+        *,
+        concurrency: int = 1,
+        stop_on_error: bool = False,
+    ) -> list[list[Diagnostic] | Exception]:
+        """Return per-file diagnostics (or the file's failure) after one resync of open documents."""
         ...
 
     async def get_completions(self, file_path: str, line: int, char: int) -> list[CompletionItem]:

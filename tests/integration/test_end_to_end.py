@@ -1039,3 +1039,42 @@ async def test_get_diagnostics_applies_pyright_ignore_comment_semantics(
         "control: the same content without the file-top comment reports the error"
     )
     assert await reported(file_top) == [], "a file-top type: ignore is handled by Pyright"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_see_dependency_edited_on_disk(
+    sample_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An open dependency edited outside the server is reflected in its unchanged importer."""
+    if os.environ.get("RUN_MCP_INTEGRATION") != "1":
+        pytest.skip("Run the MCP integration gate to start a real Pyright server.")
+    monkeypatch.setenv(
+        "PYRIGHT_REQUEST_TIMEOUT_SECONDS",
+        os.environ.get("PYRIGHT_REQUEST_TIMEOUT_SECONDS", "30"),
+    )
+    dependency = sample_workspace / "src" / "fresh_dep.py"
+    importer = sample_workspace / "src" / "fresh_user.py"
+    dependency.write_text("def make() -> int:\n    return 1\n", encoding="utf-8")
+    importer.write_text(
+        "from src.fresh_dep import make\n\n\ndef use() -> int:\n    value: int = make()\n    return value\n",
+        encoding="utf-8",
+    )
+    config = discover_config(sample_workspace)
+    config.python_executable = Path(sys.executable)
+    backend = PyrightLSPClient(config)
+    await backend.start()
+    try:
+        assert await backend.get_diagnostics(str(dependency)) == []
+        assert await backend.get_diagnostics(str(importer)) == []
+
+        dependency.write_text('def make() -> str:\n    return "x"\n', encoding="utf-8")
+
+        after_edit = await backend.get_diagnostics(str(importer))
+        assert [item.code for item in after_edit] == ["reportAssignmentType"]
+
+        dependency.write_text("def make() -> int:\n    return 1\n", encoding="utf-8")
+        batch = await backend.get_diagnostics_many([str(importer)])
+        assert batch == [[]]
+    finally:
+        await backend.shutdown()
