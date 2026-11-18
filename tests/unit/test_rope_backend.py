@@ -265,15 +265,14 @@ async def test_extract_method_returns_edits(rope_backend: tuple[RopeBackend, Pat
     assert not result.applied
 
 
-def test_position_offset_round_trip(rope_backend: tuple[RopeBackend, Path]) -> None:
-    """Position and offset conversions round-trip correctly."""
+def test_position_to_offset_converts_line_and_character(rope_backend: tuple[RopeBackend, Path]) -> None:
+    """A 0-based line/character position maps to its character offset."""
     backend, module = rope_backend
+    first_line = module.read_text(encoding="utf-8").splitlines(keepends=True)[0]
 
     offset = backend._position_to_offset(str(module), 1, 4)  # pyright: ignore[reportPrivateUsage]
-    position = backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
 
-    assert position.line == 1
-    assert position.character == 4
+    assert offset == len(first_line) + 4
 
 
 @pytest.mark.asyncio
@@ -798,14 +797,6 @@ async def test_range_position_error_names_prefixed_parameter(
             method_name="compute_value",
             apply=False,
         )
-
-
-@pytest.mark.parametrize("offset", [-1, 10_000])
-def test_offset_errors_are_invalid_input(rope_backend: tuple[RopeBackend, Path], offset: int) -> None:
-    backend, module = rope_backend
-
-    with pytest.raises(ToolInputError, match=r"\(parameter: offset\)$"):
-        backend._offset_to_position(str(module), offset)  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio

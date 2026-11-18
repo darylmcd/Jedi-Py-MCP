@@ -366,26 +366,6 @@ class RopeBackend:
 
         return sum(len(chunk) for chunk in lines[:line]) + character
 
-    def _offset_to_position(self, file_path: str, offset: int) -> Position:
-        """Convert rope offset to a 0-based line/character position."""
-        if offset < 0:
-            raise ToolInputError(f"offset must be non-negative; got {offset} (parameter: offset)")
-
-        content = Path(file_path).read_text(encoding="utf-8")
-        if offset > len(content):
-            raise ToolInputError(
-                f"offset {offset} is out of range: the file has {len(content)} character(s) "
-                "(parameter: offset)"
-            )
-
-        prefix = content[:offset]
-        line = prefix.count("\n")
-        if line == 0:
-            return Position(line=0, character=len(prefix))
-
-        last_newline = prefix.rfind("\n")
-        return Position(line=line, character=len(prefix) - last_newline - 1)
-
     def _workspace_path(self, resource: Resource) -> str:
         """Return the normalized absolute path of a rope resource.
 
@@ -1560,7 +1540,9 @@ class RopeBackend:
 
         Re-reads the rope project for every call so each step previews against
         the *current* (partially-edited) tree — the resolved running-source
-        model. Raises :class:`RopeError` for an unsupported tool or bad args.
+        model. Raises :class:`ToolInputError` for a path outside the workspace root or a
+        position outside the file, and :class:`RopeError` for an unsupported tool or a
+        non-string ``file_path``.
         """
         project = self._require_project()
         project.validate(project.root)
