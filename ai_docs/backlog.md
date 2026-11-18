@@ -49,37 +49,40 @@
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0056` | High | diff-preview-path-scope | **Path-less tools answer from whichever workspace was used last** — add `root_path` to path-less tools and raise a coded `AMBIGUOUS_WORKSPACE` instead of falling back to the most-recent or pre-warmed root. [type: bug] [source: retro-20260927] | M | items/bl-0056.md |
-| `nested-workspace-multi-path-boundary` | High | — | **Validate every explicit workspace path** — Resolve all workspace-selecting paths before dispatch and reject mixed roots in either order. [type: bug] [source: remediate-20261113] | M | items/nested-workspace-multi-path-boundary.md |
+| `bl-0056` | High | — | **Path-less tools answer from whichever workspace was used last** — add `root_path` to path-less tools and raise a coded `AMBIGUOUS_WORKSPACE` instead of falling back to the most-recent or pre-warmed root. [type: bug] [source: retro-20260927] | M | items/bl-0056.md |
 | `rope-signature-rename-bindings` | High | — | **Preserve signature rename bindings** — Rename parameter references and preserve positional and keyword argument values at call sites. [type: bug] [source: remediate-20261113] | M | items/rope-signature-rename-bindings.md |
-| `diff-preview-path-scope` | High | — | **Diff preview accepts paths outside its workspace** — Enforce the authorized filesystem scope before reading edit targets. [type: security] [source: remediate-20261113] | M | items/diff-preview-path-scope.md |
 
 ## Medium
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
 | `nested-workspace-recursive-scan` | Medium | — | **Keep recursive scans inside the selected workspace** — Prune nested workspace boundaries from implicit file enumeration used by workspace tools. [type: bug] [source: remediate-20261113] | M | items/nested-workspace-recursive-scan.md |
-| `workspace-startup-rollback` | Medium | — | **Clean up a partially initialized workspace** — Release started backends if a later workspace backend fails to initialize. [type: bug] [source: remediate-20261113] | S | items/workspace-startup-rollback.md |
-| `rope-inline-default-sequence-validation` | Medium | — | **Validate inline defaults after preceding operations** — Check inline_default against the effective signature at its position in the operation sequence. [type: bug] [source: remediate-20261113] | S | items/rope-inline-default-sequence-validation.md |
 | `lsp-server-request-id-collision` | Medium | — | **Route server requests before matching response IDs** — Separate incoming JSON-RPC requests from responses even when IDs overlap. [type: bug] [source: remediate-20261113] | S | items/lsp-server-request-id-collision.md |
 | `pyright-restart-document-replay` | Medium | — | **Restore document state on remaining LSP retries** — Reopen the document on the replacement transport for every remaining file-bound request. [type: bug] [source: remediate-20261113] | S | items/pyright-restart-document-replay.md |
 | `pyright-workspace-diagnostic-snapshot` | Medium | — | **Analyze pathless diagnostics across the workspace** — Collect current diagnostics for the documented workspace scope and surface analysis failures. [type: bug] [source: remediate-20261113] | M | items/pyright-workspace-diagnostic-snapshot.md |
 | `pyright-diagnostics-import-freshness` | Medium | — | **Refresh changed imports before diagnostic analysis** — Synchronize edited open dependencies before analyzing their importers. [type: bug] [source: remediate-20261113] | M | items/pyright-diagnostics-import-freshness.md |
 | `diagnostics-ignore-comment-parsing` | Medium | — | **Respect the scope of diagnostic ignore comments** — Avoid discarding diagnostics for string literals or for unrelated selective ignore rules. [type: bug] [source: remediate-20261113] | S | items/diagnostics-ignore-comment-parsing.md |
 | `workspace-eviction-active-requests` | Medium | — | **Keep active workspace backends alive through dispatch** — Coordinate registry eviction with in-flight requests and prohibit respawning an evicted transport. [type: bug] [source: remediate-20261113] | M | items/workspace-eviction-active-requests.md |
+| `multi-project-rename-roots` | Medium | — | **Authorize multi_project_rename additional_roots** — Operator decision needed first: which roots may be named (registered only? allowlist?), then enforce before opening any Project. [type: bug] [source: remediate-20261117] | M | items/multi-project-rename-roots.md |
+| `workspace-selection-authorized-roots` | Medium | — | **Restrict path-selected workspaces to authorized roots** — Operator decision needed first: may a path select an unregistered marker-bearing project? Then enforce. [type: bug] [source: remediate-20261117] | M | items/workspace-selection-authorized-roots.md |
+| `signature-add-reorder-default-order-validation` | Medium | — | **Validate parameter order for add/reorder** — reject add/reorder leaving a required parameter after a defaulted one in the simulated walk. [type: bug] [source: remediate-20261117] | S | items/signature-add-reorder-default-order-validation.md |
 
 ## Low
 
 | id | pri | deps | do | size | detail |
 |----|-----|------|----|------|--------|
-| `bl-0050` | Low | — | **Rope backend stale docstring and dead offset helper** — fix `_build_step_changes` raise docs after bl-0036 and delete or wire `_offset_to_position`. [type: chore] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0050.md |
 | `bl-0051` | Low | — | **Test-file exclusion ignores tests/ trees** — `is_test_file` matches filenames only, so fixture modules under `tests/` become sweep targets with `exclude_test_files=True`. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0051.md |
 | `bl-0052` | Low | — | **get_diagnostics batch has no per-file failure channel** — Return per-file diagnostic failures and propagate workspace scan cancellation. [type: bug] [source: backlog-remediate-20260926T234845Z] | S | items/bl-0052.md |
 | `bl-0053` | Low | — | **Silent limit/offset guards unreachable after schema bounds** — reject or share the backend `limit > 0` / `offset > 0` branches bl-0018 made MCP-unreachable. [type: refactor] [source: backlog-remediate-20260926T234845Z] | M | items/bl-0053.md |
 | `bl-0054` | Low | — | **Two LSP-range converters diverge** — merge `helpers._lsp_range` (fails on missing coords) and `lsp_converters.model_range` (zero-defaults them) into one converter with explicit strictness. [type: refactor] [source: backlog-remediate-20260927T020158Z] | M | items/bl-0054.md |
-| `workspace-root-provenance-eviction` | Low | — | **Preserve workspace root provenance during eviction** — Prefer auto-discovered workspaces for eviction ahead of explicitly registered roots. [type: bug] [source: remediate-20261113] | S | items/workspace-root-provenance-eviction.md |
-| `workspace-idle-timeout-unused` | Low | — | **Resolve the unused workspace idle timeout** — Remove the unused constructor state with migration coverage or enforce the documented idle lifecycle. [type: bug] [source: remediate-20261113] | S | items/workspace-idle-timeout-unused.md |
 | `backend-threading-input-error-doc` | Low | — | **Document worker input error propagation** — Describe how the shared thread wrapper preserves ToolInputError. [type: bug] [source: remediate-20261113] | S | items/backend-threading-input-error-doc.md |
+| `windows-unc-path-preflight-io` | Low | — | **Reject UNC/device paths before filesystem access** — reject (or confirm and document) UNC/device-namespace paths before resolve()/marker probes in the workspace boundary. [type: bug] [source: remediate-20261117] | M | items/windows-unc-path-preflight-io.md |
+| `registry-resolve-root-mutates-unlocked` | Low | — | **Make resolve_workspace_root pure** — stop mutating _known_roots/_auto_roots on read; register on dispatch under the lock. [type: bug] [source: remediate-20261117] | M | items/registry-resolve-root-mutates-unlocked.md |
+| `registry-set-roots-cancel-safety` | Low | — | **Cancel-safe set_roots and _run_to_completion** — reorder set_roots state replacement; retrieve shielded task exceptions on cancel; add tests. [type: bug] [source: remediate-20261117] | S | items/registry-set-roots-cancel-safety.md |
+| `server-startup-teardown-guard` | Low | — | **Guard lifespan startup with teardown** — move set_roots and eager get_backends inside the try/finally owning shutdown_all. [type: bug] [source: remediate-20261117] | S | items/server-startup-teardown-guard.md |
+| `build-unified-diff-direct-caller-containment` | Low | — | **Containment at the diff library seam** — add workspace containment to build_unified_diff/diff_preview, or document the boundary as the only guard. [type: bug] [source: remediate-20261117] | M | items/build-unified-diff-direct-caller-containment.md |
+| `error-boundary-swallows-resolution-error` | Low | — | **Stop swallowing WorkspaceResolutionError; derive PATH_PARAMS** — fix _require_single_workspace swallow; derive contract-test PATH_PARAMS from live schemas. [type: refactor] [source: remediate-20261117] | S | items/error-boundary-swallows-resolution-error.md |
+| `output-dir-anchorless-boundary` | Low | — | **Tie anchorless output_dir to its workspace** — Operator decision needed first: must absolute output_dir be inside the call's workspace? Then enforce. [type: bug] [source: remediate-20261117] | M | items/output-dir-anchorless-boundary.md |
 
 ## Defer
 
