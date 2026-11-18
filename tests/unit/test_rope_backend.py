@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from rope.base.fscommands import FileSystemCommands  # type: ignore[import-untyped]
@@ -978,3 +979,240 @@ async def test_uninitialized_backend_stays_rope_error(tmp_path: Path) -> None:
         await backend.rename(str(module), 0, 0, "renamed", apply=False)
 
     assert not isinstance(excinfo.value, ToolInputError)
+
+
+# --- change_signature rename: body binding, call values, default (rope-signature-rename-bindings) ---
+
+
+def _rename_backend(tmp_path: Path, files: dict[str, str]) -> RopeBackend:
+    for name, text in files.items():
+        (tmp_path / name).write_bytes(text.encode("utf-8"))
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return backend
+
+
+def _rename_op(index: int, new_name: str = "renamed", default: str | None = None) -> SignatureOperation:
+    return SignatureOperation(op="rename", index=index, new_name=new_name, default=default)
+
+
+def _edit_text(result: RefactorResult, module: Path) -> str:
+    return next(e for e in result.edits if Path(e.file_path).resolve() == module.resolve()).new_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply", [False, True])
+async def test_rename_keeps_body_binding_and_call_argument_values(tmp_path: Path, apply: bool) -> None:
+    """Preview and apply rename the body binding and keep both call arguments."""
+    source = "def f(a, b):\n    return a + b\n\n\nf(1, 2)\nf(1, b=3)\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    result = await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=apply)
+    expected = "def f(a, renamed):\n    return a + renamed\n\n\nf(1, 2)\nf(1, 3)\n"
+    assert _edit_text(result, module) == expected
+    assert module.read_text(encoding="utf-8") == (expected if apply else source)
+
+
+@pytest.mark.asyncio
+async def test_rename_keeps_the_original_default(tmp_path: Path) -> None:
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": "def f(a, b=5):\n    return a + b\n\n\nf(1)\nf(1, 2)\nf(b=7, a=1)\n"})
+    result = await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=False)
+    assert _edit_text(result, module) == (
+        "def f(a, renamed=5):\n    return a + renamed\n\n\nf(1)\nf(1, 2)\nf(1, 7)\n"
+    )
+    replaced = await backend.change_signature(str(module), 0, 4, [_rename_op(1, default="9")], apply=False)
+    assert _edit_text(replaced, module).startswith("def f(a, renamed=9):")
+
+
+@pytest.mark.asyncio
+async def test_rename_updates_recursion_methods_and_other_files(tmp_path: Path) -> None:
+    files = {
+        "m.py": (
+            "class C:\n    def m(self, a, b):\n        if a:\n            return self.m(a - 1, b=b)\n"
+            "        return b\n\n\nC().m(1, b=2)\n"
+        ),
+        "other.py": "from m import C\n\nC().m(3, b=4)\nC().m(5, 6)\n",
+    }
+    backend = _rename_backend(tmp_path, files)
+    # Position on a call site in another file: the definition module is still patched.
+    result = await backend.change_signature(str(tmp_path / "other.py"), 2, 4, [_rename_op(2)], apply=False)
+    assert _edit_text(result, tmp_path / "m.py") == (
+        "class C:\n    def m(self, a, renamed):\n        if a:\n            return self.m(a - 1, renamed)\n"
+        "        return renamed\n\n\nC().m(1, 2)\n"
+    )
+    assert _edit_text(result, tmp_path / "other.py") == "from m import C\n\nC().m(3, 4)\nC().m(5, 6)\n"
+
+
+@pytest.mark.asyncio
+async def test_rename_of_a_crlf_file_renames_body_and_calls(tmp_path: Path) -> None:
+    """CRLF sources are spliced at the right byte offsets (rope hands over newline-normalized text)."""
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": "def f(a, b):\r\n    return b\r\n\r\n\r\nf(1, b=2)\r\n"})
+    result = await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=False)
+    assert _edit_text(result, module).replace("\r\n", "\n") == "def f(a, renamed):\n    return renamed\n\n\nf(1, 2)\n"
+
+
+@pytest.mark.asyncio
+async def test_rename_locates_the_definition_when_a_call_above_it_changes_line_count(tmp_path: Path) -> None:
+    source = "def g():\n    return f(1,\n             b=2)\n\n\ndef f(a, b):\n    return b\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    result = await backend.change_signature(str(module), 5, 4, [_rename_op(1)], apply=False)
+    text = _edit_text(result, module)
+    assert "def f(a, renamed):\n    return renamed\n" in text
+    assert "f(1, 2)" in text
+
+
+@pytest.mark.asyncio
+async def test_two_renames_with_reorder_and_closures(tmp_path: Path) -> None:
+    source = "def f(a, b):\n    def g():\n        return a, b\n    return g\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source + "\n\nf(1, 2)\n"})
+    ops = [_rename_op(0, "x"), _rename_op(1, "y"), SignatureOperation(op="reorder", new_order=[1, 0])]
+    result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
+    assert _edit_text(result, module) == (
+        "def f(y, x):\n    def g():\n        return x, y\n    return g\n\n\nf(2, 1)\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rename_chain_collapses_and_removed_parameter_is_not_renamed(tmp_path: Path) -> None:
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": "def f(a, b):\n    return a + b\n"})
+    chained = await backend.change_signature(
+        str(module), 0, 4, [_rename_op(1, "mid"), _rename_op(1, "last")], apply=False
+    )
+    assert _edit_text(chained, module) == "def f(a, last):\n    return a + last\n"
+    removed = await backend.change_signature(
+        str(module), 0, 4, [_rename_op(1, "mid"), SignatureOperation(op="remove", index=1)], apply=False
+    )
+    assert _edit_text(removed, module) == "def f(a):\n    return a + b\n"
+
+
+_REFUSED_RENAMES = [
+    pytest.param(
+        "def f(a, b):\n    def g():\n        nonlocal b\n    return g\n", [_rename_op(1)], "nonlocal", id="nonlocal"
+    ),
+    pytest.param("def f(a, b):\n    return b + renamed\n", [_rename_op(1)], "already used", id="new-name-in-body"),
+    pytest.param("def f(a, b):\n    return locals(), b\n", [_rename_op(1)], "locals", id="locals"),
+    pytest.param(
+        "import sys\n\n\ndef f(a, b):\n    return sys._getframe().f_locals['b']\n",
+        [_rename_op(1)],
+        "reads local variables by name",
+        id="frame",
+    ),
+    pytest.param(
+        "def f(a, b):\n    return b\n", [_rename_op(0, "x"), _rename_op(1, "a")], "swap or cycle", id="swap"
+    ),
+    pytest.param("def f(a, b, *, c):\n    return b + c\n", [_rename_op(1)], "does not parse", id="keyword-only"),
+    pytest.param(
+        "def f(a, b):\n    return b\n",
+        [_rename_op(1), SignatureOperation(op="add", index=2, name="b")],
+        "reuses the old name",
+        id="add-reuses-old-name",
+    ),
+    pytest.param(
+        "def f(a, b):\n    return [x for x in a for b in x]\n",
+        [_rename_op(1)],
+        "differs from the original",
+        id="comprehension-shadow",
+    ),
+    pytest.param(
+        "def f(a, b):\n    return f'{b=}'\n", [_rename_op(1)], "differs from the original", id="fstring-debug"
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source", "ops", "message"), _REFUSED_RENAMES)
+async def test_refused_rename_leaves_every_file_untouched_when_applied(
+    tmp_path: Path, source: str, ops: list[SignatureOperation], message: str
+) -> None:
+    module = tmp_path / "m.py"
+    caller = tmp_path / "caller.py"
+    backend = _rename_backend(tmp_path, {"m.py": source, "caller.py": "from m import f\n\nf(1, 2)\n"})
+    line = next(i for i, text in enumerate(source.splitlines()) if text.startswith("def f"))
+    with pytest.raises(ToolInputError, match=message):
+        await backend.change_signature(str(module), line, 4, ops, apply=True)
+    assert module.read_text(encoding="utf-8") == source
+    assert caller.read_text(encoding="utf-8") == "from m import f\n\nf(1, 2)\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ops", "parameter"),
+    [
+        ([_rename_op(9)], "operations[0].index"),
+        ([_rename_op(1, "class")], "operations[0].new_name"),
+        ([_rename_op(1, "a")], "operations[0].new_name"),
+        ([_rename_op(1, "ﬁle")], "operations[0].new_name"),
+        ([_rename_op(0, "x", default="1")], "operations[0].default"),
+    ],
+)
+async def test_rename_rejects_invalid_targets(tmp_path: Path, ops: list[SignatureOperation], parameter: str) -> None:
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": "def f(a, b):\n    return b\n"})
+    with pytest.raises(ToolInputError, match=re.escape(parameter)):
+        await backend.change_signature(str(module), 0, 4, ops, apply=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("op", ["add", "rename", "remove", "normalize"])
+async def test_change_signature_refuses_async_functions(tmp_path: Path, op: str) -> None:
+    """rope yields no edit (or drops the parameter) for ``async def``; every operation is refused."""
+    source = "async def f(a, b):\n    return a + b\n\n\nasync def g():\n    return await f(1, 2)\n"
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    operation = {
+        "add": SignatureOperation(op="add", index=2, name="z", default="0"),
+        "rename": _rename_op(1),
+        "remove": SignatureOperation(op="remove", index=1),
+        "normalize": SignatureOperation(op="normalize"),
+    }[op]
+    with pytest.raises(ToolInputError, match="async"):
+        await backend.change_signature(str(module), 0, 10, [operation], apply=True)
+    assert module.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_rename_of_a_file_with_a_byte_order_mark_is_never_partial(tmp_path: Path) -> None:
+    """A BOM must never produce a partial rewrite: the rename is consistent or refused with the file untouched."""
+    module = tmp_path / "m.py"
+    raw = b"\xef\xbb\xbfdef f(a, b):\n    return b\n\n\nf(1, 2)\n"
+    module.write_bytes(raw)
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    try:
+        await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=True)
+    except ToolInputError:
+        assert module.read_bytes() == raw
+    else:
+        assert module.read_text(encoding="utf-8-sig") == "def f(a, renamed):\n    return renamed\n\n\nf(1, 2)\n"
+
+
+_BEHAVIOUR_SOURCES = [
+    pytest.param(
+        "def f(a, b):\n    r = [(b := x) for x in a]\n    return b\n", ([1, 2, 3], 0), id="walrus-in-comprehension"
+    ),
+    pytest.param(
+        "def f(a, b):\n    match a:\n        case dict(b=1):\n            return b\n    return b\n",
+        ({"b": 1}, 7),
+        id="keyword-pattern",
+    ),
+    pytest.param("def f(a, b):\n    class C:\n        b = 4\n    return C.b + b\n", (0, 3), id="class-body-binding"),
+    pytest.param("def f(a, b):\n    def g():\n        return a, b\n    return g()\n", (1, 2), id="closure"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source", "args"), _BEHAVIOUR_SOURCES)
+async def test_applied_rename_behaves_like_the_original(tmp_path: Path, source: str, args: tuple[object, ...]) -> None:
+    module = tmp_path / "m.py"
+    backend = _rename_backend(tmp_path, {"m.py": source})
+    before: dict[str, Any] = {}
+    exec(compile(source, "<before>", "exec"), before)  # noqa: S102 - fixed test sources
+    await backend.change_signature(str(module), 0, 4, [_rename_op(1)], apply=True)
+    after: dict[str, Any] = {}
+    exec(compile(module.read_text(encoding="utf-8"), "<after>", "exec"), after)  # noqa: S102
+    assert before["f"](*args) == after["f"](*args)

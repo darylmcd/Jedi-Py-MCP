@@ -73,7 +73,7 @@ the bounded `refactoring` or `analysis` profile; see `setup.md` for selection.
 | `introduce_factory` | Introduce factory-based construction helpers for classes. | `RefactorResult` |
 | `module_to_package` | Convert a Python module file into a package layout. | `RefactorResult` |
 | `generate_code` | Generate code scaffolding for a symbol or pattern. | `RefactorResult` |
-| `change_signature` | Add/remove/reorder parameters and update call sites. | `RefactorResult` |
+| `change_signature` | Add/remove/reorder/rename parameters and update call sites. `rename` keeps the parameter position, default and call arguments and renames its body bindings; it refuses (`ToolInputError`, nothing written) async functions (all operations), keyword-only functions, dynamic frame access (`locals`, `vars`, `eval`, `exec`, `dir`, `_getframe`, `currentframe`, `f_locals`), and any rename it cannot prove equivalent by comparing compiled code. rope drops parameter annotations on every operation (the tool restores them) and keeps the return annotation. The checks can over-refuse benignly (for example a parameter named like a module-level import); refusal is fail-closed. | `RefactorResult` |
 | `argument_normalizer` | Normalize positional arguments to keyword form. | `RefactorResult` |
 | `argument_default_inliner` | Inline default argument values at call sites. | `RefactorResult` |
 | `restructure` | Apply Rope pattern-based structural replacements. | `RefactorResult` |
