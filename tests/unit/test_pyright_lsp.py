@@ -127,6 +127,53 @@ async def test_request_response_id_correlation_with_string_id() -> None:
     assert result["result"] == {"ok": True}
 
 
+def _written_responses(process: MagicMock) -> list[JSONDict]:
+    """Decode every LSP frame the fake process stdin received."""
+    decoded: list[JSONDict] = []
+    for call in process.stdin.write.call_args_list:
+        _, _, body = call.args[0].partition(b"\r\n\r\n")
+        decoded.append(json.loads(body))
+    return decoded
+
+
+def _client_with_fake_stdin() -> tuple[LSPClientHarness, MagicMock]:
+    client = LSPClientHarness()
+    process = MagicMock()
+    process.stdin = MagicMock()
+    process.stdin.drain = AsyncMock()
+    manager = MagicMock()
+    manager.process = process
+    client.set_subprocess_manager(manager)
+    return client, process
+
+
+@pytest.mark.asyncio
+async def test_server_request_sharing_pending_id_is_answered() -> None:
+    """A server request whose id equals a pending client id is answered, not taken as the response."""
+    client, process = _client_with_fake_stdin()
+    future: asyncio.Future[JSONDict] = asyncio.get_running_loop().create_future()
+    client.add_pending_future(7, future)
+
+    await client.route_message({"jsonrpc": "2.0", "id": 7, "method": "workspace/configuration", "params": {}})
+
+    assert not future.done()
+    assert client.pending_count() == 1
+    assert _written_responses(process) == [{"jsonrpc": "2.0", "id": 7, "result": None}]
+
+    await client.route_message({"jsonrpc": "2.0", "id": 7, "result": {"ok": True}})
+    assert (await future)["result"] == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_server_request_with_non_numeric_string_id_is_answered() -> None:
+    """A server request whose id is not a numeric key still gets its response."""
+    client, process = _client_with_fake_stdin()
+
+    await client.route_message({"jsonrpc": "2.0", "id": "req-1", "method": "window/workDoneProgress/create"})
+
+    assert _written_responses(process) == [{"jsonrpc": "2.0", "id": "req-1", "result": None}]
+
+
 @pytest.mark.asyncio
 async def test_notification_routing() -> None:
     """Verify notifications are dispatched to registered handlers."""

@@ -231,13 +231,15 @@ class LSPClient:
         method_value = message.get("method")
         id_value = message.get("id")
 
-        # Server-initiated request: has both id and method.  Respond with empty result.
-        if isinstance(method_value, str) and id_value is not None:
-            request_id = _normalize_response_id(id_value)
-            if request_id is not None and request_id not in self._pending:
-                _LOGGER.debug("Responding to server request: %s (id=%s)", method_value, id_value)
-                await self._respond(id_value, result=None)  # type: ignore[arg-type]
-                return
+        # Server-initiated request: has both id and method.  A response never carries
+        # ``method``, so classify before any pending-map lookup: the server's id space
+        # is independent of ours and may collide with a pending client request id.
+        if isinstance(method_value, str) and (
+            isinstance(id_value, str) or (isinstance(id_value, int) and not isinstance(id_value, bool))
+        ):
+            _LOGGER.debug("Responding to server request: %s (id=%s)", method_value, id_value)
+            await self._respond(id_value, result=None)
+            return
 
         request_id = _normalize_response_id(id_value)
         if request_id is not None:
