@@ -1754,13 +1754,8 @@ async def test_directory_selects_the_workspace_containing_it_in_a_real_registry(
 
     with _patched_backend_classes():
         assert await scan_like(ctx, directory=str(repo / "pkg")) == (repo.resolve(), str((repo / "pkg").resolve()))
-        assert get_current_backends_selected(registry) is True
-
-
-def get_current_backends_selected(registry: WorkspaceRegistry) -> bool:
-    """Return whether the registry's only live workspace was selected by a request."""
-    (live,) = registry.active_backends()
-    return live.selected
+        (live,) = registry.active_backends()
+        assert live.selected is True
 
 
 @pytest.mark.asyncio

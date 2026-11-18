@@ -6,7 +6,7 @@ Status Accepted
 
 ## Context
 
-`root_path` carried two jobs depending on the tool. On 29 tools it only selected a workspace (ADR 0007). On four tools (`get_workspace_diagnostics`, `get_symbol_outline`, `dead_code_detection`, `unused_symbol_sweep`) it was also the directory to scan, so a subdirectory passed only to name a workspace silently narrowed the scan, and a subdirectory passed to scope a scan also chose the workspace that contains it. ADR 0007 recorded the overload without resolving it.
+`root_path` carried two jobs depending on the tool. On 26 tools it only selected a workspace (ADR 0007). On four tools (`get_workspace_diagnostics`, `get_symbol_outline`, `dead_code_detection`, `unused_symbol_sweep`) it was also the directory to scan, so a subdirectory passed only to name a workspace silently narrowed the scan, and a subdirectory passed to scope a scan also chose the workspace that contains it. ADR 0007 recorded the overload without resolving it.
 
 ## Decision
 
