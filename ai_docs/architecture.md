@@ -61,4 +61,4 @@ See `domains/python-refactor/reference.md` for the categorized tool surface and 
 ## Known Gaps
 
 - `list_environments` may return empty results depending on virtualenv layout (known Jedi discovery limitation).
-- Pyright diagnostics on lines with `# type: ignore` may still surface in tool results (LSP filtering limitation).
+- Ignore-comment suppression (`# type: ignore`, `# pyright: ignore[...]`) is Pyright's, honoring `enableTypeIgnoreComments`; the client does not filter diagnostics itself.

@@ -231,13 +231,23 @@ class LSPClient:
         method_value = message.get("method")
         id_value = message.get("id")
 
-        # Server-initiated request: has both id and method.  Respond with empty result.
+        # Server-initiated request: has both id and method.  A response never carries
+        # ``method``, so classify before any pending-map lookup: the server's id space
+        # is independent of ours and may collide with a pending client request id.
         if isinstance(method_value, str) and id_value is not None:
-            request_id = _normalize_response_id(id_value)
-            if request_id is not None and request_id not in self._pending:
+            if isinstance(id_value, str) or (isinstance(id_value, int) and not isinstance(id_value, bool)):
                 _LOGGER.debug("Responding to server request: %s (id=%s)", method_value, id_value)
-                await self._respond(id_value, result=None)  # type: ignore[arg-type]
-                return
+                await self._respond(id_value, result=None)
+            else:
+                # LSP ids are integer | string. A malformed id cannot be echoed back, and an
+                # invalid-request error needs a null id the server cannot correlate, so drop it.
+                # It must still never complete a pending client request or reach a notification handler.
+                _LOGGER.warning(
+                    "Dropping server message %s with malformed id of type %s",
+                    method_value,
+                    type(id_value).__name__,
+                )
+            return
 
         request_id = _normalize_response_id(id_value)
         if request_id is not None:
