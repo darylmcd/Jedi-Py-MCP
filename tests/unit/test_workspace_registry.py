@@ -426,10 +426,13 @@ async def test_repeated_cancellation_does_not_drop_startup_cleanup() -> None:
     backends.pyright.shutdown.side_effect = slow_shutdown
     task = asyncio.create_task(backends.initialize())
     await started.wait()
-    task.cancel()
-    await asyncio.sleep(0)
-    task.cancel()
-    await asyncio.sleep(0)
+    # Cancel 1 interrupts the hung start; cancel 2 interrupts the shield await and enters the
+    # wait loop; cancel 3 interrupts that wait, which must keep waiting for the cleanup.
+    for _ in range(3):
+        task.cancel()
+        await asyncio.sleep(0)
+    assert cleaned == []
+    assert not task.done()
     gate.set()
 
     with pytest.raises(asyncio.CancelledError):
