@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -316,3 +317,182 @@ def test_get_most_recent_returns_latest() -> None:
 def test_max_workspaces_must_be_positive() -> None:
     with pytest.raises(ValueError, match="max_workspaces must be >= 1"):
         WorkspaceRegistry(max_workspaces=0)
+
+
+# ── Startup rollback ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_initialize_failure_after_pyright_start_reaps_pyright_and_rope() -> None:
+    backends = _mock_backends(Path("/project"))
+    backends.jedi.initialize.side_effect = RuntimeError("jedi failed")
+
+    with pytest.raises(RuntimeError, match="jedi failed"):
+        await backends.initialize()
+
+    backends.pyright.shutdown.assert_awaited_once()
+    backends.rope.close.assert_called_once()
+    assert backends.is_initialized is False
+    await backends.shutdown()
+    backends.pyright.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rope_initialize_failure_reaps_pyright() -> None:
+    backends = _mock_backends(Path("/project"))
+    backends.rope.initialize.side_effect = RuntimeError("rope failed")
+
+    with pytest.raises(RuntimeError, match="rope failed"):
+        await backends.initialize()
+
+    backends.pyright.shutdown.assert_awaited_once()
+    backends.rope.close.assert_called_once()
+    assert backends.is_initialized is False
+
+
+@pytest.mark.asyncio
+async def test_pyright_start_failure_runs_cleanup() -> None:
+    backends = _mock_backends(Path("/project"))
+    backends.pyright.start.side_effect = RuntimeError("pyright failed")
+
+    with pytest.raises(RuntimeError, match="pyright failed"):
+        await backends.initialize()
+
+    backends.pyright.shutdown.assert_awaited_once()
+    backends.rope.close.assert_called_once()
+    backends.jedi.initialize.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_does_not_mask_startup_error() -> None:
+    backends = _mock_backends(Path("/project"))
+    backends.rope.initialize.side_effect = RuntimeError("rope failed")
+    backends.pyright.shutdown.side_effect = OSError("cannot terminate")
+
+    with pytest.raises(RuntimeError, match="rope failed"):
+        await backends.initialize()
+
+    backends.rope.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_startup_still_reaps_pyright() -> None:
+    backends = _mock_backends(Path("/project"))
+    started = asyncio.Event()
+
+    async def hang() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    backends.pyright.start.side_effect = hang
+    task = asyncio.create_task(backends.initialize())
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    backends.pyright.shutdown.assert_awaited_once()
+    backends.rope.close.assert_called_once()
+    assert backends.is_initialized is False
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancellation_does_not_drop_startup_cleanup() -> None:
+    backends = _mock_backends(Path("/project"))
+    started = asyncio.Event()
+    gate = asyncio.Event()
+    cleaned: list[bool] = []
+
+    async def hang() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    async def slow_shutdown() -> None:
+        await gate.wait()
+        cleaned.append(True)
+
+    backends.pyright.start.side_effect = hang
+    backends.pyright.shutdown.side_effect = slow_shutdown
+    task = asyncio.create_task(backends.initialize())
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    gate.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cleaned == [True]
+    backends.rope.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_shutdown_still_closes_rope_and_finishes_pyright() -> None:
+    backends = _mock_backends(Path("/project"))
+    await backends.initialize()
+    entered = asyncio.Event()
+    gate = asyncio.Event()
+    finished: list[bool] = []
+
+    async def slow_shutdown() -> None:
+        entered.set()
+        await gate.wait()
+        finished.append(True)
+
+    backends.pyright.shutdown.side_effect = slow_shutdown
+    task = asyncio.create_task(backends.shutdown())
+    await entered.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    gate.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert finished == [True]
+    backends.rope.close.assert_called_once()
+    assert backends.is_initialized is False
+
+
+@pytest.mark.asyncio
+async def test_failed_workspace_startup_is_cleaned_up_and_retryable(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname='test'\n")
+    source = project / "main.py"
+    source.write_text("x = 1\n")
+    registry = WorkspaceRegistry(max_workspaces=1)
+    pyrights: list[AsyncMock] = []
+    jedis: list[MagicMock] = []
+
+    def make_pyright(_config: object) -> AsyncMock:
+        pyrights.append(AsyncMock())
+        return pyrights[-1]
+
+    def make_jedi(_config: object) -> MagicMock:
+        jedis.append(MagicMock())
+        if len(jedis) == 1:
+            jedis[-1].initialize.side_effect = RuntimeError("jedi failed")
+        return jedis[-1]
+
+    with patch("python_refactor_mcp.workspace_registry.discover_config") as mock_config, \
+         patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=make_pyright), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend", side_effect=make_jedi), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+        mock_config.return_value = _mock_config(project)
+
+        with pytest.raises(RuntimeError, match="jedi failed"):
+            await registry.get_backends(str(source))
+        assert registry.active_backends() == []
+        pyrights[0].shutdown.assert_awaited_once()
+
+        recovered = await registry.get_backends(str(source))
+        again = await registry.get_backends(str(source))
+
+    assert recovered is again
+    assert recovered.is_initialized
+    assert len(pyrights) == 2
+    pyrights[1].shutdown.assert_not_awaited()

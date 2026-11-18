@@ -1,0 +1,1 @@
+- **Fixed:** A workspace whose Jedi or Rope backend fails to start (or whose startup is cancelled) now stops the Pyright process it already started, instead of leaking it, and the next request retries cleanly. Cancelled Pyright startup and workspace teardown also finish releasing their resources.

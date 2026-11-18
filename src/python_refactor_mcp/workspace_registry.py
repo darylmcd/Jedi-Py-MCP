@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from python_refactor_mcp.backends.jedi_backend import JediBackend
 from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
@@ -18,6 +20,24 @@ _LOGGER = logging.getLogger(__name__)
 
 # Project markers used to discover workspace roots by walking parent directories.
 _PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg")
+
+
+async def _run_to_completion(coro: Coroutine[Any, Any, None]) -> None:
+    """Run *coro* to completion even if the awaiting task is cancelled (once or repeatedly).
+
+    The cancellation is re-raised after the work finishes. The task is held in a local
+    so a second cancellation cannot drop the only reference to it.
+    """
+    task = asyncio.ensure_future(coro)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.wait({task})
+            except asyncio.CancelledError:
+                continue
+        raise
 
 
 @dataclass
@@ -36,12 +56,20 @@ class WorkspaceBackends:
     _initialized: bool = field(default=False, repr=False)
 
     async def initialize(self) -> None:
-        """Start all three backends for this workspace."""
+        """Start all three backends for this workspace.
+
+        A failure (or cancellation) after any backend started releases everything
+        already started before re-raising, so no subprocess outlives a failed start.
+        """
         if self._initialized:
             return
-        await self.pyright.start()
-        self.jedi.initialize()
-        self.rope.initialize()
+        try:
+            await self.pyright.start()
+            self.jedi.initialize()
+            self.rope.initialize()
+        except BaseException:
+            await _run_to_completion(self._release_resources())
+            raise
         self._initialized = True
 
     async def shutdown(self) -> None:
@@ -49,14 +77,19 @@ class WorkspaceBackends:
         if not self._initialized:
             return
         self._initialized = False
+        await _run_to_completion(self._release_resources())
+
+    async def _release_resources(self) -> None:
+        """Stop Pyright and close Rope. Safe on partially started backends; swallows Exception only."""
         try:
             await self.pyright.shutdown()
         except Exception:
             _LOGGER.warning("Pyright shutdown failed for %s", self.config.workspace_root, exc_info=True)
-        try:
-            self.rope.close()
-        except Exception:
-            _LOGGER.warning("Rope close failed for %s", self.config.workspace_root, exc_info=True)
+        finally:
+            try:
+                self.rope.close()
+            except Exception:
+                _LOGGER.warning("Rope close failed for %s", self.config.workspace_root, exc_info=True)
 
     def touch(self) -> None:
         """Update last-accessed timestamp for LRU tracking."""
