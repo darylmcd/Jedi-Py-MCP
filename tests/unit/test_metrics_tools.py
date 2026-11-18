@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from python_refactor_mcp.backends.pyright_lsp import PyrightLSPClient
 from python_refactor_mcp.errors import ToolInputError
-from python_refactor_mcp.models import Diagnostic, Position, Range
+from python_refactor_mcp.models import Diagnostic, Location, Position, Range
 from python_refactor_mcp.tools import metrics
 from python_refactor_mcp.tools.metrics.security import security_scan
 from python_refactor_mcp.tools.metrics.test_map import get_test_coverage_map
@@ -361,3 +362,57 @@ async def test_metrics_limits_reject_non_positive_values(tmp_path: Path, limit: 
         await metrics.code_metrics(str(module), limit=limit)
     with pytest.raises(ToolInputError, match="limit"):
         await metrics.get_module_dependencies(make_config(tmp_path), limit=limit)
+
+
+def _reference(path: Path) -> Location:
+    return Location(
+        file_path=str(path),
+        range=Range(start=Position(line=0, character=0), end=Position(line=0, character=1)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_test_coverage_map_classifies_references_by_workspace_relative_test_paths(tmp_path: Path) -> None:
+    """latest.py is not a test; tests/ directory modules and test_*.py names are."""
+    workspace = tmp_path / "tests" / "proj"
+    source = workspace / "src" / "api.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def public_api():\n    return 1\n", encoding="utf-8")
+    refs = [
+        workspace / "src" / "latest.py",
+        workspace / "src" / "user.py",
+        workspace / "tests" / "helpers.py",
+        workspace / "src" / "test_api.py",
+    ]
+    pyright = AsyncMock()
+    pyright.workspace_root = workspace
+    pyright.get_references.return_value = [_reference(path) for path in refs]
+
+    result = await get_test_coverage_map(pyright, file_path=str(source))
+
+    assert result.entries[0].test_references == sorted(
+        [str(workspace / "tests" / "helpers.py"), str(workspace / "src" / "test_api.py")]
+    )
+    assert result.entries[0].covered is True
+
+
+@pytest.mark.asyncio
+async def test_test_coverage_map_without_test_references_is_uncovered(tmp_path: Path) -> None:
+    """References from non-test modules, even under an ancestor tests/ dir, leave the symbol uncovered."""
+    workspace = tmp_path / "tests" / "proj"
+    source = workspace / "api.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def public_api():\n    return 1\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.workspace_root = workspace
+    pyright.get_references.return_value = [_reference(workspace / "latest.py")]
+
+    result = await get_test_coverage_map(pyright, file_path=str(source))
+
+    assert result.entries[0].test_references == []
+    assert result.entries[0].covered is False
+
+
+def test_pyright_client_exposes_workspace_root(tmp_path: Path) -> None:
+    """The read tools derive the workspace root from the backend client."""
+    assert PyrightLSPClient(make_config(tmp_path)).workspace_root == tmp_path

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,7 @@ from python_refactor_mcp.errors import PyrightError, ToolInputError
 from python_refactor_mcp.models import Diagnostic, ImportSuggestion, Location, Position, Range, SymbolInfo
 from python_refactor_mcp.tools import search
 from python_refactor_mcp.tools.search._helpers import resolve_target_files
+from python_refactor_mcp.util.file_filter import is_test_file
 from tests.helpers import make_config as _config
 
 
@@ -515,3 +517,128 @@ async def test_unused_symbol_sweep_respects_dunder_all(tmp_path: Path) -> None:
 
     names = {item.name for item in result.items}
     assert names == {"exported"}
+
+
+def _touch(root: Path, *relative: str) -> None:
+    for rel in relative:
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("X = 1\n", encoding="utf-8")
+
+
+def _relative_names(root: Path, files: list[Path]) -> set[str]:
+    return {path.resolve().relative_to(root.resolve()).as_posix() for path in files}
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("tests/test_a.py", True),
+        ("src/a_test.py", True),
+        ("src/conftest.py", True),
+        ("tests/fixtures/models.py", True),
+        ("tests/helpers.py", True),
+        ("test/util.py", True),
+        ("pkg/tests/deep/nested/mod.py", True),
+        ("src/models.py", False),
+        ("src/contest.py", False),
+        ("latest/x.py", False),
+        ("src/testing/x.py", False),
+        ("src/tester.py", False),
+    ],
+)
+def test_is_test_file_uses_root_relative_directories(tmp_path: Path, relative: str, expected: bool) -> None:
+    """Directory components below the root named tests/test mark a module as a test file."""
+    assert is_test_file(tmp_path / relative, tmp_path) is expected
+
+
+def test_is_test_file_without_root_or_outside_root_uses_filename_rule_only(tmp_path: Path) -> None:
+    """No root, or a path outside the root, never applies the directory rule."""
+    assert is_test_file(tmp_path / "tests" / "fixtures" / "models.py") is False
+    assert is_test_file(tmp_path / "tests" / "test_a.py") is True
+    other = tmp_path / "elsewhere"
+    assert is_test_file(tmp_path / "tests" / "fixtures" / "models.py", other) is False
+
+
+def test_is_test_file_directory_case_follows_platform_normcase(tmp_path: Path) -> None:
+    """Windows compares directory names case-insensitively; POSIX is exact."""
+    expected = os.path.normcase("Tests") == os.path.normcase("tests")
+    assert is_test_file(tmp_path / "Tests" / "helpers.py", tmp_path) is expected
+    assert is_test_file(tmp_path / "tests" / "helpers.py", tmp_path) is True
+
+
+def test_resolve_target_files_excludes_non_test_named_modules_under_tests_dirs(tmp_path: Path) -> None:
+    """Fixture/helper modules under tests/ or test/ are not sweep targets; the flag off keeps them."""
+    _touch(
+        tmp_path,
+        "src/models.py",
+        "tests/test_x.py",
+        "tests/helpers.py",
+        "tests/fixtures/models.py",
+        "test/util.py",
+    )
+
+    excluded = resolve_target_files(None, None, None, _config(tmp_path), exclude_test_files=True)
+    included = resolve_target_files(None, None, None, _config(tmp_path), exclude_test_files=False)
+
+    assert _relative_names(tmp_path, excluded.files) == {"src/models.py"}
+    assert _relative_names(tmp_path, included.files) == {
+        "src/models.py",
+        "tests/test_x.py",
+        "tests/helpers.py",
+        "tests/fixtures/models.py",
+        "test/util.py",
+    }
+
+
+def test_resolve_target_files_workspace_inside_tests_directory_is_not_wholly_excluded(tmp_path: Path) -> None:
+    """Only components below the workspace root count, so a root under tests/ keeps its sources."""
+    workspace = tmp_path / "tests" / "proj"
+    _touch(workspace, "src/models.py", "tests/fix.py")
+
+    result = resolve_target_files(None, None, None, _config(workspace), exclude_test_files=True)
+
+    assert _relative_names(workspace, result.files) == {"src/models.py"}
+
+
+def test_resolve_target_files_applies_directory_rule_to_explicit_paths(tmp_path: Path) -> None:
+    """Explicit file_path/file_paths follow the same rule relative to the workspace root."""
+    _touch(tmp_path, "src/models.py", "tests/fixtures/models.py")
+    fixture = tmp_path / "tests" / "fixtures" / "models.py"
+    source = tmp_path / "src" / "models.py"
+    config = _config(tmp_path)
+
+    assert resolve_target_files(str(fixture), None, None, config, exclude_test_files=True).files == []
+    assert resolve_target_files(str(fixture), None, None, config, exclude_test_files=False).files == [fixture.resolve()]
+    both = resolve_target_files(None, [str(fixture), str(source)], None, config, exclude_test_files=True)
+    assert both.files == [source.resolve()]
+
+
+def test_resolve_target_files_root_path_override_is_the_relative_root(tmp_path: Path) -> None:
+    """An explicit root_path defines which directory components count."""
+    inner = tmp_path / "tests" / "proj"
+    _touch(inner, "src/models.py", "tests/fix.py")
+
+    result = resolve_target_files(None, None, str(inner), _config(tmp_path), exclude_test_files=True)
+
+    assert _relative_names(inner, result.files) == {"src/models.py"}
+
+
+@pytest.mark.asyncio
+async def test_sweeps_skip_fixture_modules_under_tests_directory(tmp_path: Path) -> None:
+    """unused_symbol_sweep and dead_code_detection do not report fixture classes under tests/fixtures."""
+    fixture = tmp_path / "tests" / "fixtures" / "models.py"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("class FixtureModel:\n    pass\n", encoding="utf-8")
+    pyright = AsyncMock()
+    pyright.get_diagnostics.return_value = []
+    pyright.get_references.return_value = []
+    config = _config(tmp_path)
+
+    sweep = await search.unused_symbol_sweep(pyright, config)
+    dead = await search.dead_code_detection(pyright, config)
+    sweep_all = await search.unused_symbol_sweep(pyright, config, exclude_test_files=False)
+
+    assert [item.name for item in sweep.items] == []
+    assert [item.name for item in dead.items] == []
+    assert "FixtureModel" in {item.name for item in sweep_all.items}

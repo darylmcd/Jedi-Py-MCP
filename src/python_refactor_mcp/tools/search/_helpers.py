@@ -18,6 +18,7 @@ from python_refactor_mcp.models import (
     ScanFailure,
     SymbolInfo,
 )
+from python_refactor_mcp.util.file_filter import is_test_file
 from python_refactor_mcp.util.file_filter import python_files as _filtered_python_files
 
 DIAGNOSTIC_TAG_UNNECESSARY = 1
@@ -119,12 +120,6 @@ def name_position(line_text: str, default_col: int, name: str) -> int:
     return default_col
 
 
-def is_test_file(path: Path) -> bool:
-    """Return whether *path* follows a conventional Python test filename."""
-    name = path.name
-    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
-
-
 @dataclass(frozen=True, slots=True)
 class ResolvedTargets:
     """Files a workspace search scan will inspect plus the requested scopes that do not exist."""
@@ -153,17 +148,17 @@ def resolve_target_files(
     """
     if file_path is not None and file_paths is not None:
         raise ToolInputError("file_path and file_paths are mutually exclusive (parameters: file_path, file_paths)")
+    effective_root = Path(root_path).resolve() if root_path else config.workspace_root
     if file_paths is not None:
         requested = [Path(path).resolve() for path in file_paths]
     elif file_path is not None:
         requested = [Path(file_path).resolve()]
     else:
-        effective_root = Path(root_path).resolve() if root_path else config.workspace_root
         if not effective_root.is_dir():
             return ResolvedTargets(files=[], failures=[_resolve_failure(effective_root, "NotADirectoryError")])
         requested = python_files(effective_root)
     if exclude_test_files:
-        requested = [path for path in requested if not is_test_file(path)]
+        requested = [path for path in requested if not is_test_file(path, effective_root)]
     files = [path for path in requested if path.is_file()]
     failures = [_resolve_failure(path, "IsADirectoryError") for path in requested if not path.is_file()]
     return ResolvedTargets(files=files, failures=failures)

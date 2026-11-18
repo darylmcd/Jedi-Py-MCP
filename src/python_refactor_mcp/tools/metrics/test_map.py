@@ -7,11 +7,17 @@ from pathlib import Path
 from typing import Protocol
 
 from python_refactor_mcp.models import Location, ScanFailure, TestCoverageEntry, TestCoverageMap
+from python_refactor_mcp.util.file_filter import is_test_file
 from python_refactor_mcp.util.scan import parse_python_file
 
 
 class _ReferencesBackend(Protocol):
     """Protocol for backends that can find references."""
+
+    @property
+    def workspace_root(self) -> Path:
+        """Workspace root used to classify test paths."""
+        ...
 
     async def get_references(
         self, file_path: str, line: int, char: int, include_declaration: bool,
@@ -65,7 +71,7 @@ async def get_test_coverage_map(
 
             test_refs = sorted({
                 ref.file_path for ref in refs
-                if "test" in Path(ref.file_path).name.lower() or "tests" in str(ref.file_path).lower()
+                if is_test_file(Path(ref.file_path), pyright.workspace_root)
             })
             entries.append(TestCoverageEntry(
                 symbol_name=name,
