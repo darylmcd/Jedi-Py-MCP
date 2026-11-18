@@ -43,7 +43,7 @@
 		"max_workspaces": {
 			"type": "number",
 			"title": "Maximum workspaces",
-			"description": "Number of workspaces kept loaded at once; the least recently used workspace is evicted beyond this limit.",
+			"description": "Number of workspaces kept loaded at once; beyond this limit the least recently used auto-discovered workspace is evicted first, then the least recently used explicitly registered one.",
 			"default": 3,
 			"min": 1,
 			"required": false

@@ -118,6 +118,9 @@ class WorkspaceRegistry:
         self._idle_timeout = idle_timeout_seconds
         self._workspaces: dict[Path, WorkspaceBackends] = {}
         self._known_roots: list[Path] = []
+        # Invariant: a subset of _known_roots. Roots found by marker discovery rather
+        # than registered through set_roots; they are evicted ahead of explicit roots.
+        self._auto_roots: set[Path] = set()
         self._lock = asyncio.Lock()
 
     # ── Root management ──────────────────────────────────────────────────
@@ -135,6 +138,8 @@ class WorkspaceRegistry:
             removed = old_set - new_set
 
             self._known_roots = resolved
+            # Every root passed here is explicit, including one previously auto-discovered.
+            self._auto_roots.clear()
 
             for root in removed:
                 backends = self._workspaces.pop(root, None)
@@ -199,6 +204,7 @@ class WorkspaceRegistry:
             for marker in _PROJECT_MARKERS:
                 if (parent / marker).exists():
                     self._known_roots.append(parent)
+                    self._auto_roots.add(parent)
                     _LOGGER.info("Auto-discovered workspace root: %s (marker: %s)", parent, marker)
                     return parent
 
@@ -224,17 +230,19 @@ class WorkspaceRegistry:
         self._workspaces[root] = backends
         return backends
 
+    def _eviction_key(self, root: Path, backends: WorkspaceBackends) -> tuple[bool, float]:
+        """Sort key for eviction; the smallest key is evicted first.
+
+        Auto-discovered roots go before explicit ones; least recently used first within each class.
+        """
+        return (root not in self._auto_roots, backends.last_accessed)
+
     async def _evict_lru(self) -> None:
         """Evict the least-recently-used workspace if at capacity. Caller must hold _lock."""
         if len(self._workspaces) < self._max_workspaces:
             return
 
-        # Prefer evicting auto-discovered roots over explicit roots.
-        explicit_roots = set(self._known_roots)
-        candidates = sorted(
-            self._workspaces.items(),
-            key=lambda kv: (kv[0] in explicit_roots, kv[1].last_accessed),
-        )
+        candidates = sorted(self._workspaces.items(), key=lambda kv: self._eviction_key(*kv))
         evict_root, evict_backends = candidates[0]
         _LOGGER.info("Evicting LRU workspace: %s (last_accessed=%.1f)", evict_root, evict_backends.last_accessed)
         del self._workspaces[evict_root]
@@ -248,3 +256,4 @@ class WorkspaceRegistry:
                 await backends.shutdown()
             self._workspaces.clear()
             self._known_roots.clear()
+            self._auto_roots.clear()

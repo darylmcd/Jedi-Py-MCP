@@ -283,11 +283,13 @@ async def test_shutdown_all() -> None:
 
     registry._workspaces = {Path("/a"): backends_a, Path("/b"): backends_b}
     registry._known_roots = [Path("/a"), Path("/b")]
+    registry._auto_roots = {Path("/b")}
 
     await registry.shutdown_all()
 
     assert len(registry._workspaces) == 0
     assert len(registry._known_roots) == 0
+    assert registry._auto_roots == set()
     backends_a.pyright.shutdown.assert_awaited_once()
     backends_b.pyright.shutdown.assert_awaited_once()
 
@@ -496,3 +498,105 @@ async def test_failed_workspace_startup_is_cleaned_up_and_retryable(tmp_path: Pa
     assert recovered.is_initialized
     assert len(pyrights) == 2
     pyrights[1].shutdown.assert_not_awaited()
+
+
+# ── Eviction provenance ──────────────────────────────────────────────────
+
+
+def _marker_project(parent: Path, name: str) -> Path:
+    project = parent / name
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname='test'\n")
+    (project / "main.py").write_text("x = 1\n")
+    return project.resolve()
+
+
+def _initialized_workspaces(stamps: dict[Path, float]) -> dict[Path, WorkspaceBackends]:
+    workspaces = {}
+    for root, stamp in stamps.items():
+        backends = _mock_backends(root)
+        backends._initialized = True
+        backends.last_accessed = stamp
+        workspaces[root] = backends
+    return workspaces
+
+
+@pytest.mark.asyncio
+async def test_evict_retains_older_explicit_root_over_newer_auto_root() -> None:
+    registry = WorkspaceRegistry(max_workspaces=2)
+    explicit = Path("/explicit").resolve()
+    auto = Path("/auto").resolve()
+    registry._known_roots = [explicit, auto]
+    registry._auto_roots = {auto}
+    registry._workspaces = _initialized_workspaces({explicit: 1.0, auto: 2.0})
+    evicted = registry._workspaces[auto]
+
+    await registry._evict_lru()
+
+    assert set(registry._workspaces) == {explicit}
+    evicted.pyright.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_evict_uses_lru_within_the_auto_class() -> None:
+    registry = WorkspaceRegistry(max_workspaces=3)
+    explicit, auto_old, auto_new = (Path(f"/{name}").resolve() for name in ("e", "ao", "an"))
+    registry._known_roots = [explicit, auto_old, auto_new]
+    registry._auto_roots = {auto_old, auto_new}
+    registry._workspaces = _initialized_workspaces({explicit: 0.5, auto_old: 1.0, auto_new: 2.0})
+
+    await registry._evict_lru()
+
+    assert set(registry._workspaces) == {explicit, auto_new}
+
+
+@pytest.mark.asyncio
+async def test_evict_uses_lru_within_the_explicit_class() -> None:
+    registry = WorkspaceRegistry(max_workspaces=2)
+    old, new = Path("/old").resolve(), Path("/new").resolve()
+    registry._known_roots = [old, new]
+    registry._workspaces = _initialized_workspaces({old: 1.0, new: 2.0})
+
+    await registry._evict_lru()
+
+    assert set(registry._workspaces) == {new}
+
+
+@pytest.mark.asyncio
+async def test_get_backends_evicts_auto_discovered_workspace_before_explicit(tmp_path: Path) -> None:
+    explicit = _marker_project(tmp_path, "explicit")
+    auto_one = _marker_project(tmp_path, "auto_one")
+    auto_two = _marker_project(tmp_path, "auto_two")
+    registry = WorkspaceRegistry(max_workspaces=2)
+    await registry.set_roots([explicit])
+
+    with patch(
+        "python_refactor_mcp.workspace_registry.discover_config",
+        side_effect=lambda root: _mock_config(root),
+    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock()), \
+         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
+         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+        explicit_backends = await registry.get_backends(str(explicit / "main.py"))
+        first_auto = await registry.get_backends(str(auto_one / "main.py"))
+        explicit_backends.last_accessed = 1.0
+        first_auto.last_accessed = 2.0
+        await registry.get_backends(str(auto_two / "main.py"))
+
+    assert set(registry._workspaces) == {explicit, auto_two}
+    first_auto.pyright.shutdown.assert_awaited_once()
+    assert {explicit, auto_one, auto_two} <= set(registry.get_known_roots())
+
+
+@pytest.mark.asyncio
+async def test_set_roots_promotes_auto_discovered_root_to_explicit(tmp_path: Path) -> None:
+    promoted = _marker_project(tmp_path, "promoted")
+    other = _marker_project(tmp_path, "other")
+    registry = WorkspaceRegistry(max_workspaces=2)
+    assert registry.resolve_workspace_root(promoted / "main.py") == promoted
+    await registry.set_roots([promoted])
+    assert registry.resolve_workspace_root(other / "main.py") == other
+    registry._workspaces = _initialized_workspaces({promoted: 1.0, other: 2.0})
+
+    await registry._evict_lru()
+
+    assert set(registry._workspaces) == {promoted}
