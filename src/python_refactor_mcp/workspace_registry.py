@@ -144,7 +144,9 @@ class WorkspaceRegistry:
     ``set_roots`` removes while leased leaves the registry at once (so capacity accounting
     and new requests are unaffected) but is shut down only when its last lease is released,
     so live backends may briefly exceed ``max_workspaces`` by the number of in-flight
-    requests on evicted workspaces. :meth:`shutdown_all` stops everything, leased or not.
+    requests on evicted workspaces and of worker threads their cancelled or timed-out
+    requests left running (each holds an extra lease until its task completes; ADR 0013).
+    :meth:`shutdown_all` stops everything, leased or not, and never waits for a worker.
     """
 
     def __init__(self, max_workspaces: int = 3) -> None:
@@ -222,7 +224,9 @@ class WorkspaceRegistry:
     def release(self, backends: WorkspaceBackends) -> None:
         """Give back the lease taken by :meth:`get_backends` or :meth:`implicit_workspace`.
 
-        Synchronous and lock-free, so it is safe in a ``finally`` during cancellation. The
+        Also gives back a worker thread's lease (see ``backends/_threading.py``), so the last
+        release of a retired workspace may follow its request's by however long the thread
+        runs. Synchronous and lock-free, so it is safe in a ``finally`` during cancellation. The
         last release of an unregistered workspace starts its shutdown (tracked, and awaited
         by :meth:`shutdown_all`); after shutdown_all it starts nothing.
         """

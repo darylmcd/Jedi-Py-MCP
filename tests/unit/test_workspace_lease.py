@@ -8,17 +8,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Coroutine, Iterator
+import threading
+import time
+from collections.abc import Callable, Coroutine, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from python_refactor_mcp import tool_runtime
-from python_refactor_mcp.errors import PyrightError, ToolInputError, WorkspaceResolutionError
-from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, tool_error_boundary
+from python_refactor_mcp.backends._threading import run_in_thread
+from python_refactor_mcp.errors import PyrightError, RopeError, ToolInputError, WorkspaceResolutionError
+from python_refactor_mcp.tool_runtime import MultiWorkspaceContext, get_current_backends, tool_error_boundary
 from python_refactor_mcp.workspace_registry import WorkspaceBackends, WorkspaceRegistry
 
 
@@ -531,3 +535,177 @@ def test_backends_are_identity_hashable() -> None:
     two = WorkspaceBackends(config=config, pyright=MagicMock(), jedi=MagicMock(), rope=MagicMock())
 
     assert len({one, two}) == 2
+
+
+# -- A worker thread keeps the lease after its caller is gone -----------------
+
+
+async def _until(predicate: Callable[[], bool]) -> None:
+    """Yield to the loop until *predicate* holds; a wall-clock guard turns a hang into a failure."""
+    deadline = time.monotonic() + 10
+    while not predicate():
+        assert time.monotonic() < deadline, "condition never held"
+        await asyncio.sleep(0)
+
+
+async def _drain() -> None:
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+class _BlockedWorker:
+    """A tool whose backend work blocks on a gate; the gate is always opened in a finally."""
+
+    def __init__(self, *, timeout: float = 30.0) -> None:
+        self.gate = threading.Event()
+        self.started = threading.Event()
+        self.timeout = timeout
+
+    def work(self) -> int:
+        self.started.set()
+        self.gate.wait(10)
+        return 1
+
+    async def tool(self, ctx: Any, file_path: str) -> int:
+        _ = (ctx, file_path)
+        return await run_in_thread(
+            self.work, timeout=self.timeout, error_cls=RopeError, op_name="rope.blocked", logger=None
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_handler_keeps_a_retired_workspace_open_until_the_worker_returns(
+    tmp_path: Path, world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+    releases: list[WorkspaceBackends] = []
+    original_release = registry.release
+    monkeypatch.setattr(registry, "release", lambda b: (releases.append(b), original_release(b))[1])
+    worker = _BlockedWorker()
+    backends = registry.active_backends()[0]
+    try:
+        call = asyncio.ensure_future(
+            tool_error_boundary(worker.tool)(_boundary_ctx(registry), file_path=_source(project))
+        )
+        await _until(worker.started.is_set)
+        await registry.set_roots([])  # retires the leased workspace
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        await _drain()
+        await asyncio.gather(*registry._retiring)
+
+        world.pyright(project).shutdown.assert_not_awaited()
+        assert backends.is_initialized is True
+        assert backends.leases == 1  # only the worker's lease remains
+    finally:
+        worker.gate.set()
+
+    await _until(lambda: backends.leases == 0)
+    await _settle(registry)
+
+    world.pyright(project).shutdown.assert_awaited_once()
+    assert backends.is_initialized is False
+    assert len(releases) == 2  # the request's release, then exactly one for the worker
+
+
+@pytest.mark.asyncio
+async def test_a_timed_out_worker_keeps_a_retired_workspace_open_until_it_returns(
+    tmp_path: Path, world: _World
+) -> None:
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+    worker = _BlockedWorker(timeout=0.05)
+    backends = registry.active_backends()[0]
+    try:
+        call = asyncio.ensure_future(
+            tool_error_boundary(worker.tool)(_boundary_ctx(registry), file_path=_source(project))
+        )
+        await _until(worker.started.is_set)
+        await registry.set_roots([])
+        with pytest.raises(ToolError):
+            await call
+        await _drain()
+        await asyncio.gather(*registry._retiring)
+
+        world.pyright(project).shutdown.assert_not_awaited()
+        assert backends.leases == 1
+    finally:
+        worker.gate.set()
+
+    await _until(lambda: backends.leases == 0)
+    await _settle(registry)
+
+    world.pyright(project).shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_tool_under_the_boundary_borrows_a_lease_for_its_worker(tmp_path: Path, world: _World) -> None:
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+    seen: list[int] = []
+
+    async def tool(ctx: Any, file_path: str) -> None:
+        _ = (ctx, file_path)
+        backends = get_current_backends()
+        await run_in_thread(
+            lambda: seen.append(backends.leases), timeout=5.0, error_cls=RopeError, op_name="rope.probe", logger=None
+        )
+
+    await tool_error_boundary(tool)(_boundary_ctx(registry), file_path=_source(project))
+    await _until(lambda: _leases(registry) == [0])
+
+    assert seen == [2]  # the request lease plus the worker's
+
+
+@pytest.mark.asyncio
+async def test_shutdown_all_does_not_wait_for_a_running_worker(tmp_path: Path, world: _World) -> None:
+    """Guard: server teardown never hangs on a worker thread (ADR 0010, ADR 0013)."""
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+    worker = _BlockedWorker()
+    try:
+        call = asyncio.ensure_future(
+            tool_error_boundary(worker.tool)(_boundary_ctx(registry), file_path=_source(project))
+        )
+        await _until(worker.started.is_set)
+
+        await asyncio.wait_for(registry.shutdown_all(), timeout=5)
+
+        world.pyright(project).shutdown.assert_awaited_once()
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+    finally:
+        worker.gate.set()
+    await _drain()
+    assert not registry._retiring  # the late worker release schedules nothing
+
+
+@pytest.mark.asyncio
+async def test_the_boundary_releases_the_lease_even_when_resetting_the_worker_scope_raises(
+    tmp_path: Path, world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path, "project")
+    registry = await _live_registry(project)
+
+    class _FailingReset:
+        def set(self, value: object) -> object:
+            _ = value
+            return object()
+
+        def reset(self, token: object) -> None:
+            _ = token
+            raise LookupError("reset failed")
+
+    monkeypatch.setattr(tool_runtime, "_worker_lease_scope", _FailingReset())
+
+    async def tool(ctx: Any, file_path: str) -> str:
+        _ = (ctx, file_path)
+        return "ok"
+
+    with pytest.raises(LookupError, match="reset failed"):
+        await tool_error_boundary(tool)(_boundary_ctx(registry), file_path=_source(project))
+
+    assert _leases(registry) == [0]

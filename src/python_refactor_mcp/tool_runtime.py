@@ -10,13 +10,15 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
+from python_refactor_mcp.backends._threading import WorkerLeaseScope
+from python_refactor_mcp.backends._threading import worker_lease_scope as _worker_lease_scope
 from python_refactor_mcp.errors import BackendError, ToolInputError, WorkspaceResolutionError
 from python_refactor_mcp.models import TransactionStepArgs
 from python_refactor_mcp.util.shared import (
@@ -420,6 +422,21 @@ def _translate_input_error(exc: ToolInputError, tool_name: str) -> ToolError:
     return ToolError(f"[{exc.code}] {exc}")
 
 
+def _worker_lease_borrower(registry: WorkspaceRegistry, backends: WorkspaceBackends) -> WorkerLeaseScope:
+    """Build the scope that lets a worker thread hold its own lease on *backends*.
+
+    Borrowing happens inside the request's lease, so the workspace is still registered or
+    retired-but-leased. The returned callable releases through the registry that issued
+    the lease, which starts a retired workspace's shutdown on the last release (ADR 0013).
+    """
+
+    def borrow() -> Callable[[], None]:
+        backends.acquire()
+        return partial(registry.release, backends)
+
+    return borrow
+
+
 def tool_error_boundary(
     func: Callable[..., Awaitable[Any]],
     *,
@@ -440,6 +457,7 @@ def tool_error_boundary(
         # through the registry that issued it.
         leased_from: WorkspaceRegistry | None = None
         backends: WorkspaceBackends | None = None
+        scope_token: contextvars.Token[WorkerLeaseScope | None] | None = None
         try:
             ctx = args[0] if args else kwargs.get("ctx")
             _reject_relative_paths(kwargs)
@@ -455,6 +473,8 @@ def tool_error_boundary(
                 backends = await _resolve_backends(ctx, kwargs)
                 workspace_root = backends.config.workspace_root if backends is not None else None
             token = _current_backends.set(backends) if backends is not None else None
+            if leased_from is not None and backends is not None:
+                scope_token = _worker_lease_scope.set(_worker_lease_borrower(leased_from, backends))
 
             if workspace_root is not None:
                 _validate_params(kwargs, workspace_root)
@@ -473,9 +493,13 @@ def tool_error_boundary(
                 if token is not None:
                     _current_backends.reset(token)
             finally:
-                # Independent of the reset above: a failing reset must not leak the lease.
-                if leased_from is not None and backends is not None:
-                    leased_from.release(backends)
+                try:
+                    if scope_token is not None:
+                        _worker_lease_scope.reset(scope_token)
+                finally:
+                    # Independent of both resets above: a failing reset must not leak the lease.
+                    if leased_from is not None and backends is not None:
+                        leased_from.release(backends)
             elapsed_ms = (time.perf_counter() - start) * 1000
             _LOGGER.debug("%s completed in %.1fms", func.__name__, elapsed_ms)
 
