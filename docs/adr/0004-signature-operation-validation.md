@@ -43,3 +43,21 @@ The refusals are not a complete guarantee. The compiled-code comparison proves t
 - Same-name definitions: rope rewrites the header of every definition it resolves to the target (a redefinition, conditional `def`, `@overload` stub, property setter), but only the target's body is renamed; such a rename is refused. Same-named methods of different classes are not rewritten by rope (observed) and are not refused.
 
 - NFKC widening: the shared `validate_identifier` now also rejects non-NFKC names at the tool boundary for: `base_class_name`, `class_name`, `collaborator_attribute`, `destination_attr`, `new_name`, `new_class_name`, `function_name`, `method_name`, `variable_name`, `parameter_name`, `factory_name`, `classname`, `protocol_name`, `symbol_name`, the list parameters `class_names` and `members` (including the same parameters inside `refactor_transaction` steps), and each segment of `package_name` (`create_type_stubs`). Use the NFKC spelling (`unicodedata.normalize("NFKC", name)`).
+
+## Addendum: add and reorder default order (signature-add-reorder-default-order-validation)
+
+### Context
+
+`add` and `reorder` could leave a required parameter after a defaulted one (`def f(a=1, b)`, `def f(b=2, a)`), and `reorder` accepted a `new_order` that is not a permutation: a duplicate index wrote `def f(a, a)`, a short list dropped a parameter, an out-of-range index raised a generic `RopeError`. Separately, rope mangles a definition with `*args`: `DefinitionInfo.read` reads `def f(a, b=1, *args)` with `b` required and a `*args` entry, and the emitted header is unparseable (`def f(a, b, *args=1)`).
+
+### Decision
+
+- `change_signature` refuses every operation on a target with `*args` (`ToolInputError`, `parameter: line`, decided from the definition's AST). rope cannot rewrite such a header: it emits an unparseable `*args=<default>` (`def f(a, b=1, *args)` + `inline_default` previews `def f(a, b, *args=1)`) and shifts the defaults before `*args`, so no check on its parameter list can make the result valid. A bare `*` (keyword-only parameters) is not refused here; its broken emission (`def f(a, *, k=1)` + `add` previews `def f(a, c, *)`) stays with the keyword-only row.
+- The simulated walk takes the positional parameters and their defaults from the target definition's AST, not from rope's `DefinitionInfo` (keyword-only parameters are not listed).
+- After the walk, the FINAL signature must not hold a required parameter after a defaulted one. Only the final state is checked because rope emits only that: `add` a required parameter then `reorder` it before the default, or `add` then `remove` the default, is valid. The error names the last `add` or `reorder` operation that placed either parameter (`operations[i].default` or `operations[i].new_order`).
+- `reorder.new_order` must be a permutation of the positional parameter indexes (`ToolInputError`, `operations[i].new_order`).
+- Unchanged and out of scope: `_check_rename_default` still checks per step; add-name validity (duplicate or invalid identifier) belongs to the identifier validators; keyword-only and positional-only separators are handled by other rows.
+
+### Migration
+
+Newly rejected with `ToolInputError`: every operation on a function that has `*args` (previously `inline_default` was refused for the wrong reason and the other operations produced unparseable code; change such a function by hand); an `add` or `reorder` whose final signature has a required parameter after a defaulted one (give the added parameter a default, place it before the first defaulted parameter, or order defaulted parameters last), and a `reorder` whose `new_order` is not a permutation of `0..n-1` over the positional parameters (`self` counts for methods). Callers must pass one index per positional parameter, each once.

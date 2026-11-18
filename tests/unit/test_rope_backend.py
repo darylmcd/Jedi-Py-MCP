@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import runpy
 from pathlib import Path
@@ -173,6 +174,182 @@ async def test_inline_default_after_reorder_is_valid_when_defaults_follow(tmp_pa
     result = await backend.change_signature(str(module), 0, 4, ops, apply=False)
 
     assert result.edits[0].new_text.splitlines()[0] == "def f(b, a=1):"
+
+
+async def _change_signature(
+    tmp_path: Path,
+    source: str,
+    operations: list[SignatureOperation],
+    *,
+    line: int = 0,
+    character: int = 4,
+) -> RefactorResult:
+    module = tmp_path / "m.py"
+    module.write_text(source, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return await backend.change_signature(str(module), line, character, operations, apply=False)
+
+
+_ADD_B = SignatureOperation(op="add", index=1, name="b")
+_METHOD = "class C:\n    def m(self, a=1):\n        return a\n\n\nC().m()\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "operations", "position", "label", "names"),
+    [
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n", [_ADD_B], (0, 4), "operations[0].default", ("'b'", "'a'"),
+            id="add-required-after-default",
+        ),
+        pytest.param(
+            "def f(a):\n    return a\n\n\nf(1)\n",
+            [SignatureOperation(op="add", index=0, name="b", default="2")],
+            (0, 4), "operations[0].default", ("'a'", "'b'"), id="add-default-before-required",
+        ),
+        pytest.param(
+            _METHOD, [SignatureOperation(op="add", index=2, name="b")], (1, 8), "operations[0].default",
+            ("'b'", "'a'"), id="method-add-required-after-default",
+        ),
+        pytest.param(
+            "def f(a, b=2):\n    return a\n\n\nf(1)\n", [SignatureOperation(op="reorder", new_order=[1, 0])],
+            (0, 4), "operations[0].new_order", ("'a'", "'b'"), id="reorder-required-after-default",
+        ),
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n", [SignatureOperation(op="normalize"), _ADD_B],
+            (0, 4), "operations[1].default", ("'b'", "'a'"), id="attributed-to-the-op-that-added-it",
+        ),
+    ],
+)
+async def test_add_reorder_reject_required_parameter_after_default(
+    tmp_path: Path,
+    source: str,
+    operations: list[SignatureOperation],
+    position: tuple[int, int],
+    label: str,
+    names: tuple[str, str],
+) -> None:
+    """The final simulated signature must not put a required parameter after a defaulted one."""
+    with pytest.raises(ToolInputError, match=rf"\(parameter: {re.escape(label)}\)$") as exc_info:
+        await _change_signature(tmp_path, source, operations, line=position[0], character=position[1])
+
+    assert all(name in str(exc_info.value) for name in names)
+    assert "required parameter" in str(exc_info.value)
+    assert (tmp_path / "m.py").read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "operations", "expected"),
+    [
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n",
+            [_ADD_B, SignatureOperation(op="reorder", new_order=[1, 0])],
+            "def f(b, a=1):", id="add-then-reorder-repairs-the-order",
+        ),
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n",
+            [_ADD_B, SignatureOperation(op="remove", index=0)],
+            "def f(b):", id="add-then-remove-the-default",
+        ),
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n", [SignatureOperation(op="add", index=0, name="b")],
+            "def f(b, a=1):", id="add-required-before-default",
+        ),
+        pytest.param(
+            "def f(a=1):\n    return a\n\n\nf()\n",
+            [SignatureOperation(op="add", index=1, name="b", default="2")],
+            "def f(a=1, b=2):", id="add-default-after-default",
+        ),
+    ],
+)
+async def test_add_reorder_accept_valid_final_signatures(
+    tmp_path: Path, source: str, operations: list[SignatureOperation], expected: str
+) -> None:
+    """Only the final signature is checked: a transient violation that later operations repair is valid."""
+    result = await _change_signature(tmp_path, source, operations)
+
+    assert result.edits[0].new_text.splitlines()[0] == expected
+
+
+_VARARGS = "def f(a, b=1, *args):\n    return a\n\n\nf(1)\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(SignatureOperation(op="add", index=1, name="c"), id="add"),
+        pytest.param(SignatureOperation(op="add", index=0, name="c", default="2"), id="add-default"),
+        pytest.param(SignatureOperation(op="remove", index=0), id="remove"),
+        pytest.param(SignatureOperation(op="reorder", new_order=[1, 0]), id="reorder"),
+        pytest.param(SignatureOperation(op="inline_default", index=1), id="inline-default"),
+        pytest.param(SignatureOperation(op="rename", index=1, new_name="c"), id="rename"),
+        pytest.param(SignatureOperation(op="normalize"), id="normalize"),
+    ],
+)
+async def test_change_signature_refuses_targets_with_varargs(tmp_path: Path, operation: SignatureOperation) -> None:
+    """rope emits ``*args=<default>`` and shifts the defaults before ``*args``; refuse every operation."""
+    with pytest.raises(ToolInputError, match=r"does not support functions with \*args.*\(parameter: line\)$"):
+        await _change_signature(tmp_path, _VARARGS, [operation])
+
+    assert (tmp_path / "m.py").read_text(encoding="utf-8") == _VARARGS
+
+
+@pytest.mark.asyncio
+async def test_change_signature_accepts_a_bare_star_and_double_star_target(tmp_path: Path) -> None:
+    """Only ``*args`` is refused: ``**kw`` alone is rewritten correctly by rope."""
+    result = await _change_signature(
+        tmp_path,
+        "def f(a, b=1, **kw):\n    return a\n\n\nf(1)\n",
+        [SignatureOperation(op="remove", index=0)],
+    )
+
+    assert result.edits[0].new_text.splitlines()[0] == "def f(b=1, **kw):"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("def f(a, /, b=2, *, c, d=4): pass", [("a", None), ("b", "2")], id="posonly-and-kwonly"),
+        pytest.param("def f(a=1, /, b=2): pass", [("a", "1"), ("b", "2")], id="posonly-default"),
+        pytest.param("def f(self, a, b=(1, 2)): pass", [("self", None), ("a", None), ("b", "(1, 2)")], id="method"),
+    ],
+)
+def test_positional_parameters_read_defaults_from_the_definition(
+    source: str, expected: list[tuple[str, str | None]]
+) -> None:
+    """The walk reads which parameters have a default from the definition; keyword-only ones are not listed."""
+    from python_refactor_mcp.backends.rope_backend import _positional_parameters
+
+    function = ast.parse(source).body[0]
+    assert isinstance(function, ast.FunctionDef)
+
+    assert _positional_parameters(function) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "new_order",
+    [
+        pytest.param([0, 0], id="duplicate-index"),
+        pytest.param([1], id="short"),
+        pytest.param([0, 1, 2], id="long"),
+        pytest.param([5, 0], id="out-of-range"),
+    ],
+)
+async def test_reorder_rejects_a_new_order_that_is_not_a_permutation(
+    tmp_path: Path, new_order: list[int]
+) -> None:
+    """rope writes ``def f(a, a)`` for a duplicate index and drops a parameter for a short list."""
+    source = "def f(a, b):\n    return a\n\n\nf(1, 2)\n"
+
+    with pytest.raises(ToolInputError, match=r"\(parameter: operations\[0\]\.new_order\)$") as exc_info:
+        await _change_signature(tmp_path, source, [SignatureOperation(op="reorder", new_order=new_order)])
+
+    assert "permutation" in str(exc_info.value)
+    assert (tmp_path / "m.py").read_text(encoding="utf-8") == source
 
 
 @pytest.fixture

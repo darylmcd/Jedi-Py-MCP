@@ -219,37 +219,73 @@ def _build_operation_changers(operations: list[SignatureOperation]) -> list[list
     return built
 
 
+def _positional_parameters(function_ast: ast.FunctionDef) -> list[tuple[str, str | None]]:
+    """Return ``(name, default source)`` for the positional parameters of *function_ast*.
+
+    The definition's AST is the source of truth for which parameters have a
+    default (rope's ``DefinitionInfo.read`` shifts the defaults before ``*args``;
+    ``change_signature`` refuses such targets before this walk). Keyword-only
+    parameters never take part in the required-after-default ordering and are
+    not listed.
+    """
+    arguments = function_ast.args
+    positional = [*arguments.posonlyargs, *arguments.args]
+    defaults: list[str | None] = [None] * (len(positional) - len(arguments.defaults))
+    defaults.extend(ast.unparse(default) for default in arguments.defaults)
+    return [(parameter.arg, default) for parameter, default in zip(positional, defaults, strict=True)]
+
+
 def _simulate_signature_operations(
     definition_info: Any,
+    function_ast: ast.FunctionDef,
     operations: list[SignatureOperation],
     changers_by_operation: list[list[object]],
 ) -> dict[str, str]:
     """Validate the operations and return which original parameters end up renamed.
 
     ``definition_info`` is rope's ``DefinitionInfo`` for the original
-    definition (``self`` included for methods). A copy is walked through the
-    same changers rope will run, in order, so each operation is checked against
-    the signature the earlier operations actually leave. ``inline_default``: the
-    index is in range, the target has a default, and no earlier parameter keeps
-    one (removing the default would place a required parameter after a defaulted
-    one). ``rename``: the index is in range, the new name is a valid identifier
-    no other parameter uses, and an explicit ``default`` is not followed by a
-    required parameter. Violations raise ``ToolInputError``.
+    definition (``self`` included for methods); its parameter list is replaced
+    by the one read from ``function_ast`` (see ``_positional_parameters``). A
+    copy is walked through the same changers rope will run, in order, so each
+    operation is checked against the signature the earlier operations actually
+    leave. ``inline_default``: the index is in range, the target has a default,
+    and no earlier parameter keeps one (removing the default would place a
+    required parameter after a defaulted one). ``rename``: the index is in
+    range, the new name is a valid identifier no other parameter uses, and an
+    explicit ``default`` is not followed by a required parameter. ``reorder``:
+    ``new_order`` is a permutation of the parameter indexes. After the walk the
+    final signature must not hold a required parameter after a defaulted one
+    (``add`` and ``reorder`` can cause it); only the final signature is checked,
+    because rope emits only that. Violations raise ``ToolInputError``.
 
     Returns ``{original name: final name}`` for every parameter whose name
     changed and that survives (a rename chain collapses; a removed parameter
     drops out).
     """
     state = copy.deepcopy(definition_info)
+    state.args_with_defaults = _positional_parameters(function_ast)
     origin = {name: name for name, _default in state.args_with_defaults}
+    # Per parameter: the position of the last add/reorder operation that placed it.
+    placed_by: list[int | None] = [None] * len(state.args_with_defaults)
     for position, (operation, changers) in enumerate(zip(operations, changers_by_operation, strict=True)):
         names_before = [name for name, _default in state.args_with_defaults]
         if operation.op == "inline_default" and operation.index is not None:
             _check_inline_default(state.args_with_defaults, operation.index)
         if operation.op == "rename" and operation.index is not None and operation.new_name:
             _check_rename(names_before, operation, position)
+        if operation.op == "reorder" and operation.new_order:
+            _check_reorder(len(names_before), operation.new_order, position)
         for changer in changers:
             changer.change_definition_info(state)  # type: ignore[attr-defined]
+        if operation.op == "add" and operation.index is not None:
+            placed_by.insert(operation.index, position)
+        elif operation.op == "remove" and operation.index is not None and operation.index < len(placed_by):
+            del placed_by[operation.index]
+        elif operation.op == "reorder" and operation.new_order:
+            placed_by = [
+                placed_by[source] if source == slot else position
+                for slot, source in enumerate(operation.new_order)
+            ]
         if operation.index is None or operation.index >= len(names_before):
             continue
         if operation.op == "rename" and operation.new_name:
@@ -259,7 +295,54 @@ def _simulate_signature_operations(
             _check_rename_default(state.args_with_defaults, operation, position)
         elif operation.op == "remove":
             origin.pop(names_before[operation.index], None)
+    _check_default_order(state.args_with_defaults, placed_by, operations)
     return {orig: final for final, orig in origin.items() if orig != final}
+
+
+def _first_required_after(args: Sequence[tuple[str, str | None]], index: int) -> int | None:
+    """Index of the first parameter without a default after *index*, if any."""
+    return next((i for i in range(index + 1, len(args)) if args[i][1] is None), None)
+
+
+def _check_default_order(
+    args: Sequence[tuple[str, str | None]],
+    placed_by: Sequence[int | None],
+    operations: Sequence[SignatureOperation],
+) -> None:
+    """Raise ``ToolInputError`` when the final signature has a required parameter after a defaulted one.
+
+    The failure is attributed to the last ``add``/``reorder`` operation that
+    placed either parameter, the operation the caller has to change.
+    """
+    for defaulted, (default_name, default) in enumerate(args):
+        required = _first_required_after(args, defaulted) if default is not None else None
+        if required is None:
+            continue
+        culprits = [p for p in (placed_by[defaulted], placed_by[required]) if p is not None]
+        position = max(culprits, default=None)
+        required_name = args[required][0]
+        reason = f"leaves required parameter {required_name!r} after defaulted parameter {default_name!r}"
+        if position is None:
+            raise ToolInputError(f"change_signature operations {reason} (parameter: operations)")
+        op = operations[position].op
+        field = "new_order" if op == "reorder" else "default"
+        raise ToolInputError(
+            f"change_signature {op} operation {reason}: give the parameter a default or place it "
+            f"before every defaulted parameter (parameter: operations[{position}].{field})"
+        )
+
+
+def _check_reorder(count: int, new_order: Sequence[int], position: int) -> None:
+    """Raise ``ToolInputError`` unless *new_order* is a permutation of ``range(count)``.
+
+    rope writes ``def f(a, a)`` for a duplicate index and silently drops a
+    parameter for a short list.
+    """
+    if sorted(new_order) != list(range(count)):
+        raise ToolInputError(
+            f"reorder new_order must be a permutation of 0..{count - 1} (one index per parameter, "
+            f"each used once) (parameter: operations[{position}].new_order)"
+        )
 
 
 def _check_rename(names: Sequence[str], operation: SignatureOperation, position: int) -> None:
@@ -285,7 +368,7 @@ def _check_rename_default(
 ) -> None:
     """An explicit rename ``default`` must not be followed by a required parameter."""
     assert operation.index is not None
-    if operation.default is not None and any(default is None for _name, default in args[operation.index + 1 :]):
+    if operation.default is not None and _first_required_after(args, operation.index) is not None:
         raise ToolInputError(
             f"cannot give parameter {args[operation.index][0]!r} a default: a later parameter has no "
             "default, so the signature would place a required parameter after a defaulted one "
@@ -1090,8 +1173,14 @@ class RopeBackend:
                     "change_signature does not support async functions: rope does not rewrite their "
                     "definitions consistently (parameter: line)"
                 )
+            if pyfunction.get_ast().args.vararg is not None:
+                raise ToolInputError(
+                    "change_signature does not support functions with *args: rope cannot rewrite "
+                    "their header (it emits an unparseable `*args=<default>` and shifts the "
+                    "defaults before it) (parameter: line)"
+                )
             renames = _simulate_signature_operations(
-                DefinitionInfo.read(pyfunction), operations, changers_by_operation,
+                DefinitionInfo.read(pyfunction), pyfunction.get_ast(), operations, changers_by_operation,
             )
             changes = signature.get_changes([c for group in changers_by_operation for c in group])
             if renames:
