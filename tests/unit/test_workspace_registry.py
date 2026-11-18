@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -724,11 +724,17 @@ def _marker_project(parent: Path, name: str) -> Path:
 
 
 @contextlib.contextmanager
-def _patched_backends() -> Iterator[None]:
-    """Patch the backend constructors so a registry can initialize workspaces without real servers."""
+def _patched_backends(make_pyright: Callable[[object], AsyncMock] | None = None) -> Iterator[None]:
+    """Patch the backend constructors so a registry can initialize workspaces without real servers.
+
+    ``make_pyright`` builds the Pyright client per workspace; the default is a bare AsyncMock.
+    """
     with patch(
         "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
-    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=lambda _c: AsyncMock()), \
+    ), patch(
+        "python_refactor_mcp.workspace_registry.PyrightLSPClient",
+        side_effect=make_pyright or (lambda _c: AsyncMock()),
+    ), \
          patch("python_refactor_mcp.workspace_registry.JediBackend"), \
          patch("python_refactor_mcp.workspace_registry.RopeBackend"):
         yield
@@ -848,11 +854,7 @@ async def test_get_backends_registers_a_discovered_root_after_initialize(tmp_pat
         pyright.start.side_effect = start
         return pyright
 
-    with patch(
-        "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
-    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=make_pyright), \
-         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
-         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+    with _patched_backends(make_pyright):
         await registry.get_backends(str(project / "main.py"))
 
     assert seen_during_start == [[]]
@@ -918,11 +920,7 @@ async def test_resolving_during_a_slow_start_reads_without_mutating(tmp_path: Pa
         pyright.start.side_effect = start
         return pyright
 
-    with patch(
-        "python_refactor_mcp.workspace_registry.discover_config", side_effect=lambda root: _mock_config(root)
-    ), patch("python_refactor_mcp.workspace_registry.PyrightLSPClient", side_effect=make_pyright), \
-         patch("python_refactor_mcp.workspace_registry.JediBackend"), \
-         patch("python_refactor_mcp.workspace_registry.RopeBackend"):
+    with _patched_backends(make_pyright):
         task = asyncio.create_task(registry.get_backends(str(project / "main.py")))
         await entered.wait()
         assert registry.resolve_workspace_root(project / "main.py") == project
