@@ -300,8 +300,8 @@ async def test_change_signature_refuses_targets_with_varargs(tmp_path: Path, ope
 
 
 @pytest.mark.asyncio
-async def test_change_signature_accepts_a_bare_star_and_double_star_target(tmp_path: Path) -> None:
-    """Only ``*args`` is refused: ``**kw`` alone is rewritten correctly by rope."""
+async def test_change_signature_accepts_a_double_star_target(tmp_path: Path) -> None:
+    """``**kw`` alone is rewritten correctly by rope (``*args``, ``*`` and ``/`` are refused)."""
     result = await _change_signature(
         tmp_path,
         "def f(a, b=1, **kw):\n    return a\n\n\nf(1)\n",
@@ -448,15 +448,15 @@ def test_failure_diagnosis_finds_nothing_in_a_clean_workspace(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("def f(a, /, b=2, *, c, d=4): pass", [("a", None), ("b", "2")], id="posonly-and-kwonly"),
-        pytest.param("def f(a=1, /, b=2): pass", [("a", "1"), ("b", "2")], id="posonly-default"),
+        pytest.param("def f(a, b=2, **kw): pass", [("a", None), ("b", "2")], id="double-star"),
+        pytest.param("def f(a=1, b=2): pass", [("a", "1"), ("b", "2")], id="all-defaulted"),
         pytest.param("def f(self, a, b=(1, 2)): pass", [("self", None), ("a", None), ("b", "(1, 2)")], id="method"),
     ],
 )
 def test_positional_parameters_read_defaults_from_the_definition(
     source: str, expected: list[tuple[str, str | None]]
 ) -> None:
-    """The walk reads which parameters have a default from the definition; keyword-only ones are not listed."""
+    """The walk reads which parameters have a default from the definition."""
     from python_refactor_mcp.backends.rope_backend import _positional_parameters
 
     function = ast.parse(source).body[0]
@@ -1444,7 +1444,9 @@ _REFUSED_RENAMES = [
     pytest.param(
         "def f(a, b):\n    return b\n", [_rename_op(0, "x"), _rename_op(1, "a")], "swap or cycle", id="swap"
     ),
-    pytest.param("def f(a, b, *, c):\n    return b + c\n", [_rename_op(1)], "does not parse", id="keyword-only"),
+    pytest.param(
+        "def f(a, b, *, c):\n    return b + c\n", [_rename_op(1)], "keyword-only parameters", id="keyword-only"
+    ),
     pytest.param(
         "def f(a, b):\n    return b\n",
         [_rename_op(1), SignatureOperation(op="add", index=2, name="b")],
@@ -1728,3 +1730,60 @@ async def test_annotated_same_named_definition_is_refused_even_when_its_paramete
     with pytest.raises(ToolInputError, match="another definition named 'f'"):
         await backend.change_signature(str(module), 0, 4, [SignatureOperation(op="normalize")], apply=True)
     assert module.read_text(encoding="utf-8") == source
+
+
+# --- change_signature refuses keyword-only and positional-only targets (rope-signature-override-and-kwonly-gaps) ---
+
+_SEPARATOR_OPERATIONS = [
+    pytest.param(SignatureOperation(op="add", index=1, name="c"), id="add"),
+    pytest.param(SignatureOperation(op="add", index=1, name="c", default="2"), id="add-default"),
+    pytest.param(SignatureOperation(op="remove", index=0), id="remove"),
+    pytest.param(SignatureOperation(op="reorder", new_order=[0]), id="reorder"),
+    pytest.param(SignatureOperation(op="inline_default", index=1), id="inline-default"),
+    pytest.param(SignatureOperation(op="rename", index=0, new_name="q"), id="rename"),
+    pytest.param(SignatureOperation(op="normalize"), id="normalize"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", _SEPARATOR_OPERATIONS)
+@pytest.mark.parametrize(
+    ("source", "position", "kind"),
+    [
+        pytest.param("def f(a, *, k=1):\n    return a\n\n\nf(1, k=2)\n", (0, 4), "keyword-only", id="kwonly-default"),
+        pytest.param(
+            "def f(a, b=1, *, k, j=2):\n    return a\n\n\nf(1, k=2)\n", (0, 4), "keyword-only", id="kwonly-required"
+        ),
+        pytest.param("def f(*, k=1):\n    return k\n\n\nf(k=2)\n", (0, 4), "keyword-only", id="only-kwonly"),
+        pytest.param(
+            "class C:\n    def m(self, a, *, k=1):\n        return a\n\n\nC().m(1)\n",
+            (1, 8),
+            "keyword-only",
+            id="method",
+        ),
+        pytest.param(
+            "class C:\n    def __init__(self, a, *, k=1):\n        pass\n\n\nC(1)\n", (0, 6), "keyword-only",
+            id="constructor-from-class-name",
+        ),
+        pytest.param("def f(a, b, /, c=1):\n    return a\n\n\nf(1, 2)\n", (0, 4), "positional-only", id="posonly"),
+        pytest.param("def f(a=1, /, b=2):\n    return a\n\n\nf()\n", (0, 4), "positional-only", id="posonly-default"),
+    ],
+)
+async def test_change_signature_refuses_keyword_only_and_positional_only_targets(
+    tmp_path: Path, operation: SignatureOperation, source: str, position: tuple[int, int], kind: str
+) -> None:
+    """rope has no representation for ``*`` and ``/``: it emits unparseable headers or drops the ``/``."""
+    with pytest.raises(ToolInputError, match=rf"{kind} parameters.*\(parameter: line\)$"):
+        await _change_signature(tmp_path, source, [operation], line=position[0], character=position[1])
+
+    assert (tmp_path / "m.py").read_text(encoding="utf-8") == source
+
+
+@pytest.mark.asyncio
+async def test_change_signature_still_rewrites_a_target_when_another_function_has_separators(tmp_path: Path) -> None:
+    """Only the target's own parameters decide: a keyword-only or positional-only neighbour is irrelevant."""
+    source = "def g(a, /, *, k):\n    return a\n\n\ndef f(a, b):\n    return a\n\n\nf(1, 2)\ng(1, k=2)\n"
+    result = await _change_signature(tmp_path, source, [SignatureOperation(op="remove", index=1)], line=4)
+
+    assert "def f(a):" in result.edits[0].new_text
+    assert "def g(a, /, *, k):" in result.edits[0].new_text
