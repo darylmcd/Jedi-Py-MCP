@@ -52,10 +52,11 @@ def encode_with_line_endings(original: bytes, new_text: str) -> bytes:
     lines are paired by position (inserts and deletes inside that middle shift
     the pairing). The cap bounds the real cost, which grows far faster than the
     pair count for duplicate-heavy input: measured on this host, blank-heavy
-    500 x 500 lines 0.36 s, 1000 x 1000 3.0 s, 2000 x 2000 22.8 s, while
-    identical lines are cheaper (2000 x 2000 0.36 s); at the cap the worst of
-    all shapes tried (square and 20..8000-line skewed; blank-heavy, identical,
-    distinct) was 0.18 s.
+    500 x 500 lines 0.36 s, 1000 x 1000 3.0 s, 2000 x 2000 22.8 s; at the cap
+    (400 x 400 and skewed shapes from 20 to 8000 lines; blank-heavy, identical,
+    distinct) the cost is about 0.2 s on this host and about 0.4 s on the
+    slower reviewer host (worst measured: identical lines), so read it as
+    "roughly half a second at most".
     """
     new = _normalize_newlines(new_text)
     old_parts = _TERMINATOR_SPLIT.split(original.decode("utf-8"))
