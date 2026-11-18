@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import ast
 import copy
+import io
 import keyword
 import logging
 import os
 import threading
+import tokenize
+import unicodedata
 from collections.abc import Callable, Sequence
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -21,6 +24,7 @@ from rope.base.change import (  # type: ignore[import-untyped]
     MoveResource,
     RemoveResource,
 )
+from rope.base.exceptions import RefactoringError as RopeRefactoringError  # type: ignore[import-untyped]
 from rope.base.project import Project  # type: ignore[import-untyped]
 from rope.base.resources import Resource  # type: ignore[import-untyped]
 from rope.contrib import generate as rope_generate  # type: ignore[import-untyped]
@@ -45,6 +49,7 @@ from rope.refactor.introduce_parameter import IntroduceParameter  # type: ignore
 from rope.refactor.localtofield import LocalToField  # type: ignore[import-untyped]
 from rope.refactor.method_object import MethodObject  # type: ignore[import-untyped]
 from rope.refactor.move import create_move  # type: ignore[import-untyped]
+from rope.refactor.patchedast import MismatchedTokenError  # type: ignore[import-untyped]
 from rope.refactor.rename import Rename  # type: ignore[import-untyped]
 from rope.refactor.restructure import Restructure  # type: ignore[import-untyped]
 from rope.refactor.topackage import ModuleToPackage  # type: ignore[import-untyped]
@@ -392,6 +397,85 @@ def _check_inline_default(args: Sequence[tuple[str, str | None]], index: int) ->
             f"{', '.join(preceding)} keep a default, so removing it would place a "
             "required parameter after a defaulted one (parameter: index)"
         )
+
+
+_MAX_REPORTED_SITES = 5
+
+
+def _report_sites(sites: Sequence[str]) -> str:
+    """Join up to ``_MAX_REPORTED_SITES`` ``path:line`` sites, counting the rest."""
+    shown = ", ".join(sites[:_MAX_REPORTED_SITES])
+    hidden = len(sites) - _MAX_REPORTED_SITES
+    return f"{shown} and {hidden} more" if hidden > 0 else shown
+
+
+def _workspace_sources(project: Project) -> list[tuple[str, str]]:
+    """``(workspace-relative path, text)`` of every Python file rope searches; unreadable files are skipped."""
+    sources: list[tuple[str, str]] = []
+    for resource in project.get_python_files():
+        try:
+            sources.append((resource.path, resource.read()))
+        except (OSError, UnicodeError):
+            continue
+    return sources
+
+
+def _non_nfkc_identifier_error(project: Project) -> ToolInputError | None:
+    """Explain a rope ``MismatchedTokenError`` by locating non-NFKC identifiers, or return ``None``.
+
+    ``ast.parse`` NFKC-normalises identifiers, so rope's patched AST cannot match
+    the normalised name against the raw source token. rope fails only for the
+    modules it patches, so no static scan could decide up front; this runs after
+    rope failed and only names the cause when it finds one (a different cause of
+    the same exception is re-raised by the caller, unchanged).
+    """
+    sites: list[str] = []
+    for path, text in _workspace_sources(project):
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+        except (tokenize.TokenError, SyntaxError):
+            continue
+        sites.extend(
+            f"{path}:{token.start[0]}"
+            for token in tokens
+            if token.type == tokenize.NAME and unicodedata.normalize("NFKC", token.string) != token.string
+        )
+    if not sites:
+        return None
+    return ToolInputError(
+        f"change_signature cannot rewrite a workspace that has non-NFKC identifiers ({_report_sites(sites)}): "
+        "rope cannot match them against the source; use the NFKC spelling "
+        "(unicodedata.normalize(\"NFKC\", name)) (parameter: line)"
+    )
+
+
+def _double_star_call_error(project: Project, names: set[str]) -> ToolInputError | None:
+    """Explain a rope ``AssertionError`` by locating ``**`` calls to *names*, or return ``None``.
+
+    rope asserts that every keyword of a call it rewrites has a name; ``f(**d)``
+    has none. The attribution is by callee name only (rope's own resolution is
+    not reproduced), so it can name a call to an unrelated function of the same
+    name, or a different assertion can be mislabelled when such a call exists;
+    it runs only after rope failed and nothing was written.
+    """
+    sites: list[str] = []
+    for path, text in _workspace_sources(project):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not any(keyword.arg is None for keyword in node.keywords):
+                continue
+            callee = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+            if callee in names:
+                sites.append(f"{path}:{node.lineno}")
+    if not sites:
+        return None
+    return ToolInputError(
+        f"change_signature cannot rewrite call sites that pass **kwargs to the target ({_report_sites(sites)}); "
+        "pass the arguments explicitly (parameter: line)"
+    )
 
 
 def _rename_parameter_bodies(changes: ChangeSet, pyfunction: Any, renames: dict[str, str]) -> None:
@@ -1163,10 +1247,19 @@ class RopeBackend:
             offset = self._position_to_offset(file_path, line, character)
 
             changers_by_operation = _build_operation_changers(operations)
-            signature = ChangeSignature(project, resource, offset)
-            pyname = signature.pyname
-            if pyname is None:
-                raise RopeError("rope could not resolve the function to change.")
+            try:
+                signature = ChangeSignature(project, resource, offset)
+            except RopeRefactoringError as exc:
+                # The constructor's only RefactoringError: the position is not a def function.
+                raise ToolInputError(
+                    "change_signature target must be a def function: the position resolves to a lambda, "
+                    "a class without __init__, a variable, a module or nothing (parameter: line)"
+                ) from exc
+            except MismatchedTokenError as exc:
+                if (diagnosis := _non_nfkc_identifier_error(project)) is None:
+                    raise
+                raise diagnosis from exc
+            pyname: Any = signature.pyname  # the constructor raised unless this resolved to a function
             pyfunction: Any = pyname.get_object()
             if isinstance(pyfunction.get_ast(), ast.AsyncFunctionDef):
                 raise ToolInputError(
@@ -1182,7 +1275,17 @@ class RopeBackend:
             renames = _simulate_signature_operations(
                 DefinitionInfo.read(pyfunction), pyfunction.get_ast(), operations, changers_by_operation,
             )
-            changes = signature.get_changes([c for group in changers_by_operation for c in group])
+            try:
+                changes = signature.get_changes([c for group in changers_by_operation for c in group])
+            except MismatchedTokenError as exc:
+                if (diagnosis := _non_nfkc_identifier_error(project)) is None:
+                    raise
+                raise diagnosis from exc
+            except AssertionError as exc:
+                names = {signature.name, *([signature.others[0]] if signature.others else [])}
+                if (diagnosis := _double_star_call_error(project, names)) is None:
+                    raise
+                raise diagnosis from exc
             if renames:
                 _rename_parameter_bodies(changes, pyfunction, renames)
             return self._build_result(changes, "Changed function signature", apply)

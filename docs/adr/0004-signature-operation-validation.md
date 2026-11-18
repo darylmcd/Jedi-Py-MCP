@@ -61,3 +61,22 @@ The refusals are not a complete guarantee. The compiled-code comparison proves t
 ### Migration
 
 Newly rejected with `ToolInputError`: every operation on a function that has `*args` (previously `inline_default` was refused for the wrong reason and the other operations produced unparseable code; change such a function by hand); an `add` or `reorder` whose final signature has a required parameter after a defaulted one (give the added parameter a default, place it before the first defaulted parameter, or order defaulted parameters last), and a `reorder` whose `new_order` is not a permutation of `0..n-1` over the positional parameters (`self` counts for methods). Callers must pass one index per positional parameter, each once.
+
+## Addendum: typed errors for rope signature failures (rope-signature-generic-ropeerror)
+
+### Context
+
+Three caller-input failures surfaced as a generic `RopeError` (`ROPE_BACKEND`, "rope.change_signature failed: ..."), nothing written: a position that is not a `def` function (a lambda, a class without `__init__`, a variable, a module: rope's `RefactoringError` in the `ChangeSignature` constructor); a call site that passes `**kwargs` to the target (rope's `assert kw.arg`); and a non-NFKC identifier in the workspace (rope's `MismatchedTokenError`: `ast.parse` NFKC-normalises identifiers, so the patched AST cannot match the raw token).
+
+### Decision
+
+- Translate on failure with a positive diagnosis; never pre-reject. rope fails only for the modules it patches and only for calls it resolves to the target, so no static scan is exact: a pre-flight scan would newly refuse workspaces rope handles today (a non-NFKC identifier in an unrelated file, a `**` call to another function of the same name, a non-NFKC name in a comment).
+- Non-function target: the constructor's only `RefactoringError` becomes `ToolInputError` ("target must be a def function").
+- Non-NFKC identifier (constructor or `get_changes`): after the `MismatchedTokenError`, tokenize the workspace Python files; a `ToolInputError` names up to five `path:line` sites. No site found: the original error propagates unchanged.
+- `**` call site (`AssertionError` from `get_changes` only): after the failure, find `ast.Call` nodes with a `**` keyword whose callee name is the target (or its class for `__init__`); a `ToolInputError` names the sites. No site found: the original error propagates unchanged.
+- Limits: the `**` attribution is by callee name, so it can name a call to an unrelated function of the same name, and an unrelated assertion inside `get_changes` can be mislabelled when such a call exists; the diagnosis runs only after rope failed and nothing was written. Under `python -O` rope's assert is stripped and the `**` path is not reached. The non-NFKC attribution can likewise mislabel a different `MismatchedTokenError` when a non-NFKC identifier exists elsewhere in the workspace.
+- Out of scope: other rope tools raise the same errors for the same inputs (a non-NFKC workspace fails every rope refactoring); keyword-only emission stays with `rope-signature-override-and-kwonly-gaps`.
+
+### Migration
+
+No input changes validity; these inputs already failed. The error is now `ToolInputError` (`[INVALID_INPUT]`, message names the cause and `path:line`) instead of the backend error `ROPE_BACKEND`. Clients that matched the backend code or retried on it must match `INVALID_INPUT`: point the call at a `def` function, pass call-site arguments explicitly instead of `**`, or use the NFKC spelling of identifiers.

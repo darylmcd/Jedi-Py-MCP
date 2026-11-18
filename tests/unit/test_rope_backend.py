@@ -309,6 +309,140 @@ async def test_change_signature_accepts_a_bare_star_and_double_star_target(tmp_p
     assert result.edits[0].new_text.splitlines()[0] == "def f(b=1, **kw):"
 
 
+async def _change_signature_in(
+    tmp_path: Path,
+    files: dict[str, str],
+    operations: list[SignatureOperation],
+    *,
+    line: int = 0,
+    character: int = 4,
+) -> RefactorResult:
+    """Write *files* into the workspace and change the signature at ``m.py`` (line, character)."""
+    for name, source in files.items():
+        (tmp_path / name).write_text(source, encoding="utf-8")
+    backend = RopeBackend(_config(tmp_path))
+    backend.initialize()
+    return await backend.change_signature(str(tmp_path / "m.py"), line, character, operations, apply=False)
+
+
+def _assert_untouched(tmp_path: Path, files: dict[str, str]) -> None:
+    for name, source in files.items():
+        assert (tmp_path / name).read_text(encoding="utf-8") == source
+
+
+_REMOVE_B = [SignatureOperation(op="remove", index=1)]
+_DEF_F = "def f(a, b):\n    return a\n\n\n"
+_FULLWIDTH_X = "\uff58"  # NFKC-normalises to "x"; rope cannot match it against the source token.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "position"),
+    [
+        pytest.param("f = lambda a, b: a\nf(1, 2)\n", (0, 0), id="lambda"),
+        pytest.param("class C:\n    pass\n", (0, 6), id="class-without-init"),
+        pytest.param("x = 1\n", (0, 0), id="variable"),
+    ],
+)
+async def test_change_signature_refuses_targets_that_are_not_def_functions(
+    tmp_path: Path, source: str, position: tuple[int, int]
+) -> None:
+    """rope raises a RefactoringError for any non-def target; that is the caller's input."""
+    files = {"m.py": source}
+
+    with pytest.raises(ToolInputError, match=r"must be a def function.*\(parameter: line\)$"):
+        await _change_signature_in(tmp_path, files, _REMOVE_B, line=position[0], character=position[1])
+
+    _assert_untouched(tmp_path, files)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("files", "site"),
+    [
+        pytest.param({"m.py": _DEF_F + "d = {}\nf(**d)\n"}, "m.py:6", id="same-file"),
+        pytest.param(
+            {"m.py": _DEF_F, "o.py": "from m import f\nd = {}\nf(1, **d)\n"}, "o.py:3", id="other-file"
+        ),
+        pytest.param({"m.py": _DEF_F + "d = {}\nf(1, b=2, **d)\n"}, "m.py:6", id="with-named-keyword"),
+    ],
+)
+async def test_change_signature_refuses_call_sites_that_pass_double_star(
+    tmp_path: Path, files: dict[str, str], site: str
+) -> None:
+    """rope asserts on a ``**`` call site; name the site instead of surfacing a generic backend error."""
+    with pytest.raises(ToolInputError, match=r"\*\*kwargs.*\(parameter: line\)$") as exc_info:
+        await _change_signature_in(tmp_path, files, _REMOVE_B)
+
+    assert site in str(exc_info.value)
+    _assert_untouched(tmp_path, files)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("files", "site"),
+    [
+        pytest.param({"m.py": _DEF_F + f"{_FULLWIDTH_X} = f(1, 2)\n"}, "m.py:5", id="definition-file"),
+        pytest.param({"m.py": f"def f(a, {_FULLWIDTH_X}):\n    return a\n"}, "m.py:1", id="parameter-name"),
+        pytest.param(
+            {"m.py": _DEF_F, "o.py": f"from m import f\nf(1, 2)\ndef h():\n    {_FULLWIDTH_X} = 1\n"},
+            "o.py:4",
+            id="call-site-file",
+        ),
+    ],
+)
+async def test_change_signature_refuses_non_nfkc_identifiers(
+    tmp_path: Path, files: dict[str, str], site: str
+) -> None:
+    """rope's patched AST cannot match a non-NFKC identifier against its source token."""
+    with pytest.raises(ToolInputError, match=r"NFKC.*\(parameter: line\)$") as exc_info:
+        await _change_signature_in(tmp_path, files, _REMOVE_B)
+
+    assert site in str(exc_info.value)
+    _assert_untouched(tmp_path, files)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(
+            {"m.py": _DEF_F + "f(1, 2)\n", "o.py": "def g(**k):\n    pass\n\n\nd = {}\ng(**d)\n"},
+            id="double-star-to-another-function",
+        ),
+        pytest.param(
+            {"m.py": _DEF_F + "f(1, 2)\n", "o.py": f"{_FULLWIDTH_X} = 1\n"},
+            id="non-nfkc-in-an-unrelated-file",
+        ),
+        pytest.param(
+            {"m.py": _DEF_F + f"f(1, 2)\n# {_FULLWIDTH_X}\ns = '{_FULLWIDTH_X}'\n"},
+            id="non-nfkc-in-comment-and-string",
+        ),
+        pytest.param({"m.py": _DEF_F + "t = (1, 2)\nf(*t)\n"}, id="star-args-call-site"),
+    ],
+)
+async def test_change_signature_still_accepts_what_rope_handles(tmp_path: Path, files: dict[str, str]) -> None:
+    """The typed refusals follow rope's own failures: a workspace rope handles is not newly refused."""
+    result = await _change_signature_in(tmp_path, files, _REMOVE_B)
+
+    assert result.edits[0].new_text.splitlines()[0] == "def f(a):"
+
+
+def test_failure_diagnosis_finds_nothing_in_a_clean_workspace(tmp_path: Path) -> None:
+    """With no positive cause the helpers return None, so the original rope error is re-raised unchanged."""
+    from rope.base.project import Project
+
+    from python_refactor_mcp.backends.rope_backend import _double_star_call_error, _non_nfkc_identifier_error
+
+    (tmp_path / "m.py").write_text("def f(a):\n    return a\n\n\nf(1)\n", encoding="utf-8")
+    project = Project(str(tmp_path))
+    try:
+        assert _non_nfkc_identifier_error(project) is None
+        assert _double_star_call_error(project, {"f"}) is None
+    finally:
+        project.close()
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
